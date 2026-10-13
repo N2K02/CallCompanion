@@ -251,8 +251,7 @@ class MainActivity : ComponentActivity() {
 
     @Composable
     private fun Screen() {
-        @Suppress("UNUSED_VARIABLE")
-        val t = tick // re-read service state whenever the service reports a change
+        tick // re-read service state whenever the service reports a change
         val s = Hub.service
         val running = s != null && s.isActive
         val effRole = if (running) s!!.role else role
@@ -306,6 +305,7 @@ class MainActivity : ComponentActivity() {
 
     @Composable
     private fun RoleCard(running: Boolean, effRole: String) {
+        tick // read the refresh counter so this card redraws on every update
         SectionCard("This phone") {
             SingleChoiceSegmentedButtonRow(Modifier.fillMaxWidth()) {
                 val options = listOf(LinkService.ROLE_GATEWAY to "Gateway", LinkService.ROLE_REMOTE to "Remote")
@@ -332,6 +332,7 @@ class MainActivity : ComponentActivity() {
 
     @Composable
     private fun DeviceCard() {
+        tick // read the refresh counter so this card redraws on every update
         SectionCard("Gateway phone") {
             if (devices.isEmpty()) {
                 Text(
@@ -366,6 +367,7 @@ class MainActivity : ComponentActivity() {
 
     @Composable
     private fun ConnectionCard(s: LinkService?, running: Boolean) {
+        tick // read the refresh counter so this card redraws on every update
         SectionCard("Connection") {
             Row(verticalAlignment = Alignment.CenterVertically) {
                 when {
@@ -401,6 +403,7 @@ class MainActivity : ComponentActivity() {
 
     @Composable
     private fun CallCard(s: LinkService, isRemote: Boolean) {
+        tick // read the refresh counter so this card redraws on every update
         val state = s.callState
         val ringing = state == LinkService.CALL_RINGING
         val inCall = state == LinkService.CALL_OFFHOOK
@@ -485,6 +488,7 @@ class MainActivity : ComponentActivity() {
 
     @Composable
     private fun DialCard(s: LinkService) {
+        tick // read the refresh counter so this card redraws on every update
         var query by remember { mutableStateOf("") }
         var picked by remember { mutableStateOf<Contact?>(null) }
         val suggestions = remember(query, contacts, picked) {
@@ -556,6 +560,7 @@ class MainActivity : ComponentActivity() {
 
     @Composable
     private fun NotificationCard(s: LinkService?, running: Boolean) {
+        tick // read the refresh counter so this card redraws on every update
         val enabled = NotifListener.isEnabled(this)
         val bound = NotifListener.instance != null
         SectionCard("Notification sync") {
@@ -620,6 +625,7 @@ class MainActivity : ComponentActivity() {
 
     @Composable
     private fun VoiceCard(s: LinkService, isRemote: Boolean) {
+        tick // read the refresh counter so this card redraws on every update
         SectionCard("Voice link") {
             Text(
                 "Talk live between the two phones over Bluetooth.",
@@ -668,6 +674,7 @@ class MainActivity : ComponentActivity() {
 
     @Composable
     private fun LogCard() {
+        tick // read the refresh counter so this card redraws on every update
         SectionCard("Log") {
             val text = Hub.logText()
             Text(

@@ -1,8 +1,10 @@
 package com.vgs.app
 
 import android.app.Notification
+import android.app.NotificationManager
 import android.content.ComponentName
 import android.content.Context
+import android.os.Build
 import android.provider.Settings
 import android.service.notification.NotificationListenerService
 import android.service.notification.StatusBarNotification
@@ -18,9 +20,21 @@ class NotifListener : NotificationListenerService() {
         var instance: NotifListener? = null
 
         fun isEnabled(ctx: Context): Boolean {
+            if (instance != null) return true
+            val cn = ComponentName(ctx, NotifListener::class.java)
+            if (Build.VERSION.SDK_INT >= 27) {
+                try {
+                    val nm = ctx.getSystemService(NotificationManager::class.java)
+                    if (nm != null) return nm.isNotificationListenerAccessGranted(cn)
+                } catch (e: Exception) {
+                }
+            }
+            // Fallback: the setting may store the long or the short component name.
             val flat = Settings.Secure.getString(ctx.contentResolver, "enabled_notification_listeners")
                 ?: return false
-            return flat.contains(ComponentName(ctx, NotifListener::class.java).flattenToString())
+            return flat.split(':').any {
+                it == cn.flattenToString() || it == cn.flattenToShortString()
+            }
         }
 
         /** Android sometimes unbinds the listener after an app update; ask it to reconnect. */
