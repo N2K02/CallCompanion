@@ -8,7 +8,7 @@ plugins {
 
 android {
     namespace = "com.vgs.app"
-    compileSdk = 36
+    compileSdk = 37
 
     defaultConfig {
         applicationId = "com.vgs.app"
