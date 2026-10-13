@@ -74,6 +74,9 @@ class MainActivity : Activity() {
     override fun onResume() {
         super.onResume()
         Hub.listener = { refresh() }
+        if (prefs.getString("role", null) == LinkService.ROLE_GATEWAY || rbGateway.isChecked) {
+            NotifListener.rebind(this)
+        }
         refresh()
     }
 
@@ -218,8 +221,22 @@ class MainActivity : Activity() {
         notifSection.visibility = if (isGateway) View.VISIBLE else View.GONE
         if (isGateway) {
             val on = NotifListener.isEnabled(this)
-            notifStatus.text = if (on) "✅ Notification access is ON" else "⚠️ Notification access is OFF – tap the button below and allow VGS"
-            notifStatus.setTextColor(if (on) Color.rgb(0, 140, 60) else Color.rgb(200, 120, 0))
+            val bound = NotifListener.instance != null
+            notifStatus.text = when {
+                !on -> "⚠️ Notification access is OFF.\nTap the button below and allow VGS.\n" +
+                    "If VGS is greyed out / 'Restricted setting': open App info for VGS → ⋮ menu (top right) → " +
+                    "'Allow restricted settings', then try again."
+                !bound -> "⏳ Access is ON but the listener isn't connected yet.\n" +
+                    "If this stays, turn VGS OFF and ON again in Notification access."
+                else -> "✅ Notification sync is active"
+            }
+            notifStatus.setTextColor(
+                when {
+                    !on -> Color.rgb(200, 60, 0)
+                    !bound -> Color.rgb(200, 120, 0)
+                    else -> Color.rgb(0, 140, 60)
+                }
+            )
         }
 
         if (isRemote && loadedContactsVersion != Hub.contactsVersion) loadContacts()
@@ -339,7 +356,10 @@ class MainActivity : Activity() {
         mirrorSwitch = Switch(this).apply {
             text = "Send this phone's notifications to the remote"
             isChecked = prefs.getBoolean("mirror", true)
-            setOnCheckedChangeListener { _, on -> prefs.edit().putBoolean("mirror", on).apply() }
+            setOnCheckedChangeListener { _, on ->
+                prefs.edit().putBoolean("mirror", on).apply()
+                Hub.log("Notification sync switch " + if (on) "ON" else "OFF")
+            }
         }
         notifSection.addView(mirrorSwitch)
         notifSection.addView(button("Open notification access settings") {
@@ -348,6 +368,20 @@ class MainActivity : Activity() {
             } catch (e: Exception) {
                 toast("Open Settings → Notifications → Notification access, and allow VGS")
             }
+        })
+        notifSection.addView(button("Open VGS App info (for 'Allow restricted settings')") {
+            try {
+                startActivity(
+                    Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS)
+                        .setData(android.net.Uri.fromParts("package", packageName, null))
+                )
+            } catch (e: Exception) {
+                toast("Open Settings → Apps → VGS")
+            }
+        })
+        notifSection.addView(button("Send test notification to remote") {
+            val s = Hub.service
+            if (s == null || !s.isActive) toast("Press Start first") else s.sendTestNotification()
         })
         root.addView(notifSection)
 

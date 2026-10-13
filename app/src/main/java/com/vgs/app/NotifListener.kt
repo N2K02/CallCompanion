@@ -22,27 +22,49 @@ class NotifListener : NotificationListenerService() {
                 ?: return false
             return flat.contains(ComponentName(ctx, NotifListener::class.java).flattenToString())
         }
+
+        /** Android sometimes unbinds the listener after an app update; ask it to reconnect. */
+        fun rebind(ctx: Context) {
+            if (instance != null || !isEnabled(ctx)) return
+            try {
+                NotificationListenerService.requestRebind(ComponentName(ctx, NotifListener::class.java))
+                Hub.log("Asked Android to reconnect notification access")
+            } catch (e: Exception) {
+                Hub.log("Notification rebind failed: ${e.message}")
+            }
+        }
     }
 
     private val lastSent = HashMap<String, String>()
 
     override fun onListenerConnected() {
         instance = this
-        Hub.log("Notification access active")
+        Hub.log("🔔 Notification listener connected")
     }
 
     override fun onListenerDisconnected() {
         instance = null
+        Hub.log("🔕 Notification listener disconnected")
+        rebind(applicationContext)
     }
 
     override fun onNotificationPosted(sbn: StatusBarNotification) {
-        val svc = Hub.service ?: return
-        if (!svc.shouldMirror()) return
         if (sbn.packageName == packageName) return
         if (sbn.isOngoing) return // music players, navigation, downloads…
         val n = sbn.notification ?: return
-        if ((n.flags and Notification.FLAG_GROUP_SUMMARY) != 0) return
+        if ((n.flags and Notification.FLAG_GROUP_SUMMARY) != 0) return // e.g. "3 new messages" bundle
         if (n.category == Notification.CATEGORY_CALL) return // calls are handled separately
+        val app = appName(sbn.packageName)
+        val svc = Hub.service
+        if (svc == null) {
+            Hub.log("🔔 $app notification NOT sent: VGS is stopped (press Start)")
+            return
+        }
+        val why = svc.mirrorBlockReason()
+        if (why != null) {
+            Hub.log("🔔 $app notification NOT sent: $why")
+            return
+        }
 
         val ex = n.extras ?: return
         val title = ex.getCharSequence(Notification.EXTRA_TITLE)?.toString() ?: ""
@@ -50,14 +72,17 @@ class NotifListener : NotificationListenerService() {
             ?: ex.getCharSequence(Notification.EXTRA_TEXT))?.toString()
             ?: ex.getCharSequenceArray(Notification.EXTRA_TEXT_LINES)?.joinToString("\n")
             ?: ""
-        if (title.isEmpty() && text.isEmpty()) return
+        if (title.isEmpty() && text.isEmpty()) {
+            Hub.log("🔔 $app notification skipped (no text)")
+            return
+        }
 
         val sig = title + "\u0000" + text
         synchronized(lastSent) {
             if (lastSent[sbn.key] == sig) return // same content re-posted, skip
             lastSent[sbn.key] = sig
         }
-        svc.mirrorPosted(sbn.key, appName(sbn.packageName), title, text)
+        svc.mirrorPosted(sbn.key, app, title, text)
     }
 
     override fun onNotificationRemoved(sbn: StatusBarNotification) {

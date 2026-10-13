@@ -133,7 +133,10 @@ class LinkService : Service() {
                 running = true
                 connectionState = "Starting…"
                 goForeground()
-                if (role == ROLE_GATEWAY) registerPhoneReceiver()
+                if (role == ROLE_GATEWAY) {
+                    registerPhoneReceiver()
+                    checkNotificationAccess()
+                }
                 startWorker()
             }
             ACTION_STOP -> {
@@ -292,6 +295,7 @@ class LinkService : Service() {
         if (role == ROLE_GATEWAY) {
             sendCallState()
             sendContacts()
+            checkNotificationAccess()
         }
         val input = DataInputStream(BufferedInputStream(s.inputStream, 16384))
         try {
@@ -610,6 +614,18 @@ class LinkService : Service() {
     @Suppress("DEPRECATION")
     private fun vibrator(): Vibrator? = getSystemService(Vibrator::class.java)
 
+    private fun checkNotificationAccess() {
+        when {
+            !NotifListener.isEnabled(this) ->
+                Hub.log("⚠️ Notification sync: access is OFF – allow VGS in Notification access settings")
+            NotifListener.instance == null -> {
+                Hub.log("Notification sync: access ON, waiting for listener to connect…")
+                NotifListener.rebind(this)
+            }
+            else -> Hub.log("Notification sync: ready")
+        }
+    }
+
     // ---------------------------------------------------------------- contacts sync
 
     private fun sendContacts() {
@@ -637,9 +653,24 @@ class LinkService : Service() {
 
     // ---------------------------------------------------------------- notification mirroring
 
-    fun shouldMirror(): Boolean =
-        running && connected && role == ROLE_GATEWAY &&
-            getSharedPreferences("vgs", MODE_PRIVATE).getBoolean("mirror", true)
+    /** null = OK to forward; otherwise the reason it can't be sent (shown in the log). */
+    fun mirrorBlockReason(): String? = when {
+        !running -> "VGS is stopped (press Start)"
+        role != ROLE_GATEWAY -> "this phone is not set as Gateway"
+        !getSharedPreferences("vgs", MODE_PRIVATE).getBoolean("mirror", true) -> "notification sync switch is OFF"
+        !connected -> "remote phone not connected"
+        else -> null
+    }
+
+    /** Sends a fake notification over Bluetooth to test the link without other apps. */
+    fun sendTestNotification() {
+        if (!connected) {
+            Hub.log("Test notification NOT sent: remote phone not connected")
+            return
+        }
+        val stamp = java.text.SimpleDateFormat("HH:mm:ss", java.util.Locale.US).format(java.util.Date())
+        mirrorPosted("vgs-test-$stamp", "VGS", "Test notification", "Sent from the gateway at $stamp")
+    }
 
     private fun encodeKey(k: String): String =
         Base64.encodeToString(k.toByteArray(Charsets.UTF_8), Base64.NO_WRAP or Base64.URL_SAFE)
@@ -652,6 +683,7 @@ class LinkService : Service() {
 
     /** Gateway: forward a phone notification to the remote. */
     fun mirrorPosted(key: String, app: String, title: String, text: String) {
+        Hub.log("🔔 → remote: $app · ${title.take(40)}")
         send("NOTIF", encodeKey(key), app, title, text.take(2000))
     }
 
@@ -662,6 +694,10 @@ class LinkService : Service() {
 
     /** Remote: show a copy of a gateway notification. */
     private fun showMirrored(encKey: String, app: String, title: String, text: String) {
+        Hub.log("🔔 from gateway: $app · ${title.take(40)}${if (text.isNotEmpty()) " – " + text.take(60) else ""}")
+        if (!nm.areNotificationsEnabled()) {
+            Hub.log("⚠️ Can't show it: notifications are blocked for VGS on this phone (allow them in App info)")
+        }
         val id = encKey.hashCode()
         val deletePi = PendingIntent.getService(
             this, id,
