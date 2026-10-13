@@ -29,6 +29,14 @@
     <uses-feature android:name="android.hardware.telephony" android:required="false" />
     <uses-feature android:name="android.hardware.microphone" android:required="false" />
 
+    <!-- Lets the gateway show app names for mirrored notifications -->
+    <queries>
+        <intent>
+            <action android:name="android.intent.action.MAIN" />
+            <category android:name="android.intent.category.LAUNCHER" />
+        </intent>
+    </queries>
+
     <application
         android:allowBackup="false"
         android:icon="@android:drawable/sym_action_call"
@@ -52,5 +60,15 @@
             android:name=".LinkService"
             android:exported="false"
             android:foregroundServiceType="connectedDevice|microphone" />
+
+        <service
+            android:name=".NotifListener"
+            android:exported="true"
+            android:label="VGS notification sync"
+            android:permission="android.permission.BIND_NOTIFICATION_LISTENER_SERVICE">
+            <intent-filter>
+                <action android:name="android.service.notification.NotificationListenerService" />
+            </intent-filter>
+        </service>
     </application>
 </manifest>

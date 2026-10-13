@@ -16,7 +16,9 @@ import android.text.InputType
 import android.view.Gravity
 import android.view.View
 import android.view.ViewGroup
+import android.provider.Settings
 import android.widget.ArrayAdapter
+import android.widget.AutoCompleteTextView
 import android.widget.Button
 import android.widget.EditText
 import android.widget.LinearLayout
@@ -24,6 +26,7 @@ import android.widget.RadioButton
 import android.widget.RadioGroup
 import android.widget.ScrollView
 import android.widget.Spinner
+import android.widget.Switch
 import android.widget.TextView
 import android.widget.Toast
 
@@ -44,7 +47,13 @@ class MainActivity : Activity() {
     private lateinit var rejectBtn: Button
     private lateinit var hangupBtn: Button
     private lateinit var dialSection: LinearLayout
-    private lateinit var dialInput: EditText
+    private lateinit var dialInput: AutoCompleteTextView
+    private lateinit var contactAdapter: ContactAdapter
+    private var selectedContact: Contact? = null
+    private var loadedContactsVersion = -1
+    private lateinit var notifSection: LinearLayout
+    private lateinit var notifStatus: TextView
+    private lateinit var mirrorSwitch: Switch
     private lateinit var voiceBtn: Button
     private lateinit var speakerBtn: Button
     private lateinit var gwSpeakerBtn: Button
@@ -205,7 +214,35 @@ class MainActivity : Activity() {
         speakerBtn.isEnabled = running
         speakerBtn.text = "This phone loudspeaker: " + if (s?.speakerOn != false) "ON" else "OFF"
 
+        val isGateway = role == LinkService.ROLE_GATEWAY
+        notifSection.visibility = if (isGateway) View.VISIBLE else View.GONE
+        if (isGateway) {
+            val on = NotifListener.isEnabled(this)
+            notifStatus.text = if (on) "✅ Notification access is ON" else "⚠️ Notification access is OFF – tap the button below and allow VGS"
+            notifStatus.setTextColor(if (on) Color.rgb(0, 140, 60) else Color.rgb(200, 120, 0))
+        }
+
+        if (isRemote && loadedContactsVersion != Hub.contactsVersion) loadContacts()
+
         logView.text = Hub.logText()
+    }
+
+    /** Loads local + synced contacts in the background for the dial box suggestions. */
+    private fun loadContacts() {
+        loadedContactsVersion = Hub.contactsVersion
+        Thread {
+            val list = ContactStore.all(applicationContext)
+            runOnUiThread { contactAdapter.all = list }
+        }.start()
+    }
+
+    /** The number to call: from the picked suggestion, or digits typed by hand. */
+    private fun numberToDial(): String {
+        val t = dialInput.text.toString()
+        val c = selectedContact
+        if (c != null && t.trim() == c.label()) return c.number
+        selectedContact = null
+        return t.substringBefore("·").filter { it.isDigit() || it == '+' || it == '*' || it == '#' }
     }
 
     // ---------------------------------------------------------------- layout
@@ -277,16 +314,42 @@ class MainActivity : Activity() {
 
         dialSection = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL }
         dialSection.addView(section("Make a call through the gateway"))
-        dialInput = EditText(this).apply {
-            hint = "Phone number"
-            inputType = InputType.TYPE_CLASS_PHONE
+        contactAdapter = ContactAdapter(this)
+        dialInput = AutoCompleteTextView(this).apply {
+            hint = "Type a name or number"
+            inputType = InputType.TYPE_CLASS_TEXT or InputType.TYPE_TEXT_VARIATION_PERSON_NAME
+            threshold = 1
+            setAdapter(contactAdapter)
+            setOnItemClickListener { parent, _, position, _ ->
+                selectedContact = parent.getItemAtPosition(position) as? Contact
+                dialInput.setSelection(dialInput.text.length)
+            }
         }
         dialSection.addView(dialInput)
         dialSection.addView(button("📞 Call") {
-            val n = dialInput.text.toString().trim()
-            if (n.isEmpty()) toast("Enter a number") else Hub.service?.dial(n)
+            val n = numberToDial()
+            if (n.isEmpty()) toast("Pick a contact or enter a number") else Hub.service?.dial(n)
         })
         root.addView(dialSection)
+
+        notifSection = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL }
+        notifSection.addView(section("Notification sync"))
+        notifStatus = label("", 14f, Color.DKGRAY)
+        notifSection.addView(notifStatus)
+        mirrorSwitch = Switch(this).apply {
+            text = "Send this phone's notifications to the remote"
+            isChecked = prefs.getBoolean("mirror", true)
+            setOnCheckedChangeListener { _, on -> prefs.edit().putBoolean("mirror", on).apply() }
+        }
+        notifSection.addView(mirrorSwitch)
+        notifSection.addView(button("Open notification access settings") {
+            try {
+                startActivity(Intent(Settings.ACTION_NOTIFICATION_LISTENER_SETTINGS))
+            } catch (e: Exception) {
+                toast("Open Settings → Notifications → Notification access, and allow VGS")
+            }
+        })
+        root.addView(notifSection)
 
         root.addView(section("Voice link"))
         voiceBtn = button("Start voice link") { Hub.service?.toggleVoice() }

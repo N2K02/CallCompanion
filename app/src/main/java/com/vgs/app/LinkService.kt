@@ -29,6 +29,7 @@ import android.os.Vibrator
 import android.provider.ContactsContract
 import android.telecom.TelecomManager
 import android.telephony.TelephonyManager
+import android.util.Base64
 import java.io.BufferedInputStream
 import java.io.DataInputStream
 import java.io.IOException
@@ -52,6 +53,8 @@ class LinkService : Service() {
         const val ACTION_STOP = "com.vgs.app.STOP"
         const val ACTION_ANSWER = "com.vgs.app.ANSWER"
         const val ACTION_REJECT = "com.vgs.app.REJECT"
+        const val ACTION_NOTIF_DISMISSED = "com.vgs.app.NOTIF_DISMISSED"
+        const val EXTRA_KEY = "key"
         const val EXTRA_ROLE = "role"
         const val EXTRA_DEVICE = "device"
 
@@ -61,6 +64,8 @@ class LinkService : Service() {
 
         private const val CH_STATUS = "vgs_status"
         private const val CH_CALLS = "vgs_calls"
+        private const val CH_MIRROR = "vgs_mirror"
+        private const val TAG_MIRROR = "mirror"
         private const val ID_STATUS = 1
         private const val ID_INCOMING = 2
     }
@@ -88,6 +93,7 @@ class LinkService : Service() {
     private val io = Executors.newSingleThreadExecutor()
     private var receiverRegistered = false
     private var ringtone: Ringtone? = null
+    private var contactBuf: StringBuilder? = null
 
     val isActive: Boolean get() = running
     val voiceActive: Boolean get() = audio.isRunning
@@ -136,6 +142,10 @@ class LinkService : Service() {
             }
             ACTION_ANSWER -> if (running) answer() else stopSelf()
             ACTION_REJECT -> if (running) reject() else stopSelf()
+            ACTION_NOTIF_DISMISSED -> {
+                val key = intent.getStringExtra(EXTRA_KEY)
+                if (running && key != null) send("NOTIF_DISMISS", key) else if (!running) stopSelf()
+            }
         }
         Hub.notifyUi()
         return START_NOT_STICKY
@@ -279,7 +289,10 @@ class LinkService : Service() {
         }
         setConn(true, "Connected to $peer")
         send("HELLO", role)
-        if (role == ROLE_GATEWAY) sendCallState()
+        if (role == ROLE_GATEWAY) {
+            sendCallState()
+            sendContacts()
+        }
         val input = DataInputStream(BufferedInputStream(s.inputStream, 16384))
         try {
             while (alive(gen)) {
@@ -392,6 +405,24 @@ class LinkService : Service() {
             "VOICE_STOP" -> {
                 audio.stop()
                 updateStatus()
+            }
+            // contacts: gateway -> remote
+            "CONTACTS_BEGIN" -> contactBuf = StringBuilder()
+            "CONTACTS" -> contactBuf?.append(msg.substringAfter('|'))
+            "CONTACTS_END" -> {
+                val data = contactBuf?.toString() ?: ""
+                contactBuf = null
+                ContactStore.saveSynced(this, data)
+                Hub.contactsVersion++
+                Hub.log("Received ${ContactStore.parse(data).size} contacts from gateway")
+            }
+            // notifications: gateway -> remote
+            "NOTIF" -> showMirrored(arg1, p.getOrElse(2) { "" }, p.getOrElse(3) { "" }, p.drop(4).joinToString("/"))
+            "NOTIF_REMOVE" -> nm.cancel(TAG_MIRROR, arg1.hashCode())
+            // remote -> gateway: user swiped it away on the remote
+            "NOTIF_DISMISS" -> {
+                val key = decodeKey(arg1)
+                if (key != null) NotifListener.instance?.dismiss(key)
             }
             else -> Hub.log("Unknown command: ${p[0]}")
         }
@@ -579,6 +610,84 @@ class LinkService : Service() {
     @Suppress("DEPRECATION")
     private fun vibrator(): Vibrator? = getSystemService(Vibrator::class.java)
 
+    // ---------------------------------------------------------------- contacts sync
+
+    private fun sendContacts() {
+        if (!has(Manifest.permission.READ_CONTACTS)) {
+            Hub.log("Contacts permission missing – contacts not sent to remote")
+            return
+        }
+        val w = writer ?: return
+        val list = ContactStore.readDevice(this)
+        val chunks = ContactStore.toChunks(list)
+        try {
+            io.execute {
+                try {
+                    w.writeCmd("CONTACTS_BEGIN")
+                    for (c in chunks) w.writeCmd("CONTACTS|$c")
+                    w.writeCmd("CONTACTS_END")
+                    Hub.log("Sent ${list.size} contacts to remote")
+                } catch (e: Exception) {
+                    Hub.log("Contacts sync failed: ${e.message}")
+                }
+            }
+        } catch (e: Exception) {
+        }
+    }
+
+    // ---------------------------------------------------------------- notification mirroring
+
+    fun shouldMirror(): Boolean =
+        running && connected && role == ROLE_GATEWAY &&
+            getSharedPreferences("vgs", MODE_PRIVATE).getBoolean("mirror", true)
+
+    private fun encodeKey(k: String): String =
+        Base64.encodeToString(k.toByteArray(Charsets.UTF_8), Base64.NO_WRAP or Base64.URL_SAFE)
+
+    private fun decodeKey(k: String): String? = try {
+        String(Base64.decode(k, Base64.NO_WRAP or Base64.URL_SAFE), Charsets.UTF_8)
+    } catch (e: Exception) {
+        null
+    }
+
+    /** Gateway: forward a phone notification to the remote. */
+    fun mirrorPosted(key: String, app: String, title: String, text: String) {
+        send("NOTIF", encodeKey(key), app, title, text.take(2000))
+    }
+
+    /** Gateway: the notification was cleared on this phone, clear the copy too. */
+    fun mirrorRemoved(key: String) {
+        if (running && connected && role == ROLE_GATEWAY) send("NOTIF_REMOVE", encodeKey(key))
+    }
+
+    /** Remote: show a copy of a gateway notification. */
+    private fun showMirrored(encKey: String, app: String, title: String, text: String) {
+        val id = encKey.hashCode()
+        val deletePi = PendingIntent.getService(
+            this, id,
+            Intent(this, LinkService::class.java)
+                .setAction(ACTION_NOTIF_DISMISSED)
+                .putExtra(EXTRA_KEY, encKey),
+            PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT
+        )
+        val n = Notification.Builder(this, CH_MIRROR)
+            .setSmallIcon(android.R.drawable.stat_notify_chat)
+            .setSubText(app)
+            .setContentTitle(title.ifEmpty { app })
+            .setContentText(text)
+            .setStyle(Notification.BigTextStyle().bigText(text))
+            .setWhen(System.currentTimeMillis())
+            .setShowWhen(true)
+            .setAutoCancel(true)
+            .setContentIntent(openAppPi())
+            .setDeleteIntent(deletePi)
+            .build()
+        try {
+            nm.notify(TAG_MIRROR, id, n)
+        } catch (e: Exception) {
+        }
+    }
+
     // ---------------------------------------------------------------- notifications
 
     private fun createChannels() {
@@ -589,6 +698,9 @@ class LinkService : Service() {
         calls.setSound(null, null)
         calls.enableVibration(false)
         nm.createNotificationChannel(calls)
+        nm.createNotificationChannel(
+            NotificationChannel(CH_MIRROR, "Notifications from gateway phone", NotificationManager.IMPORTANCE_HIGH)
+        )
     }
 
     private fun openAppPi(): PendingIntent = PendingIntent.getActivity(

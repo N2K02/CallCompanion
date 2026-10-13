@@ -51,6 +51,10 @@ object Hub {
     var service: LinkService? = null
     var listener: (() -> Unit)? = null
 
+    /** Bumped when new contacts arrive from the gateway, so the screen reloads them. */
+    @Volatile
+    var contactsVersion = 0
+
     private val main = Handler(Looper.getMainLooper())
     private val lines = ArrayDeque<String>()
     private val fmt = SimpleDateFormat("HH:mm:ss", Locale.US)
