@@ -11,8 +11,8 @@ android {
         applicationId = "com.vgs.app"
         minSdk = 26
         targetSdk = 34
-        versionCode = 2
-        versionName = "0.2"
+        versionCode = 3
+        versionName = "0.3"
     }
 
     signingConfigs {
@@ -31,7 +31,11 @@ android {
             signingConfig = signingConfigs.getByName("debug")
         }
         getByName("release") {
-            isMinifyEnabled = false
+            // R8 removes unused code (most of Compose) and resources: tens of MB -> a few MB.
+            isMinifyEnabled = true
+            isShrinkResources = true
+            proguardFiles(getDefaultProguardFile("proguard-android-optimize.txt"), "proguard-rules.pro")
+            // Same fixed key as debug, so it installs over earlier builds.
             signingConfig = signingConfigs.getByName("debug")
         }
     }
@@ -50,5 +54,5 @@ dependencies {
     // Material 3 Expressive (Pixel style) lives in the 1.5 line.
     implementation("androidx.compose.material3:material3:1.5.0-beta01")
     implementation("androidx.compose.material:material-icons-core:1.7.8")
-    implementation("androidx.activity:activity-compose:1.10.1")
+    implementation("androidx.activity:activity-compose:1.11.0")
 }

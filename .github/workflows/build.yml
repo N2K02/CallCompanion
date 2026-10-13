@@ -24,16 +24,14 @@ jobs:
           echo "Android SDK: ${ANDROID_HOME:-$ANDROID_SDK_ROOT}"
           yes | "${ANDROID_HOME:-$ANDROID_SDK_ROOT}/cmdline-tools/latest/bin/sdkmanager" --licenses >/dev/null || true
           chmod +x gradlew
-          set +e
-          ./gradlew --no-daemon assembleDebug 2>&1 | tee build.log
-          status=${PIPESTATUS[0]}
-          set -e
-          if [ "$status" -ne 0 ]; then
-            # Surface compiler / Gradle errors as annotations so they are visible without logs.
-            grep -E -A4 "^e: |What went wrong|requires|Could not|error:" build.log | grep -v "^--$" | head -60 | while IFS= read -r l; do echo "::error::$l"; done
-            exit "$status"
-          fi
-          cp app/build/outputs/apk/debug/app-debug.apk VGS.apk
+          set -o pipefail
+          ./gradlew --no-daemon assembleRelease 2>&1 | tee build.log || {
+            # One annotation with the full error text (GitHub caps annotations per step at 10).
+            msg=$(grep -E '^e: |error:|What went wrong|Dependency .* requires|compileSdk|Android Gradle plugin' -A3 build.log | head -80 | sed -e 's/%/%25/g' | awk 'BEGIN{ORS="%0A"} {print}')
+            echo "::error title=Build failed::$msg"
+            exit 1
+          }
+          cp app/build/outputs/apk/release/app-release.apk VGS.apk
 
       - name: Upload APK (workflow artifact)
         uses: actions/upload-artifact@v4

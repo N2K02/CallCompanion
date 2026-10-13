@@ -34,4 +34,4 @@ Tip: on some phones (Xiaomi, Samsung, Huawei) set VGS battery usage to **Unrestr
 
 ## Build
 
-Every push to `main` builds the APK with GitHub Actions and publishes it as a release. Locally: `./gradlew assembleDebug` (needs JDK 17 + Android SDK).
+Every push to `main` builds the APK with GitHub Actions and publishes it as a release. Locally: `./gradlew assembleRelease` (shrunk APK) (needs JDK 17 + Android SDK).
