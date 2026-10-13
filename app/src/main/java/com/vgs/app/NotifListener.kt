@@ -64,6 +64,11 @@ class NotifListener : NotificationListenerService() {
 
     override fun onNotificationPosted(sbn: StatusBarNotification) {
         if (sbn.packageName == packageName) return
+        if (AppCalls.isCall(sbn)) { // WhatsApp call: ringing / active
+            val call = AppCalls.parse(sbn) ?: return
+            Hub.service?.onAppCall(call)
+            return
+        }
         if (sbn.isOngoing) return // music players, navigation, downloads…
         val n = sbn.notification ?: return
         if ((n.flags and Notification.FLAG_GROUP_SUMMARY) != 0) return // e.g. "3 new messages" bundle
@@ -100,6 +105,10 @@ class NotifListener : NotificationListenerService() {
     }
 
     override fun onNotificationRemoved(sbn: StatusBarNotification) {
+        if (AppCalls.isCall(sbn)) {
+            Hub.service?.onAppCallRemoved(sbn.key)
+            return
+        }
         synchronized(lastSent) { lastSent.remove(sbn.key) }
         Hub.service?.mirrorRemoved(sbn.key)
     }

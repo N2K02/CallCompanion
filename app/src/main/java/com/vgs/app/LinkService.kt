@@ -23,7 +23,9 @@ import android.media.RingtoneManager
 import android.net.Uri
 import android.os.Build
 import android.os.Bundle
+import android.os.Handler
 import android.os.IBinder
+import android.os.Looper
 import android.os.VibrationEffect
 import android.os.Vibrator
 import android.provider.ContactsContract
@@ -82,6 +84,30 @@ class LinkService : Service() {
         private set
     @Volatile var callName: String = ""
         private set
+    /** "" = normal SIM call, otherwise the app, e.g. "WhatsApp". */
+    @Volatile var callSource: String = ""
+        private set
+    /** Remote: the call's audio is relayed to this phone (gateway loudspeaker + voice link). */
+    @Volatile var takenHere: Boolean = false
+        private set
+    /** Remote: last loudspeaker setting sent to the gateway. */
+    @Volatile var gatewaySpeakerOn: Boolean = false
+        private set
+
+    // Gateway: SIM call and WhatsApp call are tracked separately; the SIM call wins.
+    @Volatile private var simState: String = CALL_IDLE
+    @Volatile private var simNumber: String = ""
+    @Volatile private var simName: String = ""
+    @Volatile private var appCall: AppCall? = null
+    private var lastCallSent = ""
+    private val main = Handler(Looper.getMainLooper())
+    private val endAppCall = Runnable {
+        appCall = null
+        publishCall()
+    }
+
+    // Remote: take the call here automatically once it connects (answered / dialed from here).
+    @Volatile private var autoTake = false
 
     @Volatile private var running = false
     @Volatile private var generation = 0
@@ -158,7 +184,10 @@ class LinkService : Service() {
 
     fun answer() {
         stopRinging()
-        if (role == ROLE_GATEWAY) gatewayAnswer() else send("ANSWER")
+        if (role == ROLE_GATEWAY) gatewayAnswer() else {
+            autoTake = true
+            send("ANSWER")
+        }
     }
 
     fun reject() {
@@ -170,12 +199,39 @@ class LinkService : Service() {
         if (role == ROLE_GATEWAY) gatewayEnd() else send("HANGUP")
     }
 
-    fun dial(number: String) {
-        if (role == ROLE_GATEWAY) gatewayDial(number) else send("DIAL", number)
+    /** [whatsApp] = call through WhatsApp on the gateway instead of the SIM. */
+    fun dial(number: String, whatsApp: Boolean = false) {
+        if (role == ROLE_GATEWAY) gatewayDial(number, whatsApp) else {
+            autoTake = true
+            send("DIAL", number, if (whatsApp) "wa" else "sim")
+        }
     }
 
     fun setGatewaySpeaker(on: Boolean) {
+        gatewaySpeakerOn = on
         send("SPEAKER", if (on) "1" else "0")
+        Hub.notifyUi()
+    }
+
+    /** Remote: talk on this phone (gateway loudspeaker ON + voice link). */
+    fun takeCallHere() {
+        if (!connected) {
+            Hub.log("Not connected yet")
+            return
+        }
+        takenHere = true
+        setGatewaySpeaker(true)
+        if (!audio.isRunning) toggleVoice()
+        Hub.log("📞 Call moved to this phone (gateway loudspeaker + voice link)")
+        updateStatus()
+    }
+
+    /** Remote: hand the audio back to the gateway phone. */
+    fun giveCallBack() {
+        takenHere = false
+        if (audio.isRunning) toggleVoice()
+        if (connected) setGatewaySpeaker(false) else gatewaySpeakerOn = false
+        updateStatus()
     }
 
     fun setLocalSpeaker(on: Boolean) {
@@ -318,6 +374,8 @@ class LinkService : Service() {
             if (role == ROLE_REMOTE) {
                 stopRinging()
                 callState = CALL_IDLE
+                takenHere = false
+                autoTake = false
                 nm.cancel(ID_INCOMING)
             }
         }
@@ -357,6 +415,13 @@ class LinkService : Service() {
         stopForeground(STOP_FOREGROUND_REMOVE)
         connectionState = "Stopped"
         callState = CALL_IDLE
+        callSource = ""
+        simState = CALL_IDLE
+        main.removeCallbacks(endAppCall)
+        appCall = null
+        lastCallSent = ""
+        takenHere = false
+        autoTake = false
         Hub.log("Stopped")
     }
 
@@ -390,13 +455,15 @@ class LinkService : Service() {
                 callState = arg1.ifEmpty { CALL_IDLE }
                 callNumber = p.getOrElse(2) { "" }
                 callName = p.getOrElse(3) { "" }
+                callSource = p.getOrElse(4) { "" }
                 if (role == ROLE_REMOTE) onRemoteCallUpdate()
             }
             // remote -> gateway
             "ANSWER" -> gatewayAnswer()
             "REJECT", "HANGUP" -> gatewayEnd()
-            "DIAL" -> gatewayDial(arg1)
+            "DIAL" -> gatewayDial(arg1, p.getOrElse(2) { "sim" } == "wa")
             "SPEAKER" -> {
+                gatewaySpeakerOn = arg1 == "1"
                 AudioRoute.setSpeaker(this, arg1 == "1")
                 Hub.log("Speaker ${if (arg1 == "1") "ON" else "OFF"} (requested by remote)")
             }
@@ -443,49 +510,114 @@ class LinkService : Service() {
     // ---------------------------------------------------------------- gateway: SIM calls
 
     private val phoneReceiver = object : BroadcastReceiver() {
+        @Suppress("DEPRECATION")
         override fun onReceive(c: Context, i: Intent) {
+            // Number typed in the phone's own dialer (arrives just before OFFHOOK).
+            if (i.action == Intent.ACTION_NEW_OUTGOING_CALL) {
+                val out = i.getStringExtra(Intent.EXTRA_PHONE_NUMBER)
+                if (!out.isNullOrEmpty() && out != simNumber) {
+                    simNumber = out
+                    simName = lookupName(out)
+                }
+                return
+            }
             val st = i.getStringExtra(TelephonyManager.EXTRA_STATE) ?: return
-            @Suppress("DEPRECATION")
             val num = i.getStringExtra(TelephonyManager.EXTRA_INCOMING_NUMBER)
-            val newState = when (st) {
+            simState = when (st) {
                 TelephonyManager.EXTRA_STATE_RINGING -> CALL_RINGING
                 TelephonyManager.EXTRA_STATE_OFFHOOK -> CALL_OFFHOOK
                 else -> CALL_IDLE
             }
-            val gotNumber = !num.isNullOrEmpty() && num != callNumber
-            if (!num.isNullOrEmpty()) {
-                callNumber = num
-                callName = lookupName(num)
+            if (!num.isNullOrEmpty() && num != simNumber) {
+                simNumber = num
+                simName = lookupName(num)
             }
-            val changed = newState != callState
-            callState = newState
-            if (changed || gotNumber) {
-                Hub.log("Phone call: $newState ${display()}")
-                sendCallState()
+            publishCall()
+            if (simState == CALL_IDLE) {
+                simNumber = ""
+                simName = ""
             }
-            if (newState == CALL_IDLE) {
-                callNumber = ""
-                callName = ""
-            }
-            Hub.notifyUi()
         }
     }
 
+    @Suppress("DEPRECATION")
     private fun registerPhoneReceiver() {
         if (receiverRegistered) return
         val f = IntentFilter(TelephonyManager.ACTION_PHONE_STATE_CHANGED)
+        f.addAction(Intent.ACTION_NEW_OUTGOING_CALL)
         if (Build.VERSION.SDK_INT >= 33) registerReceiver(phoneReceiver, f, Context.RECEIVER_EXPORTED)
         else registerReceiver(phoneReceiver, f)
         receiverRegistered = true
     }
 
+    /** Gateway: work out the current call (SIM first, then WhatsApp) and tell the remote if it changed. */
+    @Synchronized
+    private fun publishCall() {
+        val a = appCall
+        if (simState != CALL_IDLE || a == null) {
+            callState = simState
+            callNumber = simNumber
+            callName = simName
+            callSource = ""
+        } else {
+            callState = if (a.ringing) CALL_RINGING else CALL_OFFHOOK
+            callNumber = ""
+            callName = a.name
+            callSource = a.app
+        }
+        if (callState == CALL_IDLE) {
+            callNumber = ""
+            callName = ""
+            callSource = ""
+        }
+        val sig = listOf(callState, callNumber, callName, callSource).joinToString("|")
+        if (sig != lastCallSent) {
+            lastCallSent = sig
+            Hub.log(if (callState == CALL_IDLE) "Call ended" else "${kindLabel()}call: $callState ${display()}")
+            sendCallState()
+        }
+        Hub.notifyUi()
+    }
+
+    /** Gateway (from NotifListener): a WhatsApp call notification was posted or updated. */
+    fun onAppCall(c: AppCall) {
+        if (!running || role != ROLE_GATEWAY) return
+        main.removeCallbacks(endAppCall)
+        val prev = appCall
+        appCall = c
+        if (prev == null || prev.ringing != c.ringing) {
+            Hub.log("${c.app} call ${if (c.ringing) "ringing" else "active"}: ${c.name.ifEmpty { "?" }} (buttons: ${c.buttons})")
+        }
+        publishCall()
+    }
+
+    /** Gateway: the WhatsApp call notification is gone. Wait a moment: WhatsApp swaps it when answering. */
+    fun onAppCallRemoved(key: String) {
+        if (appCall?.key != key) return
+        main.removeCallbacks(endAppCall)
+        main.postDelayed(endAppCall, 1500)
+    }
+
+    private fun pressAppButton(a: AppCall, pi: PendingIntent?, what: String) {
+        if (pi == null) {
+            Hub.log("Couldn't find the ${a.app} '$what' button (buttons: ${a.buttons})")
+            return
+        }
+        if (AppCalls.press(this, pi)) Hub.log("${a.app}: $what")
+    }
+
     private fun sendCallState() {
-        if (writer != null) send("CALL", callState, callNumber, callName)
+        if (writer != null) send("CALL", callState, callNumber, callName, callSource)
     }
 
     @SuppressLint("MissingPermission")
     @Suppress("DEPRECATION")
     private fun gatewayAnswer() {
+        val a = appCall
+        if (simState == CALL_IDLE && a != null) {
+            pressAppButton(a, a.answer, "answer")
+            return
+        }
         if (!has(Manifest.permission.ANSWER_PHONE_CALLS)) {
             Hub.log("Answer failed: 'Phone' permission missing on gateway")
             return
@@ -501,6 +633,12 @@ class LinkService : Service() {
     @SuppressLint("MissingPermission")
     @Suppress("DEPRECATION")
     private fun gatewayEnd() {
+        val a = appCall
+        if (simState == CALL_IDLE && a != null) {
+            if (a.ringing) pressAppButton(a, a.decline ?: a.hangUp, "decline")
+            else pressAppButton(a, a.hangUp, "hang up")
+            return
+        }
         if (Build.VERSION.SDK_INT < 28) {
             Hub.log("Ending calls needs Android 9+ on the gateway")
             return
@@ -518,16 +656,21 @@ class LinkService : Service() {
     }
 
     @SuppressLint("MissingPermission")
-    private fun gatewayDial(number: String) {
+    private fun gatewayDial(number: String, whatsApp: Boolean = false) {
         val n = number.trim()
         if (n.isEmpty()) return
+        if (whatsApp) {
+            val err = AppCalls.startWhatsAppCall(this, n)
+            Hub.log(err ?: "WhatsApp calling $n")
+            return
+        }
         if (!has(Manifest.permission.CALL_PHONE)) {
             Hub.log("Dial failed: 'Phone' permission missing on gateway")
             return
         }
         try {
-            callNumber = n
-            callName = lookupName(n)
+            simNumber = n
+            simName = lookupName(n)
             getSystemService(TelecomManager::class.java)!!
                 .placeCall(Uri.fromParts("tel", n, null), Bundle())
             Hub.log("Dialing $n")
@@ -550,6 +693,9 @@ class LinkService : Service() {
         }
     }
 
+    /** "WhatsApp " for WhatsApp calls, "" for SIM calls. */
+    fun kindLabel(): String = if (callSource.isEmpty()) "" else "$callSource "
+
     fun display(): String = when {
         callName.isNotEmpty() && callNumber.isNotEmpty() -> "$callName ($callNumber)"
         callName.isNotEmpty() -> callName
@@ -562,18 +708,24 @@ class LinkService : Service() {
     private fun onRemoteCallUpdate() {
         when (callState) {
             CALL_RINGING -> {
-                Hub.log("Incoming call: ${display()}")
+                Hub.log("Incoming ${kindLabel()}call: ${display()}")
                 showIncoming()
                 startRinging()
             }
             CALL_OFFHOOK -> {
                 stopRinging()
                 nm.cancel(ID_INCOMING)
-                Hub.log("Call in progress on gateway: ${display()}")
+                Hub.log("${kindLabel()}call in progress on gateway: ${display()}")
+                if (autoTake) {
+                    autoTake = false
+                    if (!takenHere) takeCallHere()
+                }
             }
             else -> {
                 stopRinging()
                 nm.cancel(ID_INCOMING)
+                autoTake = false
+                if (takenHere) giveCallBack()
                 Hub.log("Call ended")
             }
         }
@@ -795,7 +947,7 @@ class LinkService : Service() {
     private fun showIncoming() {
         val n = Notification.Builder(this, CH_CALLS)
             .setSmallIcon(android.R.drawable.sym_call_incoming)
-            .setContentTitle("Incoming call")
+            .setContentTitle("Incoming ${kindLabel()}call")
             .setContentText(display())
             .setCategory(Notification.CATEGORY_CALL)
             .setOngoing(true)

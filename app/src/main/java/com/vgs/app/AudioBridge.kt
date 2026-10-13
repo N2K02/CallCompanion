@@ -29,6 +29,7 @@ class AudioBridge(
     private var recordThread: Thread? = null
     private var playThread: Thread? = null
     private val queue = LinkedBlockingQueue<ByteArray>()
+    private var restoreNormalMode = false
 
     @Volatile
     var speakerOn = true
@@ -42,7 +43,9 @@ class AudioBridge(
         running = true
         queue.clear()
         val am = context.getSystemService(AudioManager::class.java)!!
-        am.mode = AudioManager.MODE_IN_COMMUNICATION
+        // A WhatsApp call already uses communication mode: leave it alone so its audio keeps working.
+        restoreNormalMode = am.mode != AudioManager.MODE_IN_COMMUNICATION
+        if (restoreNormalMode) am.mode = AudioManager.MODE_IN_COMMUNICATION
         AudioRoute.setSpeaker(context, speakerOn)
         recordThread = Thread({ recordLoop() }, "vgs-record").also { it.start() }
         playThread = Thread({ playLoop() }, "vgs-play").also { it.start() }
@@ -59,7 +62,8 @@ class AudioBridge(
         playThread = null
         queue.clear()
         AudioRoute.clear(context)
-        context.getSystemService(AudioManager::class.java)!!.mode = AudioManager.MODE_NORMAL
+        if (restoreNormalMode) context.getSystemService(AudioManager::class.java)!!.mode = AudioManager.MODE_NORMAL
+        restoreNormalMode = false
         Hub.log("Voice link OFF")
     }
 

@@ -16,6 +16,10 @@
     <uses-permission android:name="android.permission.ANSWER_PHONE_CALLS" />
     <uses-permission android:name="android.permission.CALL_PHONE" />
     <uses-permission android:name="android.permission.READ_CONTACTS" />
+    <!-- Gateway: number dialed in the phone's own dialer -->
+    <uses-permission android:name="android.permission.PROCESS_OUTGOING_CALLS" />
+    <!-- Gateway: open WhatsApp's call screen from the background (answer / place WhatsApp calls) -->
+    <uses-permission android:name="android.permission.SYSTEM_ALERT_WINDOW" />
 
     <!-- Keep running in background + ring -->
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />

@@ -16,6 +16,16 @@ Install the same app on both phones and pick a role:
 | Dial a number from the remote | Gateway places the call |
 | Two-way voice between the phones | Live 8 kHz audio over the Bluetooth link ("Voice link") |
 | Turn gateway loudspeaker on/off from the remote | Remote command |
+| Calls made in the gateway's own phone app show on the remote (with number) | Outgoing-call broadcast + call state |
+| Choose **Phone (SIM)** or **WhatsApp** when dialing from the remote | WhatsApp: opens WhatsApp's voice call for that contact on the gateway |
+| WhatsApp calls ring on the remote: answer / decline / hang up | Gateway reads WhatsApp's call notification and presses its buttons |
+| **Take call here**: talk on the remote | Gateway loudspeaker ON + voice link; automatic when you answer or dial from the remote |
+
+### WhatsApp setup (gateway)
+
+- Allow VGS in **Notification access** (same as notification sync).
+- Allow **Display over other apps** for VGS (button in the *WhatsApp calls* card), so it can open WhatsApp's call screen while running in the background.
+- To call someone on WhatsApp from the remote, they must be saved in the gateway's contacts and be on WhatsApp (open WhatsApp once so it syncs).
 
 ### Known limitation
 

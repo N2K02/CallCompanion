@@ -119,7 +119,7 @@ class MainActivity : ComponentActivity() {
     private var selectedDevice by mutableStateOf<String?>(null)
     private var contacts by mutableStateOf<List<Contact>>(emptyList())
     private var mirrorOn by mutableStateOf(true)
-    private var gatewaySpeaker by mutableStateOf(false)
+    private var dialWhatsApp by mutableStateOf(false)
     private var loadedContactsVersion = -1
 
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -129,6 +129,7 @@ class MainActivity : ComponentActivity() {
         role = prefs.getString("role", LinkService.ROLE_REMOTE) ?: LinkService.ROLE_REMOTE
         selectedDevice = prefs.getString("device", null)
         mirrorOn = prefs.getBoolean("mirror", true)
+        dialWhatsApp = prefs.getString("dial_via", "sim") == "wa"
         setContent { VgsTheme { Screen() } }
         requestPermissions(allPerms().toTypedArray(), 1)
         loadDevices()
@@ -173,7 +174,15 @@ class MainActivity : ComponentActivity() {
     )
 
     private fun allPerms(): List<String> =
-        corePerms() + gatewayPerms() + listOf(Manifest.permission.READ_CALL_LOG, Manifest.permission.READ_CONTACTS)
+        corePerms() + gatewayPerms() + optionalPerms()
+
+    /** Nice to have: names for calls, and the number dialed in the phone's own dialer. */
+    @Suppress("DEPRECATION")
+    private fun optionalPerms(): List<String> = listOf(
+        Manifest.permission.READ_CALL_LOG,
+        Manifest.permission.READ_CONTACTS,
+        Manifest.permission.PROCESS_OUTGOING_CALLS,
+    )
 
     private fun granted(p: String) = checkSelfPermission(p) == PackageManager.PERMISSION_GRANTED
 
@@ -184,7 +193,7 @@ class MainActivity : ComponentActivity() {
         val missing = needed.filter { !granted(it) }
         if (missing.isNotEmpty()) {
             requestPermissions(
-                (missing + listOf(Manifest.permission.READ_CALL_LOG, Manifest.permission.READ_CONTACTS))
+                (missing + optionalPerms())
                     .filter { !granted(it) }.toTypedArray(), 2
             )
             toast("Please allow the permissions, then press Start again")
@@ -282,6 +291,7 @@ class MainActivity : ComponentActivity() {
                 if (running) CallCard(s!!, isRemote)
                 if (running && isRemote) DialCard(s!!)
                 if (effRole == LinkService.ROLE_GATEWAY) NotificationCard(s, running)
+                if (effRole == LinkService.ROLE_GATEWAY) WhatsAppCard()
                 if (running) VoiceCard(s!!, isRemote)
                 LogCard()
                 Spacer(Modifier.height(24.dp))
@@ -428,8 +438,8 @@ class MainActivity : ComponentActivity() {
                 )
                 Text(
                     when {
-                        ringing -> "Incoming call"
-                        inCall -> "In call"
+                        ringing -> "Incoming ${s.kindLabel()}call"
+                        inCall -> "In ${s.kindLabel()}call"
                         else -> "No active phone call"
                     },
                     style = MaterialTheme.typography.labelLarge
@@ -439,10 +449,26 @@ class MainActivity : ComponentActivity() {
                 }
                 if (inCall && isRemote) {
                     Text(
-                        "Audio is on the gateway phone",
+                        if (s.takenHere) "You're talking on this phone (gateway on loudspeaker)"
+                        else "Audio is on the gateway phone",
                         style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant
                     )
+                    if (s.takenHere) {
+                        OutlinedButton(
+                            onClick = { s.giveCallBack() },
+                            modifier = Modifier.fillMaxWidth().height(56.dp)
+                        ) { Text("Move audio back to gateway") }
+                    } else {
+                        FilledTonalButton(
+                            onClick = { s.takeCallHere() },
+                            modifier = Modifier.fillMaxWidth().height(56.dp)
+                        ) {
+                            Icon(Icons.Filled.Call, contentDescription = null)
+                            Spacer(Modifier.width(8.dp))
+                            Text("Take call here")
+                        }
+                    }
                 }
                 if (ringing) {
                     Row(horizontalArrangement = Arrangement.spacedBy(16.dp)) {
@@ -537,18 +563,43 @@ class MainActivity : ComponentActivity() {
                     }
                 }
             }
+            Text("Call with", style = MaterialTheme.typography.labelLarge)
+            SingleChoiceSegmentedButtonRow(Modifier.fillMaxWidth()) {
+                val options = listOf(false to "Phone (SIM)", true to "WhatsApp")
+                options.forEachIndexed { i, (wa, label) ->
+                    SegmentedButton(
+                        selected = dialWhatsApp == wa,
+                        onClick = {
+                            dialWhatsApp = wa
+                            prefs.edit().putString("dial_via", if (wa) "wa" else "sim").apply()
+                        },
+                        shape = SegmentedButtonDefaults.itemShape(i, options.size)
+                    ) { Text(label) }
+                }
+            }
             Button(
                 onClick = {
                     val c = picked
                     val n = if (c != null && c.label() == query.trim()) c.number
                     else query.substringBefore("·").filter { it.isDigit() || it == '+' || it == '*' || it == '#' }
-                    if (n.isEmpty()) toast("Pick a contact or enter a number") else s.dial(n)
+                    if (n.isEmpty()) toast("Pick a contact or enter a number") else s.dial(n, dialWhatsApp)
                 },
-                modifier = Modifier.fillMaxWidth().height(56.dp)
+                modifier = Modifier.fillMaxWidth().height(56.dp),
+                colors = if (dialWhatsApp) ButtonDefaults.buttonColors(
+                    containerColor = Color(0xFF1E8E3E),
+                    contentColor = Color.White
+                ) else ButtonDefaults.buttonColors()
             ) {
                 Icon(Icons.Filled.Call, contentDescription = null)
                 Spacer(Modifier.width(8.dp))
-                Text("Call")
+                Text(if (dialWhatsApp) "WhatsApp call" else "Call")
+            }
+            if (dialWhatsApp) {
+                Text(
+                    "The number must be a WhatsApp contact in the gateway phone's contacts.",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
             }
             Text(
                 "${contacts.size} contacts available",
@@ -624,6 +675,38 @@ class MainActivity : ComponentActivity() {
     }
 
     @Composable
+    private fun WhatsAppCard() {
+        tick // read the refresh counter so this card redraws on every update
+        val overlay = AppCalls.canOpenFromBackground(this)
+        SectionCard("WhatsApp calls") {
+            Text(
+                "WhatsApp calls ring on the remote and can be answered, declined, hung up and started from there. " +
+                    "Needs Notification access (above) and \"Display over other apps\", so VGS can open WhatsApp's call screen in the background.",
+                style = MaterialTheme.typography.bodyMedium,
+                color = MaterialTheme.colorScheme.onSurfaceVariant
+            )
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Dot(if (overlay) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.error)
+                Spacer(Modifier.width(12.dp))
+                Text(
+                    if (overlay) "Display over other apps: ON" else "Display over other apps: OFF",
+                    style = MaterialTheme.typography.bodyLarge
+                )
+            }
+            if (!overlay) {
+                FilledTonalButton(
+                    onClick = { openSettings(Settings.ACTION_MANAGE_OVERLAY_PERMISSION, withPackage = true) },
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    Icon(Icons.Filled.Settings, contentDescription = null)
+                    Spacer(Modifier.width(8.dp))
+                    Text("Allow display over other apps")
+                }
+            }
+        }
+    }
+
+    @Composable
     private fun VoiceCard(s: LinkService, isRemote: Boolean) {
         tick // read the refresh counter so this card redraws on every update
         SectionCard("Voice link") {
@@ -649,8 +732,7 @@ class MainActivity : ComponentActivity() {
             }
             SwitchRow("This phone's loudspeaker", s.speakerOn) { on -> s.setLocalSpeaker(on) }
             if (isRemote) {
-                SwitchRow("Gateway loudspeaker (during calls)", gatewaySpeaker) { on ->
-                    gatewaySpeaker = on
+                SwitchRow("Gateway loudspeaker (during calls)", s.gatewaySpeakerOn) { on ->
                     s.setGatewaySpeaker(on)
                 }
             }
