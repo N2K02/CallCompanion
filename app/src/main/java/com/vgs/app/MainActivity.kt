@@ -1,83 +1,148 @@
+@file:OptIn(ExperimentalMaterial3Api::class, ExperimentalMaterial3ExpressiveApi::class)
+
 package com.vgs.app
 
 import android.Manifest
 import android.annotation.SuppressLint
-import android.app.Activity
 import android.bluetooth.BluetoothManager
 import android.content.Intent
 import android.content.SharedPreferences
 import android.content.pm.PackageManager
-import android.graphics.Color
-import android.graphics.Typeface
-import android.graphics.drawable.GradientDrawable
+import android.net.Uri
 import android.os.Build
 import android.os.Bundle
-import android.text.InputType
-import android.view.Gravity
-import android.view.View
-import android.view.ViewGroup
 import android.provider.Settings
-import android.widget.ArrayAdapter
-import android.widget.AutoCompleteTextView
-import android.widget.Button
-import android.widget.EditText
-import android.widget.LinearLayout
-import android.widget.RadioButton
-import android.widget.RadioGroup
-import android.widget.ScrollView
-import android.widget.Spinner
-import android.widget.Switch
-import android.widget.TextView
 import android.widget.Toast
+import androidx.activity.ComponentActivity
+import androidx.activity.compose.setContent
+import androidx.activity.enableEdgeToEdge
+import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
+import androidx.compose.foundation.isSystemInDarkTheme
+import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.ColumnScope
+import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.imePadding
+import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.text.KeyboardOptions
+import androidx.compose.foundation.verticalScroll
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Call
+import androidx.compose.material.icons.filled.Close
+import androidx.compose.material.icons.filled.Notifications
+import androidx.compose.material.icons.filled.Person
+import androidx.compose.material.icons.filled.Refresh
+import androidx.compose.material.icons.filled.Settings
+import androidx.compose.material3.Button
+import androidx.compose.material3.ButtonDefaults
+import androidx.compose.material3.Card
+import androidx.compose.material3.CardDefaults
+import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.ExperimentalMaterial3ExpressiveApi
+import androidx.compose.material3.FilledTonalButton
+import androidx.compose.material3.HorizontalDivider
+import androidx.compose.material3.Icon
+import androidx.compose.material3.LargeTopAppBar
+import androidx.compose.material3.LoadingIndicator
+import androidx.compose.material3.MaterialExpressiveTheme
+import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.MotionScheme
+import androidx.compose.material3.OutlinedButton
+import androidx.compose.material3.OutlinedTextField
+import androidx.compose.material3.RadioButton
+import androidx.compose.material3.Scaffold
+import androidx.compose.material3.SegmentedButton
+import androidx.compose.material3.SegmentedButtonDefaults
+import androidx.compose.material3.SingleChoiceSegmentedButtonRow
+import androidx.compose.material3.Switch
+import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
+import androidx.compose.material3.TopAppBarDefaults
+import androidx.compose.material3.darkColorScheme
+import androidx.compose.material3.dynamicDarkColorScheme
+import androidx.compose.material3.dynamicLightColorScheme
+import androidx.compose.material3.lightColorScheme
+import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableIntStateOf
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
+import androidx.compose.ui.Alignment
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.input.nestedscroll.nestedScroll
+import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.text.font.FontFamily
+import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.input.KeyboardType
+import androidx.compose.ui.text.style.TextAlign
+import androidx.compose.ui.unit.dp
 
-class MainActivity : Activity() {
+/** Pixel-style Material 3 Expressive theme: wallpaper colors + system light/dark mode. */
+@Composable
+fun VgsTheme(content: @Composable () -> Unit) {
+    val dark = isSystemInDarkTheme()
+    val ctx = LocalContext.current
+    val scheme = when {
+        Build.VERSION.SDK_INT >= 31 -> if (dark) dynamicDarkColorScheme(ctx) else dynamicLightColorScheme(ctx)
+        dark -> darkColorScheme()
+        else -> lightColorScheme()
+    }
+    MaterialExpressiveTheme(
+        colorScheme = scheme,
+        motionScheme = MotionScheme.expressive(),
+        content = content
+    )
+}
+
+class MainActivity : ComponentActivity() {
 
     private lateinit var prefs: SharedPreferences
-    private lateinit var roleGroup: RadioGroup
-    private lateinit var rbGateway: RadioButton
-    private lateinit var rbRemote: RadioButton
-    private lateinit var deviceSection: LinearLayout
-    private lateinit var deviceSpinner: Spinner
-    private lateinit var startBtn: Button
-    private lateinit var stopBtn: Button
-    private lateinit var statusText: TextView
-    private lateinit var callCard: LinearLayout
-    private lateinit var callText: TextView
-    private lateinit var answerBtn: Button
-    private lateinit var rejectBtn: Button
-    private lateinit var hangupBtn: Button
-    private lateinit var dialSection: LinearLayout
-    private lateinit var dialInput: AutoCompleteTextView
-    private lateinit var contactAdapter: ContactAdapter
-    private var selectedContact: Contact? = null
-    private var loadedContactsVersion = -1
-    private lateinit var notifSection: LinearLayout
-    private lateinit var notifStatus: TextView
-    private lateinit var mirrorSwitch: Switch
-    private lateinit var voiceBtn: Button
-    private lateinit var speakerBtn: Button
-    private lateinit var gwSpeakerBtn: Button
-    private lateinit var logView: TextView
 
-    private var devices: List<Pair<String, String>> = emptyList()
-    private var gatewaySpeaker = false
+    // Compose state
+    private var tick by mutableIntStateOf(0)
+    private var role by mutableStateOf(LinkService.ROLE_REMOTE)
+    private var devices by mutableStateOf<List<Pair<String, String>>>(emptyList())
+    private var selectedDevice by mutableStateOf<String?>(null)
+    private var contacts by mutableStateOf<List<Contact>>(emptyList())
+    private var mirrorOn by mutableStateOf(true)
+    private var gatewaySpeaker by mutableStateOf(false)
+    private var loadedContactsVersion = -1
 
     override fun onCreate(savedInstanceState: Bundle?) {
+        enableEdgeToEdge()
         super.onCreate(savedInstanceState)
         prefs = getSharedPreferences("vgs", MODE_PRIVATE)
-        setContentView(buildUi())
+        role = prefs.getString("role", LinkService.ROLE_REMOTE) ?: LinkService.ROLE_REMOTE
+        selectedDevice = prefs.getString("device", null)
+        mirrorOn = prefs.getBoolean("mirror", true)
+        setContent { VgsTheme { Screen() } }
         requestPermissions(allPerms().toTypedArray(), 1)
         loadDevices()
-        refresh()
+        loadContacts()
     }
 
     override fun onResume() {
         super.onResume()
-        Hub.listener = { refresh() }
-        if (prefs.getString("role", null) == LinkService.ROLE_GATEWAY || rbGateway.isChecked) {
-            NotifListener.rebind(this)
+        Hub.listener = {
+            tick++
+            if (Hub.contactsVersion != loadedContactsVersion) loadContacts()
         }
-        refresh()
+        if (role == LinkService.ROLE_GATEWAY) NotifListener.rebind(this)
+        tick++
     }
 
     override fun onPause() {
@@ -88,7 +153,8 @@ class MainActivity : Activity() {
     override fun onRequestPermissionsResult(requestCode: Int, permissions: Array<out String>, grantResults: IntArray) {
         super.onRequestPermissionsResult(requestCode, permissions, grantResults)
         loadDevices()
-        refresh()
+        loadContacts()
+        tick++
     }
 
     // ---------------------------------------------------------------- permissions
@@ -113,11 +179,7 @@ class MainActivity : Activity() {
 
     // ---------------------------------------------------------------- actions
 
-    private fun currentRole(): String =
-        if (rbGateway.isChecked) LinkService.ROLE_GATEWAY else LinkService.ROLE_REMOTE
-
     private fun startLink() {
-        val role = currentRole()
         val needed = if (role == LinkService.ROLE_GATEWAY) corePerms() + gatewayPerms() else corePerms()
         val missing = needed.filter { !granted(it) }
         if (missing.isNotEmpty()) {
@@ -132,12 +194,11 @@ class MainActivity : Activity() {
             .setAction(LinkService.ACTION_START)
             .putExtra(LinkService.EXTRA_ROLE, role)
         if (role == LinkService.ROLE_REMOTE) {
-            val pos = deviceSpinner.selectedItemPosition
-            if (devices.isEmpty() || pos < 0 || pos >= devices.size) {
-                toast("Pair with the gateway phone in Bluetooth settings first")
+            val addr = selectedDevice
+            if (addr == null || devices.none { it.second == addr }) {
+                toast("Choose the gateway phone first (pair it in Bluetooth settings)")
                 return
             }
-            val addr = devices[pos].second
             prefs.edit().putString("device", addr).apply()
             i.putExtra(LinkService.EXTRA_DEVICE, addr)
         }
@@ -151,7 +212,6 @@ class MainActivity : Activity() {
 
     @SuppressLint("MissingPermission")
     private fun loadDevices() {
-        if (!::deviceSpinner.isInitialized) return
         val adapter = getSystemService(BluetoothManager::class.java)?.adapter
         devices = if (adapter == null ||
             (Build.VERSION.SDK_INT >= 31 && !granted(Manifest.permission.BLUETOOTH_CONNECT))
@@ -164,283 +224,458 @@ class MainActivity : Activity() {
                 emptyList()
             }
         }
-        val names = if (devices.isEmpty()) listOf("No paired phones found")
-        else devices.map { "${it.first}  (${it.second})" }
-        deviceSpinner.adapter = ArrayAdapter(this, android.R.layout.simple_spinner_dropdown_item, names)
-        val saved = prefs.getString("device", null)
-        val idx = devices.indexOfFirst { it.second == saved }
-        if (idx >= 0) deviceSpinner.setSelection(idx)
+        if (selectedDevice == null && devices.size == 1) selectedDevice = devices[0].second
     }
 
-    // ---------------------------------------------------------------- UI state
-
-    private fun refresh() {
-        if (!::logView.isInitialized) return
-        val s = Hub.service
-        val running = s != null && s.isActive
-        val role = if (running) s!!.role else currentRole()
-        val isRemote = role == LinkService.ROLE_REMOTE
-
-        rbGateway.isEnabled = !running
-        rbRemote.isEnabled = !running
-        deviceSection.visibility = if (isRemote && !running) View.VISIBLE else View.GONE
-        startBtn.isEnabled = !running
-        stopBtn.isEnabled = running
-
-        statusText.text = if (!running) "● Stopped" else (if (s!!.connected) "● " else "○ ") + s.connectionState
-        statusText.setTextColor(
-            when {
-                !running -> Color.GRAY
-                s!!.connected -> Color.rgb(0, 140, 60)
-                else -> Color.rgb(200, 120, 0)
-            }
-        )
-
-        val callState = s?.callState ?: LinkService.CALL_IDLE
-        callCard.visibility = if (running) View.VISIBLE else View.GONE
-        callText.text = when (callState) {
-            LinkService.CALL_RINGING -> "📞 Incoming call\n${s?.display()}"
-            LinkService.CALL_OFFHOOK -> "In call: ${s?.display()}" +
-                if (isRemote) "\n(audio is on the gateway phone)" else ""
-            else -> "No active phone call"
-        }
-        answerBtn.visibility = if (callState == LinkService.CALL_RINGING) View.VISIBLE else View.GONE
-        rejectBtn.visibility = if (callState == LinkService.CALL_RINGING) View.VISIBLE else View.GONE
-        hangupBtn.visibility = if (callState == LinkService.CALL_OFFHOOK) View.VISIBLE else View.GONE
-
-        dialSection.visibility = if (running && isRemote) View.VISIBLE else View.GONE
-        gwSpeakerBtn.visibility = if (running && isRemote) View.VISIBLE else View.GONE
-        gwSpeakerBtn.text = "Gateway speaker: " + if (gatewaySpeaker) "ON" else "OFF"
-
-        voiceBtn.isEnabled = running
-        voiceBtn.text = if (s?.voiceActive == true) "🔴 End voice link" else "🎙 Start voice link (talk phone ↔ phone)"
-        speakerBtn.isEnabled = running
-        speakerBtn.text = "This phone loudspeaker: " + if (s?.speakerOn != false) "ON" else "OFF"
-
-        val isGateway = role == LinkService.ROLE_GATEWAY
-        notifSection.visibility = if (isGateway) View.VISIBLE else View.GONE
-        if (isGateway) {
-            val on = NotifListener.isEnabled(this)
-            val bound = NotifListener.instance != null
-            notifStatus.text = when {
-                !on -> "⚠️ Notification access is OFF.\nTap the button below and allow VGS.\n" +
-                    "If VGS is greyed out / 'Restricted setting': open App info for VGS → ⋮ menu (top right) → " +
-                    "'Allow restricted settings', then try again."
-                !bound -> "⏳ Access is ON but the listener isn't connected yet.\n" +
-                    "If this stays, turn VGS OFF and ON again in Notification access."
-                else -> "✅ Notification sync is active"
-            }
-            notifStatus.setTextColor(
-                when {
-                    !on -> Color.rgb(200, 60, 0)
-                    !bound -> Color.rgb(200, 120, 0)
-                    else -> Color.rgb(0, 140, 60)
-                }
-            )
-        }
-
-        if (isRemote && loadedContactsVersion != Hub.contactsVersion) loadContacts()
-
-        logView.text = Hub.logText()
-    }
-
-    /** Loads local + synced contacts in the background for the dial box suggestions. */
     private fun loadContacts() {
         loadedContactsVersion = Hub.contactsVersion
         Thread {
             val list = ContactStore.all(applicationContext)
-            runOnUiThread { contactAdapter.all = list }
+            runOnUiThread { contacts = list }
         }.start()
     }
 
-    /** The number to call: from the picked suggestion, or digits typed by hand. */
-    private fun numberToDial(): String {
-        val t = dialInput.text.toString()
-        val c = selectedContact
-        if (c != null && t.trim() == c.label()) return c.number
-        selectedContact = null
-        return t.substringBefore("·").filter { it.isDigit() || it == '+' || it == '*' || it == '#' }
+    private fun openSettings(action: String, withPackage: Boolean = false) {
+        try {
+            val i = Intent(action)
+            if (withPackage) i.data = Uri.fromParts("package", packageName, null)
+            startActivity(i)
+        } catch (e: Exception) {
+            toast("Couldn't open settings")
+        }
     }
 
-    // ---------------------------------------------------------------- layout
+    private fun toast(msg: String) = Toast.makeText(this, msg, Toast.LENGTH_LONG).show()
 
-    private fun buildUi(): View {
-        val root = LinearLayout(this).apply {
-            orientation = LinearLayout.VERTICAL
-            setPadding(dp(16), dp(12), dp(16), dp(24))
-        }
+    // ---------------------------------------------------------------- UI
 
-        root.addView(label("VGS", 26f, bold = true))
-        root.addView(label("Use a phone without internet like a smartwatch for a phone that has SIM/internet. Pair both phones in Bluetooth settings first.", 13f, Color.DKGRAY))
+    @Composable
+    private fun Screen() {
+        @Suppress("UNUSED_VARIABLE")
+        val t = tick // re-read service state whenever the service reports a change
+        val s = Hub.service
+        val running = s != null && s.isActive
+        val effRole = if (running) s!!.role else role
+        val isRemote = effRole == LinkService.ROLE_REMOTE
+        val scroll = TopAppBarDefaults.exitUntilCollapsedScrollBehavior()
 
-        root.addView(section("1. What is this phone?"))
-        roleGroup = RadioGroup(this)
-        rbGateway = RadioButton(this).apply {
-            id = View.generateViewId()
-            text = "Gateway – this phone has the SIM / internet"
-        }
-        rbRemote = RadioButton(this).apply {
-            id = View.generateViewId()
-            text = "Remote – watch mode (no internet)"
-        }
-        roleGroup.addView(rbGateway)
-        roleGroup.addView(rbRemote)
-        if (prefs.getString("role", LinkService.ROLE_REMOTE) == LinkService.ROLE_GATEWAY) {
-            rbGateway.isChecked = true
-        } else {
-            rbRemote.isChecked = true
-        }
-        roleGroup.setOnCheckedChangeListener { _, _ -> refresh() }
-        root.addView(roleGroup)
-
-        deviceSection = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL }
-        deviceSection.addView(section("2. Choose the gateway phone"))
-        deviceSpinner = Spinner(this)
-        deviceSection.addView(deviceSpinner)
-        deviceSection.addView(button("Refresh paired phones") { loadDevices() })
-        root.addView(deviceSection)
-
-        root.addView(section("Connection"))
-        startBtn = button("Start") { startLink() }
-        stopBtn = button("Stop") { stopLink() }
-        root.addView(row(startBtn, stopBtn))
-        statusText = label("● Stopped", 16f, bold = true)
-        root.addView(statusText)
-
-        callCard = LinearLayout(this).apply {
-            orientation = LinearLayout.VERTICAL
-            setPadding(dp(12), dp(12), dp(12), dp(12))
-            background = GradientDrawable().apply {
-                cornerRadius = dp(12).toFloat()
-                setColor(Color.rgb(236, 243, 255))
+        Scaffold(
+            modifier = Modifier.fillMaxSize().nestedScroll(scroll.nestedScrollConnection),
+            topBar = {
+                LargeTopAppBar(
+                    title = { Text("VGS", fontWeight = FontWeight.Bold) },
+                    scrollBehavior = scroll
+                )
+            }
+        ) { pad ->
+            Column(
+                Modifier
+                    .padding(pad)
+                    .fillMaxSize()
+                    .imePadding()
+                    .verticalScroll(rememberScrollState())
+                    .padding(horizontal = 16.dp, vertical = 8.dp),
+                verticalArrangement = Arrangement.spacedBy(16.dp)
+            ) {
+                RoleCard(running, effRole)
+                if (isRemote && !running) DeviceCard()
+                ConnectionCard(s, running)
+                if (running) CallCard(s!!, isRemote)
+                if (running && isRemote) DialCard(s!!)
+                if (effRole == LinkService.ROLE_GATEWAY) NotificationCard(s, running)
+                if (running) VoiceCard(s!!, isRemote)
+                LogCard()
+                Spacer(Modifier.height(24.dp))
             }
         }
-        callText = label("No active phone call", 18f, bold = true)
-        callText.gravity = Gravity.CENTER
-        callCard.addView(callText)
-        answerBtn = button("Answer") { Hub.service?.answer() }
-        answerBtn.setBackgroundColor(Color.rgb(30, 160, 80))
-        answerBtn.setTextColor(Color.WHITE)
-        rejectBtn = button("Reject") { Hub.service?.reject() }
-        rejectBtn.setBackgroundColor(Color.rgb(210, 50, 50))
-        rejectBtn.setTextColor(Color.WHITE)
-        hangupBtn = button("Hang up") { Hub.service?.hangUp() }
-        callCard.addView(row(rejectBtn, answerBtn))
-        callCard.addView(hangupBtn)
-        root.addView(callCard, lp(top = dp(12)))
+    }
 
-        dialSection = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL }
-        dialSection.addView(section("Make a call through the gateway"))
-        contactAdapter = ContactAdapter(this)
-        dialInput = AutoCompleteTextView(this).apply {
-            hint = "Type a name or number"
-            inputType = InputType.TYPE_CLASS_TEXT or InputType.TYPE_TEXT_VARIATION_PERSON_NAME
-            threshold = 1
-            setAdapter(contactAdapter)
-            setOnItemClickListener { parent, _, position, _ ->
-                selectedContact = parent.getItemAtPosition(position) as? Contact
-                dialInput.setSelection(dialInput.text.length)
+    @Composable
+    private fun SectionCard(title: String, content: @Composable ColumnScope.() -> Unit) {
+        Card(
+            modifier = Modifier.fillMaxWidth(),
+            shape = RoundedCornerShape(28.dp),
+            colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceContainer)
+        ) {
+            Column(Modifier.padding(20.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                Text(title, style = MaterialTheme.typography.titleMedium, color = MaterialTheme.colorScheme.primary)
+                content()
             }
         }
-        dialSection.addView(dialInput)
-        dialSection.addView(button("📞 Call") {
-            val n = numberToDial()
-            if (n.isEmpty()) toast("Pick a contact or enter a number") else Hub.service?.dial(n)
-        })
-        root.addView(dialSection)
+    }
 
-        notifSection = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL }
-        notifSection.addView(section("Notification sync"))
-        notifStatus = label("", 14f, Color.DKGRAY)
-        notifSection.addView(notifStatus)
-        mirrorSwitch = Switch(this).apply {
-            text = "Send this phone's notifications to the remote"
-            isChecked = prefs.getBoolean("mirror", true)
-            setOnCheckedChangeListener { _, on ->
+    @Composable
+    private fun RoleCard(running: Boolean, effRole: String) {
+        SectionCard("This phone") {
+            SingleChoiceSegmentedButtonRow(Modifier.fillMaxWidth()) {
+                val options = listOf(LinkService.ROLE_GATEWAY to "Gateway", LinkService.ROLE_REMOTE to "Remote")
+                options.forEachIndexed { i, (r, label) ->
+                    SegmentedButton(
+                        selected = effRole == r,
+                        onClick = {
+                            role = r
+                            prefs.edit().putString("role", r).apply()
+                        },
+                        shape = SegmentedButtonDefaults.itemShape(i, options.size),
+                        enabled = !running
+                    ) { Text(label) }
+                }
+            }
+            Text(
+                if (effRole == LinkService.ROLE_GATEWAY) "Has the SIM / internet. Sends calls and notifications to the remote."
+                else "Watch mode: no internet. Rings, answers and dials through the gateway.",
+                style = MaterialTheme.typography.bodyMedium,
+                color = MaterialTheme.colorScheme.onSurfaceVariant
+            )
+        }
+    }
+
+    @Composable
+    private fun DeviceCard() {
+        SectionCard("Gateway phone") {
+            if (devices.isEmpty()) {
+                Text(
+                    "No paired phones. Pair both phones in Android Bluetooth settings first.",
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+            }
+            devices.forEach { (name, addr) ->
+                Row(
+                    Modifier
+                        .fillMaxWidth()
+                        .clip(RoundedCornerShape(16.dp))
+                        .clickable { selectedDevice = addr }
+                        .padding(vertical = 4.dp),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    RadioButton(selected = selectedDevice == addr, onClick = { selectedDevice = addr })
+                    Column(Modifier.weight(1f)) {
+                        Text(name, style = MaterialTheme.typography.bodyLarge)
+                        Text(addr, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    }
+                }
+            }
+            TextButton(onClick = { loadDevices() }) {
+                Icon(Icons.Filled.Refresh, contentDescription = null)
+                Spacer(Modifier.width(8.dp))
+                Text("Refresh paired phones")
+            }
+        }
+    }
+
+    @Composable
+    private fun ConnectionCard(s: LinkService?, running: Boolean) {
+        SectionCard("Connection") {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                when {
+                    !running -> Dot(MaterialTheme.colorScheme.outline)
+                    s!!.connected -> Dot(MaterialTheme.colorScheme.primary)
+                    else -> LoadingIndicator(Modifier.size(28.dp))
+                }
+                Spacer(Modifier.width(12.dp))
+                Text(
+                    if (!running) "Stopped" else s!!.connectionState,
+                    style = MaterialTheme.typography.titleLarge
+                )
+            }
+            Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                Button(
+                    onClick = { startLink() },
+                    enabled = !running,
+                    modifier = Modifier.weight(1f).height(56.dp)
+                ) { Text("Start") }
+                OutlinedButton(
+                    onClick = { stopLink() },
+                    enabled = running,
+                    modifier = Modifier.weight(1f).height(56.dp)
+                ) { Text("Stop") }
+            }
+        }
+    }
+
+    @Composable
+    private fun Dot(color: Color) {
+        Box(Modifier.size(14.dp).clip(CircleShape).background(color))
+    }
+
+    @Composable
+    private fun CallCard(s: LinkService, isRemote: Boolean) {
+        val state = s.callState
+        val ringing = state == LinkService.CALL_RINGING
+        val inCall = state == LinkService.CALL_OFFHOOK
+        Card(
+            modifier = Modifier.fillMaxWidth(),
+            shape = RoundedCornerShape(32.dp),
+            colors = CardDefaults.cardColors(
+                containerColor = if (ringing || inCall) MaterialTheme.colorScheme.primaryContainer
+                else MaterialTheme.colorScheme.surfaceContainer
+            )
+        ) {
+            Column(
+                Modifier.fillMaxWidth().padding(24.dp),
+                horizontalAlignment = Alignment.CenterHorizontally,
+                verticalArrangement = Arrangement.spacedBy(12.dp)
+            ) {
+                Icon(
+                    if (ringing || inCall) Icons.Filled.Call else Icons.Filled.Person,
+                    contentDescription = null,
+                    modifier = Modifier.size(40.dp),
+                    tint = MaterialTheme.colorScheme.onPrimaryContainer
+                )
+                Text(
+                    when {
+                        ringing -> "Incoming call"
+                        inCall -> "In call"
+                        else -> "No active phone call"
+                    },
+                    style = MaterialTheme.typography.labelLarge
+                )
+                if (ringing || inCall) {
+                    Text(s.display(), style = MaterialTheme.typography.headlineMedium, textAlign = TextAlign.Center)
+                }
+                if (inCall && isRemote) {
+                    Text(
+                        "Audio is on the gateway phone",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                }
+                if (ringing) {
+                    Row(horizontalArrangement = Arrangement.spacedBy(16.dp)) {
+                        Button(
+                            onClick = { s.reject() },
+                            modifier = Modifier.weight(1f).height(64.dp),
+                            colors = ButtonDefaults.buttonColors(
+                                containerColor = MaterialTheme.colorScheme.error,
+                                contentColor = MaterialTheme.colorScheme.onError
+                            )
+                        ) {
+                            Icon(Icons.Filled.Close, contentDescription = null)
+                            Spacer(Modifier.width(8.dp))
+                            Text("Reject")
+                        }
+                        Button(
+                            onClick = { s.answer() },
+                            modifier = Modifier.weight(1f).height(64.dp),
+                            colors = ButtonDefaults.buttonColors(
+                                containerColor = Color(0xFF1E8E3E),
+                                contentColor = Color.White
+                            )
+                        ) {
+                            Icon(Icons.Filled.Call, contentDescription = null)
+                            Spacer(Modifier.width(8.dp))
+                            Text("Answer")
+                        }
+                    }
+                }
+                if (inCall) {
+                    Button(
+                        onClick = { s.hangUp() },
+                        modifier = Modifier.fillMaxWidth().height(56.dp),
+                        colors = ButtonDefaults.buttonColors(
+                            containerColor = MaterialTheme.colorScheme.error,
+                            contentColor = MaterialTheme.colorScheme.onError
+                        )
+                    ) { Text("Hang up") }
+                }
+            }
+        }
+    }
+
+    @Composable
+    private fun DialCard(s: LinkService) {
+        var query by remember { mutableStateOf("") }
+        var picked by remember { mutableStateOf<Contact?>(null) }
+        val suggestions = remember(query, contacts, picked) {
+            if (picked != null && picked!!.label() == query) emptyList()
+            else ContactStore.search(contacts, query)
+        }
+        SectionCard("Make a call") {
+            OutlinedTextField(
+                value = query,
+                onValueChange = {
+                    query = it
+                    if (picked?.label() != it) picked = null
+                },
+                label = { Text("Name or number") },
+                singleLine = true,
+                keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Text),
+                shape = RoundedCornerShape(16.dp),
+                modifier = Modifier.fillMaxWidth()
+            )
+            if (suggestions.isNotEmpty()) {
+                Column(
+                    Modifier
+                        .fillMaxWidth()
+                        .clip(RoundedCornerShape(20.dp))
+                        .background(MaterialTheme.colorScheme.surfaceContainerHighest)
+                ) {
+                    suggestions.forEachIndexed { i, c ->
+                        if (i > 0) HorizontalDivider()
+                        Row(
+                            Modifier
+                                .fillMaxWidth()
+                                .clickable {
+                                    picked = c
+                                    query = c.label()
+                                }
+                                .padding(horizontal = 16.dp, vertical = 12.dp),
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Icon(Icons.Filled.Person, contentDescription = null, tint = MaterialTheme.colorScheme.primary)
+                            Spacer(Modifier.width(12.dp))
+                            Column {
+                                Text(c.name.ifEmpty { c.number }, style = MaterialTheme.typography.bodyLarge)
+                                Text(c.number, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                            }
+                        }
+                    }
+                }
+            }
+            Button(
+                onClick = {
+                    val c = picked
+                    val n = if (c != null && c.label() == query.trim()) c.number
+                    else query.substringBefore("·").filter { it.isDigit() || it == '+' || it == '*' || it == '#' }
+                    if (n.isEmpty()) toast("Pick a contact or enter a number") else s.dial(n)
+                },
+                modifier = Modifier.fillMaxWidth().height(56.dp)
+            ) {
+                Icon(Icons.Filled.Call, contentDescription = null)
+                Spacer(Modifier.width(8.dp))
+                Text("Call")
+            }
+            Text(
+                "${contacts.size} contacts available",
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant
+            )
+        }
+    }
+
+    @Composable
+    private fun NotificationCard(s: LinkService?, running: Boolean) {
+        val enabled = NotifListener.isEnabled(this)
+        val bound = NotifListener.instance != null
+        SectionCard("Notification sync") {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Icon(
+                    Icons.Filled.Notifications,
+                    contentDescription = null,
+                    tint = when {
+                        !enabled -> MaterialTheme.colorScheme.error
+                        !bound -> MaterialTheme.colorScheme.tertiary
+                        else -> MaterialTheme.colorScheme.primary
+                    }
+                )
+                Spacer(Modifier.width(12.dp))
+                Text(
+                    when {
+                        !enabled -> "Notification access is OFF"
+                        !bound -> "Access ON – listener not connected yet"
+                        else -> "Notification sync is active"
+                    },
+                    style = MaterialTheme.typography.bodyLarge
+                )
+            }
+            if (!enabled) {
+                Text(
+                    "Allow VGS in Notification access. If it's greyed out (\"Restricted setting\"): open App info → ⋮ (top right) → Allow restricted settings, then try again.",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+            } else if (!bound) {
+                Text(
+                    "If this stays, turn VGS off and on again in Notification access.",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+            }
+            SwitchRow("Send notifications to the remote", mirrorOn) { on ->
+                mirrorOn = on
                 prefs.edit().putBoolean("mirror", on).apply()
                 Hub.log("Notification sync switch " + if (on) "ON" else "OFF")
             }
-        }
-        notifSection.addView(mirrorSwitch)
-        notifSection.addView(button("Open notification access settings") {
-            try {
-                startActivity(Intent(Settings.ACTION_NOTIFICATION_LISTENER_SETTINGS))
-            } catch (e: Exception) {
-                toast("Open Settings → Notifications → Notification access, and allow VGS")
+            FilledTonalButton(
+                onClick = { openSettings(Settings.ACTION_NOTIFICATION_LISTENER_SETTINGS) },
+                modifier = Modifier.fillMaxWidth()
+            ) {
+                Icon(Icons.Filled.Settings, contentDescription = null)
+                Spacer(Modifier.width(8.dp))
+                Text("Notification access settings")
             }
-        })
-        notifSection.addView(button("Open VGS App info (for 'Allow restricted settings')") {
-            try {
-                startActivity(
-                    Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS)
-                        .setData(android.net.Uri.fromParts("package", packageName, null))
-                )
-            } catch (e: Exception) {
-                toast("Open Settings → Apps → VGS")
-            }
-        })
-        notifSection.addView(button("Send test notification to remote") {
-            val s = Hub.service
-            if (s == null || !s.isActive) toast("Press Start first") else s.sendTestNotification()
-        })
-        root.addView(notifSection)
-
-        root.addView(section("Voice link"))
-        voiceBtn = button("Start voice link") { Hub.service?.toggleVoice() }
-        root.addView(voiceBtn)
-        speakerBtn = button("Loudspeaker") {
-            val s = Hub.service
-            if (s != null) s.setLocalSpeaker(!s.speakerOn)
+            OutlinedButton(
+                onClick = { openSettings(Settings.ACTION_APPLICATION_DETAILS_SETTINGS, withPackage = true) },
+                modifier = Modifier.fillMaxWidth()
+            ) { Text("App info (Allow restricted settings)") }
+            OutlinedButton(
+                onClick = {
+                    if (s == null || !running) toast("Press Start first") else s.sendTestNotification()
+                },
+                modifier = Modifier.fillMaxWidth()
+            ) { Text("Send test notification to remote") }
         }
-        root.addView(speakerBtn)
-        gwSpeakerBtn = button("Gateway speaker") {
-            gatewaySpeaker = !gatewaySpeaker
-            Hub.service?.setGatewaySpeaker(gatewaySpeaker)
-            refresh()
-        }
-        root.addView(gwSpeakerBtn)
-
-        root.addView(section("Log"))
-        logView = label("", 12f, Color.DKGRAY)
-        logView.typeface = Typeface.MONOSPACE
-        logView.setTextIsSelectable(true)
-        root.addView(logView)
-
-        return ScrollView(this).apply { addView(root) }
     }
 
-    private fun dp(v: Int): Int = (v * resources.displayMetrics.density).toInt()
-
-    private fun lp(top: Int = 0): LinearLayout.LayoutParams =
-        LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT)
-            .apply { topMargin = top }
-
-    private fun label(t: String, size: Float, color: Int = Color.BLACK, bold: Boolean = false): TextView =
-        TextView(this).apply {
-            text = t
-            textSize = size
-            setTextColor(color)
-            if (bold) setTypeface(typeface, Typeface.BOLD)
-            setPadding(0, dp(4), 0, dp(4))
-        }
-
-    private fun section(t: String): TextView =
-        label(t, 15f, Color.rgb(25, 80, 170), bold = true).apply { setPadding(0, dp(16), 0, dp(4)) }
-
-    private fun button(t: String, onClick: () -> Unit): Button =
-        Button(this).apply {
-            text = t
-            isAllCaps = false
-            setOnClickListener { onClick() }
-        }
-
-    private fun row(vararg views: View): LinearLayout =
-        LinearLayout(this).apply {
-            orientation = LinearLayout.HORIZONTAL
-            for (v in views) {
-                addView(v, LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f))
+    @Composable
+    private fun VoiceCard(s: LinkService, isRemote: Boolean) {
+        SectionCard("Voice link") {
+            Text(
+                "Talk live between the two phones over Bluetooth.",
+                style = MaterialTheme.typography.bodyMedium,
+                color = MaterialTheme.colorScheme.onSurfaceVariant
+            )
+            if (s.voiceActive) {
+                Button(
+                    onClick = { s.toggleVoice() },
+                    modifier = Modifier.fillMaxWidth().height(56.dp),
+                    colors = ButtonDefaults.buttonColors(
+                        containerColor = MaterialTheme.colorScheme.error,
+                        contentColor = MaterialTheme.colorScheme.onError
+                    )
+                ) { Text("End voice link") }
+            } else {
+                FilledTonalButton(
+                    onClick = { s.toggleVoice() },
+                    modifier = Modifier.fillMaxWidth().height(56.dp)
+                ) { Text("Start voice link") }
+            }
+            SwitchRow("This phone's loudspeaker", s.speakerOn) { on -> s.setLocalSpeaker(on) }
+            if (isRemote) {
+                SwitchRow("Gateway loudspeaker (during calls)", gatewaySpeaker) { on ->
+                    gatewaySpeaker = on
+                    s.setGatewaySpeaker(on)
+                }
             }
         }
+    }
 
-    private fun toast(msg: String) = Toast.makeText(this, msg, Toast.LENGTH_LONG).show()
+    @Composable
+    private fun SwitchRow(label: String, checked: Boolean, onChange: (Boolean) -> Unit) {
+        Row(
+            Modifier
+                .fillMaxWidth()
+                .clip(RoundedCornerShape(16.dp))
+                .clickable { onChange(!checked) }
+                .padding(vertical = 4.dp),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Text(label, style = MaterialTheme.typography.bodyLarge, modifier = Modifier.weight(1f))
+            Switch(checked = checked, onCheckedChange = onChange)
+        }
+    }
+
+    @Composable
+    private fun LogCard() {
+        SectionCard("Log") {
+            val text = Hub.logText()
+            Text(
+                text.ifEmpty { "Nothing yet" },
+                style = MaterialTheme.typography.bodySmall,
+                fontFamily = FontFamily.Monospace,
+                color = MaterialTheme.colorScheme.onSurfaceVariant
+            )
+        }
+    }
 }

@@ -24,7 +24,15 @@ jobs:
           echo "Android SDK: ${ANDROID_HOME:-$ANDROID_SDK_ROOT}"
           yes | "${ANDROID_HOME:-$ANDROID_SDK_ROOT}/cmdline-tools/latest/bin/sdkmanager" --licenses >/dev/null || true
           chmod +x gradlew
-          ./gradlew --no-daemon assembleDebug
+          set +e
+          ./gradlew --no-daemon assembleDebug 2>&1 | tee build.log
+          status=${PIPESTATUS[0]}
+          set -e
+          if [ "$status" -ne 0 ]; then
+            # Surface compiler / Gradle errors as annotations so they are visible without logs.
+            grep -E "^e: |What went wrong|requires|Could not|> |error:" build.log | head -40 | while IFS= read -r l; do echo "::error::$l"; done
+            exit "$status"
+          fi
           cp app/build/outputs/apk/debug/app-debug.apk VGS.apk
 
       - name: Upload APK (workflow artifact)

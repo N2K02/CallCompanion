@@ -4,13 +4,6 @@ import android.Manifest
 import android.content.Context
 import android.content.pm.PackageManager
 import android.provider.ContactsContract
-import android.view.LayoutInflater
-import android.view.View
-import android.view.ViewGroup
-import android.widget.BaseAdapter
-import android.widget.Filter
-import android.widget.Filterable
-import android.widget.TextView
 import java.io.File
 
 data class Contact(val name: String, val number: String) {
@@ -111,48 +104,14 @@ object ContactStore {
         }
         return out.sortedBy { it.name.lowercase() }
     }
-}
 
-/** Suggestion list for the dial box: matches name or digits as you type. */
-class ContactAdapter(private val ctx: Context) : BaseAdapter(), Filterable {
-    @Volatile
-    var all: List<Contact> = emptyList()
-    private var shown: List<Contact> = emptyList()
-
-    override fun getCount(): Int = shown.size
-    override fun getItem(position: Int): Any = shown[position]
-    override fun getItemId(position: Int): Long = position.toLong()
-
-    override fun getView(position: Int, convertView: View?, parent: ViewGroup?): View {
-        val v = convertView
-            ?: LayoutInflater.from(ctx).inflate(android.R.layout.simple_list_item_2, parent, false)
-        val c = shown[position]
-        v.findViewById<TextView>(android.R.id.text1).text = c.name.ifEmpty { c.number }
-        v.findViewById<TextView>(android.R.id.text2).text = c.number
-        return v
-    }
-
-    override fun getFilter(): Filter = object : Filter() {
-        override fun performFiltering(constraint: CharSequence?): FilterResults {
-            val q = constraint?.toString()?.substringBefore("·")?.trim()?.lowercase() ?: ""
-            val qd = ContactStore.digits(q)
-            val res = if (q.isEmpty()) emptyList() else all.filter { c ->
-                c.name.lowercase().contains(q) ||
-                    (qd.isNotEmpty() && ContactStore.digits(c.number).contains(qd))
-            }.take(50)
-            val r = FilterResults()
-            r.values = res
-            r.count = res.size
-            return r
-        }
-
-        @Suppress("UNCHECKED_CAST")
-        override fun publishResults(constraint: CharSequence?, results: FilterResults?) {
-            shown = (results?.values as? List<Contact>) ?: emptyList()
-            if (shown.isNotEmpty()) notifyDataSetChanged() else notifyDataSetInvalidated()
-        }
-
-        override fun convertResultToString(resultValue: Any?): CharSequence =
-            (resultValue as? Contact)?.label() ?: ""
+    /** Suggestions for the dial box: matches name or digits as you type. */
+    fun search(all: List<Contact>, query: String, limit: Int = 6): List<Contact> {
+        val q = query.substringBefore("·").trim().lowercase()
+        if (q.isEmpty()) return emptyList()
+        val qd = digits(q)
+        return all.asSequence().filter { c ->
+            c.name.lowercase().contains(q) || (qd.isNotEmpty() && digits(c.number).contains(qd))
+        }.take(limit).toList()
     }
 }
