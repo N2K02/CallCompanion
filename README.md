@@ -23,7 +23,7 @@ Android does **not** let a normal app capture or inject the audio of a SIM call.
 
 ## Install & test
 
-1. Download `VGS.apk` from the latest **Release** of this repo and install it on **both** phones (allow "install unknown apps").
+1. Download `VGS-<version>.apk` (e.g. `VGS-1.0.apk`) from the latest **Release** of this repo and install it on **both** phones (allow "install unknown apps").
 2. Pair the two phones in Android **Settings → Bluetooth**.
 3. **Gateway phone:** open VGS → choose *Gateway* → **Start** → allow all permissions (Phone, Microphone, Nearby devices, Notifications, Contacts, Call logs).
 4. **Remote phone:** open VGS → choose *Remote* → pick the gateway phone from the list → **Start** → allow permissions.
@@ -34,4 +34,4 @@ Tip: on some phones (Xiaomi, Samsung, Huawei) set VGS battery usage to **Unrestr
 
 ## Build
 
-Every push to `main` builds the APK with GitHub Actions and publishes it as a release. Locally: `./gradlew assembleRelease` (shrunk APK) (needs JDK 17 + Android SDK).
+Every push to `main` builds the APK with GitHub Actions and publishes it as a release named "VGS <version>" (1.0, 1.1, 1.2 …, one decimal place) with release notes listing the changes since the previous release. To jump to a new number (e.g. 2.0), run the workflow by hand from the Actions tab and type the version. Locally: `./gradlew assembleRelease` (shrunk APK) (needs JDK 17 + Android SDK).

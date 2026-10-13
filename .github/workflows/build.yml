@@ -4,20 +4,72 @@ on:
   push:
     branches: [ main ]
   workflow_dispatch:
+    inputs:
+      version:
+        description: 'Version to release, one decimal place (e.g. 2.0). Leave empty to add 0.1 to the last release.'
+        required: false
+        default: ''
 
 permissions:
   contents: write
+
+# Builds run one at a time, so two quick pushes never get the same version number.
+concurrency:
+  group: release
+  cancel-in-progress: false
+
+env:
+  APP: VGS
 
 jobs:
   build:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v5
+        with:
+          fetch-depth: 0   # full history + tags, for the version number and release notes
 
       - uses: actions/setup-java@v5
         with:
           distribution: temurin
           java-version: '17'
+
+      - name: Work out version and release notes
+        env:
+          REQUESTED: ${{ github.event.inputs.version }}
+        run: |
+          # Last release tag like v1.3 (one decimal place).
+          last=$(git tag -l 'v*' | grep -E '^v[0-9]+\.[0-9]$' | sort -V | tail -1 || true)
+          if [ -n "$REQUESTED" ]; then
+            echo "$REQUESTED" | grep -Eq '^[0-9]+\.[0-9]$' || { echo "::error::Version must look like 1.0"; exit 1; }
+            ver="$REQUESTED"
+          elif [ -z "$last" ]; then
+            ver="1.0"
+          else
+            t=${last#v}; n=$(( ${t%.*} * 10 + ${t#*.} + 1 ))   # add 0.1
+            ver="$(( n / 10 )).$(( n % 10 ))"
+          fi
+          echo "VERSION=$ver" >> "$GITHUB_ENV"
+          echo "Version: $ver (previous: ${last:-none})"
+
+          # Release notes = commit titles since the previous release (or the last old-style build).
+          prev="$last"
+          [ -n "$prev" ] || prev=$(git tag -l 'build-*' | sort -V | tail -1 || true)
+          if [ -n "$prev" ]; then range="$prev..HEAD"; else range="HEAD"; fi
+          changes=$(git log --no-merges --pretty='- %s' $range | head -40)
+          [ -n "$changes" ] || changes="- Rebuild, no code changes"
+          {
+            echo "## $APP $ver"
+            echo
+            echo "### What's new"
+            echo "$changes"
+            echo
+            echo "### Install"
+            echo "Download the APK below and install it on both phones."
+            echo
+            echo "_Built from \`${GITHUB_SHA::7}\`${prev:+ · changes since \`$prev\`}_"
+          } > release-notes.md
+          cat release-notes.md
 
       - name: Build APK
         run: |
@@ -25,25 +77,27 @@ jobs:
           yes | "${ANDROID_HOME:-$ANDROID_SDK_ROOT}/cmdline-tools/latest/bin/sdkmanager" --licenses >/dev/null || true
           chmod +x gradlew
           set -o pipefail
-          ./gradlew --no-daemon assembleRelease 2>&1 | tee build.log || {
+          ./gradlew --no-daemon assembleRelease -PappVersion="$VERSION" 2>&1 | tee build.log || {
             # One annotation with the full error text (GitHub caps annotations per step at 10).
             msg=$(grep -E '^e: |error:|What went wrong|Dependency .* requires|compileSdk|Android Gradle plugin' -A3 build.log | head -80 | sed -e 's/%/%25/g' | awk 'BEGIN{ORS="%0A"} {print}')
             echo "::error title=Build failed::$msg"
             exit 1
           }
-          cp app/build/outputs/apk/release/app-release.apk VGS.apk
+          # GitHub turns spaces in download names into dots, so the file is "<App>-<version>.apk".
+          cp app/build/outputs/apk/release/app-release.apk "$APP-$VERSION.apk"
 
       - name: Upload APK (workflow artifact)
         uses: actions/upload-artifact@v4
         with:
-          name: VGS-apk
-          path: VGS.apk
+          name: ${{ env.APP }}-${{ env.VERSION }}
+          path: ${{ env.APP }}-${{ env.VERSION }}.apk
 
       - name: Publish APK as a release (easy phone download)
         uses: softprops/action-gh-release@v2
         with:
-          tag_name: build-${{ github.run_number }}
-          name: VGS build ${{ github.run_number }}
-          body: Download VGS.apk below and install it on both phones.
-          files: VGS.apk
+          tag_name: v${{ env.VERSION }}
+          target_commitish: ${{ github.sha }}
+          name: ${{ env.APP }} ${{ env.VERSION }}
+          body_path: release-notes.md
+          files: ${{ env.APP }}-${{ env.VERSION }}.apk
           make_latest: true
