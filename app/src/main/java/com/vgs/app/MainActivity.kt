@@ -346,14 +346,13 @@ class MainActivity : ComponentActivity() {
         val scroll = TopAppBarDefaults.exitUntilCollapsedScrollBehavior()
 
         Scaffold(
-            modifier = Modifier.fillMaxSize().nestedScroll(FooterScroll.connection).nestedScroll(scroll.nestedScrollConnection),
+            modifier = Modifier.fillMaxSize().nestedScroll(scroll.nestedScrollConnection),
             topBar = {
                 LargeTopAppBar(
                     title = { Text("VGS", fontWeight = FontWeight.Bold) },
                     scrollBehavior = scroll
                 )
             },
-            bottomBar = { UpdateFooterBar("VGS") },
         ) { pad ->
             Column(
                 Modifier
@@ -386,9 +385,8 @@ class MainActivity : ComponentActivity() {
         val connected = running && s!!.connected
         val status = if (!running) "Stopped" else s!!.connectionState
         Scaffold(
-            modifier = Modifier.fillMaxSize().nestedScroll(FooterScroll.connection),
+            modifier = Modifier.fillMaxSize(),
             topBar = { TopAppBar(title = { Text("VGS gateway", fontWeight = FontWeight.Bold) }) },
-            bottomBar = { UpdateFooterBar("VGS") },
         ) { pad ->
             Column(
                 Modifier
@@ -398,6 +396,7 @@ class MainActivity : ComponentActivity() {
                     .padding(horizontal = 16.dp, vertical = 8.dp),
                 verticalArrangement = Arrangement.spacedBy(16.dp)
             ) {
+                UpdateCard()
                 SectionCard("Status") {
                     Row(verticalAlignment = Alignment.CenterVertically) {
                         when {
@@ -453,14 +452,13 @@ class MainActivity : ComponentActivity() {
         val scroll = TopAppBarDefaults.exitUntilCollapsedScrollBehavior()
 
         Scaffold(
-            modifier = Modifier.fillMaxSize().nestedScroll(FooterScroll.connection).nestedScroll(scroll.nestedScrollConnection),
+            modifier = Modifier.fillMaxSize().nestedScroll(scroll.nestedScrollConnection),
             topBar = {
                 LargeTopAppBar(
                     title = { Text("VGS", fontWeight = FontWeight.Bold) },
                     scrollBehavior = scroll
                 )
             },
-            bottomBar = { UpdateFooterBar("VGS") },
         ) { pad ->
             Column(
                 Modifier
@@ -470,6 +468,7 @@ class MainActivity : ComponentActivity() {
                     .padding(horizontal = 16.dp, vertical = 8.dp),
                 verticalArrangement = Arrangement.spacedBy(16.dp)
             ) {
+                UpdateCard()
                 SectionCard("1 · What is this phone?") {
                     RoleChoice(
                         LinkService.ROLE_GATEWAY, "Gateway",
