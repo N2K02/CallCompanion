@@ -276,7 +276,8 @@ class MainActivity : ComponentActivity() {
                     title = { Text("VGS", fontWeight = FontWeight.Bold) },
                     scrollBehavior = scroll
                 )
-            }
+            },
+            bottomBar = { UpdateFooterBar("VGS") },
         ) { pad ->
             Column(
                 Modifier
@@ -297,7 +298,6 @@ class MainActivity : ComponentActivity() {
                 if (effRole == LinkService.ROLE_GATEWAY) WhatsAppCard()
                 if (running) VoiceCard(s!!, isRemote)
                 LogCard()
-                UpdateFooter("VGS")
                 Spacer(Modifier.height(24.dp))
             }
         }
