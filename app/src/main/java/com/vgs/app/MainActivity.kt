@@ -131,7 +131,6 @@ class MainActivity : ComponentActivity() {
     private var devices by mutableStateOf<List<Pair<String, String>>>(emptyList())
     private var selectedDevice by mutableStateOf<String?>(null)
     private var contacts by mutableStateOf<List<Contact>>(emptyList())
-    private var mirrorOn by mutableStateOf(true)
     /** How outgoing calls are placed: "auto" (WhatsApp if possible, else SIM), "sim" or "wa". */
     private var dialMode by mutableStateOf("auto")
     private var showContacts by mutableStateOf(false)
@@ -150,7 +149,6 @@ class MainActivity : ComponentActivity() {
         roleChosen = savedRole != null
         role = savedRole ?: LinkService.ROLE_REMOTE
         selectedDevice = prefs.getString("device", null)
-        mirrorOn = prefs.getBoolean("mirror", true)
         dialMode = prefs.getString("dial_via", "auto") ?: "auto"
         setContent {
             VgsTheme {
@@ -162,6 +160,12 @@ class MainActivity : ComponentActivity() {
         inMain = roleChosen && allOk()
         loadDevices()
         loadContacts()
+        autoStartGateway()
+    }
+
+    /** The gateway is only the link between the phones, so it connects as soon as the app opens. */
+    private fun autoStartGateway() {
+        if (inMain && role == LinkService.ROLE_GATEWAY && Hub.service?.isActive != true) startLink()
     }
 
     override fun onResume() {
@@ -362,10 +366,10 @@ class MainActivity : ComponentActivity() {
                 RoleCard(running, effRole)
                 if (isRemote && !running) DeviceCard()
                 ConnectionCard(s, running)
-                if (running) CallCard(s!!, isRemote)
+                if (running && isRemote) CallCard(s!!, isRemote)
                 if (running && isRemote) DialCard(s!!)
                 if (effRole == LinkService.ROLE_GATEWAY) NotificationCard(s, running)
-                if (running) VoiceCard(s!!, isRemote)
+                if (running && isRemote) VoiceCard(s!!, isRemote)
                 LogCard()
                 Spacer(Modifier.height(24.dp))
             }
@@ -457,6 +461,7 @@ class MainActivity : ComponentActivity() {
                         loadDevices()
                         loadContacts()
                         inMain = true
+                        autoStartGateway()
                     },
                     enabled = allOk,
                     modifier = Modifier.fillMaxWidth().height(64.dp)
@@ -849,11 +854,6 @@ class MainActivity : ComponentActivity() {
                     },
                     style = MaterialTheme.typography.bodyLarge
                 )
-            }
-            SwitchRow("Send notifications to the remote", mirrorOn) { on ->
-                mirrorOn = on
-                prefs.edit().putBoolean("mirror", on).apply()
-                Hub.log("Notification sync switch " + if (on) "ON" else "OFF")
             }
             OutlinedButton(
                 onClick = {

@@ -822,7 +822,6 @@ class LinkService : Service() {
     fun mirrorBlockReason(): String? = when {
         !running -> "VGS is stopped (press Start)"
         role != ROLE_GATEWAY -> "this phone is not set as Gateway"
-        !getSharedPreferences("vgs", MODE_PRIVATE).getBoolean("mirror", true) -> "notification sync switch is OFF"
         !connected -> "remote phone not connected"
         else -> null
     }
