@@ -5,9 +5,14 @@ package com.vgs.app
 import android.Manifest
 import android.annotation.SuppressLint
 import android.bluetooth.BluetoothManager
+import android.bluetooth.BluetoothDevice
+import android.companion.AssociationRequest
+import android.companion.BluetoothDeviceFilter
+import android.companion.CompanionDeviceManager
 import android.content.ClipData
 import android.content.ClipboardManager
 import android.content.Intent
+import android.content.IntentSender
 import android.content.SharedPreferences
 import android.content.pm.PackageManager
 import android.net.Uri
@@ -17,6 +22,8 @@ import android.provider.Settings
 import android.widget.Toast
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.BackHandler
+import androidx.activity.result.IntentSenderRequest
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
 import androidx.compose.foundation.background
@@ -185,6 +192,15 @@ class MainActivity : ComponentActivity() {
         val running = Hub.service?.isActive == true
         if (!running && !(roleChosen && allOk())) inMain = false // something was switched off: set up again
         if (role == LinkService.ROLE_GATEWAY) NotifListener.rebind(this)
+        // Started in the background (no microphone service type)? We are in front now: upgrade it.
+        Hub.service?.let { svc ->
+            if (svc.isActive && !svc.hasMicType && granted(Manifest.permission.RECORD_AUDIO)) {
+                try {
+                    startForegroundService(Intent(this, LinkService::class.java).setAction(LinkService.ACTION_UPGRADE))
+                } catch (e: Exception) {
+                }
+            }
+        }
         tick++
     }
 
@@ -226,7 +242,16 @@ class MainActivity : ComponentActivity() {
     private fun granted(p: String) = checkSelfPermission(p) == PackageManager.PERMISSION_GRANTED
 
     /** One line in the setup checklist. [ask] = runtime permissions still to request. */
-    private class Req(val label: String, val why: String, val ok: Boolean, val ask: List<String>, val fix: () -> Unit)
+    private class Req(
+        val label: String,
+        val why: String,
+        val ok: Boolean,
+        val ask: List<String>,
+        val required: Boolean = true,
+        val fix: () -> Unit
+    )
+
+    private fun List<Req>.satisfied() = all { !it.required || it.ok }
 
     private fun runtimeReq(label: String, why: String, required: List<String>, extra: List<String> = emptyList()): Req {
         val missing = (required + extra).filter { !granted(it) }
@@ -269,6 +294,18 @@ class MainActivity : ComponentActivity() {
                 "Lets VGS open WhatsApp's call screen from the background",
                 AppCalls.canOpenFromBackground(this), emptyList()
             ) { openSettings(Settings.ACTION_MANAGE_OVERLAY_PERMISSION, withPackage = true) }
+            l += Req(
+                "Call audio helper",
+                "Recommended: turn on \"VGS call audio\" under Accessibility so the microphone keeps working during calls. It reads nothing from the screen.",
+                a11yEnabled(), emptyList(), required = false
+            ) { openSettings(Settings.ACTION_ACCESSIBILITY_SETTINGS) }
+            if (Build.VERSION.SDK_INT >= 31) {
+                l += Req(
+                    "Start with the remote",
+                    "Recommended: pick the remote phone (make its Bluetooth visible first) so the gateway starts by itself when the remote is near.",
+                    prefs.getBoolean("auto_start", false), emptyList(), required = false
+                ) { startCompanionPairing() }
+            }
         }
         return l
     }
@@ -285,7 +322,63 @@ class MainActivity : ComponentActivity() {
         }
     }
 
-    private fun allOk(): Boolean = requirements(role).all { it.ok }
+    private fun a11yEnabled(): Boolean {
+        val flat = Settings.Secure.getString(contentResolver, Settings.Secure.ENABLED_ACCESSIBILITY_SERVICES)
+            ?: return false
+        return flat.split(':').any { it.startsWith("$packageName/") && it.endsWith("CallAudioService") }
+    }
+
+    private val companionLauncher =
+        registerForActivityResult(ActivityResultContracts.StartIntentSenderForResult()) { res ->
+            if (res.resultCode == RESULT_OK) {
+                @Suppress("DEPRECATION")
+                val dev = res.data?.getParcelableExtra<BluetoothDevice>(CompanionDeviceManager.EXTRA_DEVICE)
+                if (dev != null) enableAutoStart(dev.address)
+            }
+        }
+
+    /** Pair the remote phone with Android's companion-device feature, so it can wake the gateway. */
+    private fun startCompanionPairing() {
+        val cdm = getSystemService(CompanionDeviceManager::class.java)
+        if (cdm == null) {
+            toast("This phone doesn't support it")
+            return
+        }
+        val request = AssociationRequest.Builder()
+            .addDeviceFilter(BluetoothDeviceFilter.Builder().build())
+            .setSingleDevice(false)
+            .build()
+        try {
+            @Suppress("DEPRECATION")
+            cdm.associate(request, object : CompanionDeviceManager.Callback() {
+                @Deprecated("Replaced by onAssociationPending")
+                override fun onDeviceFound(chooserLauncher: IntentSender) {
+                    companionLauncher.launch(IntentSenderRequest.Builder(chooserLauncher).build())
+                }
+
+                override fun onFailure(error: CharSequence?) {
+                    toast("Couldn't find the remote: ${error ?: "unknown error"}. Make its Bluetooth visible and try again")
+                }
+            }, null)
+        } catch (e: Exception) {
+            toast("Couldn't start pairing: ${e.message}")
+        }
+    }
+
+    @SuppressLint("MissingPermission")
+    private fun enableAutoStart(address: String) {
+        try {
+            @Suppress("DEPRECATION")
+            getSystemService(CompanionDeviceManager::class.java)?.startObservingDevicePresence(address)
+            prefs.edit().putBoolean("auto_start", true).putString("companion_addr", address).apply()
+            toast("Done: the gateway starts by itself when the remote is near")
+        } catch (e: Exception) {
+            toast("Couldn't watch for the remote: ${e.message}")
+        }
+        tick++
+    }
+
+    private fun allOk(): Boolean = requirements(role).satisfied()
 
     // ---------------------------------------------------------------- actions
 
@@ -485,7 +578,7 @@ class MainActivity : ComponentActivity() {
         val chosen = roleChosen
         val sel = if (chosen) role else ""
         val reqs = if (chosen) requirements(role) else emptyList()
-        val allOk = chosen && reqs.all { it.ok }
+        val allOk = chosen && reqs.satisfied()
         val toAsk = reqs.flatMap { it.ask }.distinct()
         val scroll = TopAppBarDefaults.exitUntilCollapsedScrollBehavior()
 
@@ -534,10 +627,19 @@ class MainActivity : ComponentActivity() {
                     } else {
                         reqs.forEach { r ->
                             Row(verticalAlignment = Alignment.CenterVertically) {
-                                Dot(if (r.ok) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.error)
+                                Dot(
+                                    when {
+                                        r.ok -> MaterialTheme.colorScheme.primary
+                                        r.required -> MaterialTheme.colorScheme.error
+                                        else -> MaterialTheme.colorScheme.tertiary
+                                    }
+                                )
                                 Spacer(Modifier.width(12.dp))
                                 Column(Modifier.weight(1f)) {
-                                    Text(r.label, style = MaterialTheme.typography.bodyLarge)
+                                    Text(
+                                        r.label + if (!r.required) " (optional)" else "",
+                                        style = MaterialTheme.typography.bodyLarge
+                                    )
                                     Text(
                                         r.why,
                                         style = MaterialTheme.typography.bodySmall,

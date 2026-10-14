@@ -54,6 +54,8 @@ class LinkService : Service() {
 
         const val ACTION_START = "com.vgs.app.START"
         const val ACTION_STOP = "com.vgs.app.STOP"
+        const val ACTION_UPGRADE = "com.vgs.app.UPGRADE_MIC"
+        const val EXTRA_BACKGROUND = "background"
         const val ACTION_ANSWER = "com.vgs.app.ANSWER"
         const val ACTION_REJECT = "com.vgs.app.REJECT"
         const val ACTION_NOTIF_DISMISSED = "com.vgs.app.NOTIF_DISMISSED"
@@ -93,6 +95,8 @@ class LinkService : Service() {
         private set
     /** Remote: last loudspeaker setting sent to the gateway. */
     @Volatile var gatewaySpeakerOn: Boolean = false
+    /** False when started from the background: Android then refuses the microphone service type. */
+    @Volatile var hasMicType: Boolean = false
         private set
 
     // Gateway: SIM call and WhatsApp call are tracked separately; the SIM call wins.
@@ -162,7 +166,7 @@ class LinkService : Service() {
                 running = true
                 connectionState = "Starting…"
                 Hub.log("Started as ${if (role == ROLE_GATEWAY) "gateway" else "remote"}")
-                goForeground()
+                goForeground(!intent.getBooleanExtra(EXTRA_BACKGROUND, false))
                 if (role == ROLE_GATEWAY) {
                     registerPhoneReceiver()
                     registerContactObserver()
@@ -174,6 +178,8 @@ class LinkService : Service() {
                 shutdown()
                 stopSelf()
             }
+            // The app is open now: allow the microphone type that a background start could not get.
+            ACTION_UPGRADE -> if (running) goForeground(true) else stopSelf()
             ACTION_ANSWER -> if (running) answer() else stopSelf()
             ACTION_REJECT -> if (running) reject() else stopSelf()
             ACTION_NOTIF_DISMISSED -> {
@@ -231,6 +237,13 @@ class LinkService : Service() {
         if (!audio.isRunning) toggleVoice()
         Hub.log("📞 Call moved to this phone (gateway loudspeaker + voice link)")
         updateStatus()
+    }
+
+    /** Gateway: the remote switched our loudspeaker on; put the call back on the earpiece. */
+    private fun resetGatewaySpeaker() {
+        if (!gatewaySpeakerOn) return
+        gatewaySpeakerOn = false
+        AudioRoute.setSpeaker(this, false)
     }
 
     /** Remote: hand the audio back to the gateway phone. */
@@ -379,6 +392,7 @@ class LinkService : Service() {
             if (socket === s) socket = null
             connected = false
             audio.stop()
+            if (role == ROLE_GATEWAY) resetGatewaySpeaker() // link dropped: don't stay on loudspeaker
             if (role == ROLE_REMOTE) {
                 stopRinging()
                 callState = CALL_IDLE
@@ -595,6 +609,7 @@ class LinkService : Service() {
             callNumber = ""
             callName = ""
             callSource = ""
+            if (role == ROLE_GATEWAY) resetGatewaySpeaker()
         }
         val sig = listOf(callState, callNumber, callName, callSource).joinToString("|")
         if (sig != lastCallSent) {
@@ -1030,19 +1045,28 @@ class LinkService : Service() {
         return b.build()
     }
 
-    private fun goForeground() {
+    private fun goForeground(withMic: Boolean = true) {
         val n = statusNotification()
-        when {
-            Build.VERSION.SDK_INT >= 30 -> {
-                var type = ServiceInfo.FOREGROUND_SERVICE_TYPE_CONNECTED_DEVICE
-                if (has(Manifest.permission.RECORD_AUDIO)) {
-                    type = type or ServiceInfo.FOREGROUND_SERVICE_TYPE_MICROPHONE
+        try {
+            when {
+                Build.VERSION.SDK_INT >= 30 -> {
+                    var type = ServiceInfo.FOREGROUND_SERVICE_TYPE_CONNECTED_DEVICE
+                    val mic = withMic && has(Manifest.permission.RECORD_AUDIO)
+                    if (mic) type = type or ServiceInfo.FOREGROUND_SERVICE_TYPE_MICROPHONE
+                    startForeground(ID_STATUS, n, type)
+                    hasMicType = mic
                 }
-                startForeground(ID_STATUS, n, type)
+                Build.VERSION.SDK_INT >= 29 ->
+                    startForeground(ID_STATUS, n, ServiceInfo.FOREGROUND_SERVICE_TYPE_CONNECTED_DEVICE)
+                else -> startForeground(ID_STATUS, n)
             }
-            Build.VERSION.SDK_INT >= 29 ->
+        } catch (e: Exception) {
+            // The microphone type is refused when started from the background: keep the link, voice waits.
+            Hub.log("Started without microphone access (${e.message}) – open the app once to enable voice")
+            if (Build.VERSION.SDK_INT >= 30) {
                 startForeground(ID_STATUS, n, ServiceInfo.FOREGROUND_SERVICE_TYPE_CONNECTED_DEVICE)
-            else -> startForeground(ID_STATUS, n)
+            }
+            hasMicType = false
         }
     }
 
