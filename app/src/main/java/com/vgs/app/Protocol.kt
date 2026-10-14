@@ -68,8 +68,13 @@ object Hub {
         notifyUi()
     }
 
-    /** Whole log, oldest first, for copying. */
-    fun logCopyText(): String = synchronized(lines) { lines.joinToString("\n") }
+    /** Whole log, newest first (same order as the screen), for copying. */
+    fun logCopyText(): String = logText()
+
+    fun clearLog() {
+        synchronized(lines) { lines.clear() }
+        notifyUi()
+    }
 
     fun logText(): String = synchronized(lines) { lines.reversed().joinToString("\n") }
 

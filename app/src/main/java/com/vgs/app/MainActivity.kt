@@ -46,6 +46,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.Call
 import androidx.compose.material.icons.filled.Close
+import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Notifications
 import androidx.compose.material.icons.filled.Person
 import androidx.compose.material.icons.filled.Refresh
@@ -916,6 +917,12 @@ class MainActivity : ComponentActivity() {
                 }
             }) {
                 Icon(CopyIcon, contentDescription = "Copy log", tint = MaterialTheme.colorScheme.primary)
+            }
+            IconButton(onClick = {
+                Hub.clearLog()
+                toast("Log cleared")
+            }) {
+                Icon(Icons.Filled.Delete, contentDescription = "Clear log", tint = MaterialTheme.colorScheme.primary)
             }
         }) {
             Text(
