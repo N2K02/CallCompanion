@@ -131,8 +131,11 @@ class MainActivity : ComponentActivity() {
     private var devices by mutableStateOf<List<Pair<String, String>>>(emptyList())
     private var selectedDevice by mutableStateOf<String?>(null)
     private var contacts by mutableStateOf<List<Contact>>(emptyList())
-    /** How outgoing calls are placed: "auto" (WhatsApp if possible, else SIM), "sim" or "wa". */
-    private var dialMode by mutableStateOf("auto")
+    /** How outgoing calls are placed: "sim" or "wa". */
+    private var dialMode by mutableStateOf("sim")
+    /** The "Make a call" input, kept here so the contacts page can fill it. */
+    private var dialQuery by mutableStateOf("")
+    private var dialPicked by mutableStateOf<Contact?>(null)
     private var showContacts by mutableStateOf(false)
     /** False until the user has picked a role (first launch). */
     private var roleChosen by mutableStateOf(false)
@@ -149,7 +152,7 @@ class MainActivity : ComponentActivity() {
         roleChosen = savedRole != null
         role = savedRole ?: LinkService.ROLE_REMOTE
         selectedDevice = prefs.getString("device", null)
-        dialMode = prefs.getString("dial_via", "auto") ?: "auto"
+        dialMode = if (prefs.getString("dial_via", "sim") == "wa") "wa" else "sim"
         setContent {
             VgsTheme {
                 BackHandler(enabled = showContacts) { showContacts = false }
@@ -367,7 +370,7 @@ class MainActivity : ComponentActivity() {
                 ConnectionCard(s, running)
                 if (running && isRemote) CallCard(s!!, isRemote)
                 if (running && isRemote) DialCard(s!!)
-                if (running && isRemote) VoiceCard(s!!, isRemote)
+                if (running && isRemote) SpeakerCard(s!!)
                 LogCard()
                 Spacer(Modifier.height(24.dp))
             }
@@ -794,18 +797,21 @@ class MainActivity : ComponentActivity() {
     @Composable
     private fun DialCard(s: LinkService) {
         tick // read the refresh counter so this card redraws on every update
-        var query by remember { mutableStateOf("") }
-        var picked by remember { mutableStateOf<Contact?>(null) }
+        val query = dialQuery
+        val picked = dialPicked
         val suggestions = remember(query, contacts, picked) {
-            if (picked != null && picked!!.label() == query) emptyList()
+            if (picked != null && picked.label() == query) emptyList()
             else ContactStore.search(contacts, query)
         }
+        val number = if (picked != null && picked.label() == query.trim()) picked.number
+        else query.substringBefore("·").filter { it.isDigit() || it == '+' || it == '*' || it == '#' }
+        val valid = number.count { it.isDigit() } >= (if (dialMode == "wa") 6 else 3)
         SectionCard("Make a call") {
             OutlinedTextField(
                 value = query,
                 onValueChange = {
-                    query = it
-                    if (picked?.label() != it) picked = null
+                    dialQuery = it
+                    if (picked?.label() != it) dialPicked = null
                 },
                 label = { Text("Name or number") },
                 singleLine = true,
@@ -826,8 +832,8 @@ class MainActivity : ComponentActivity() {
                             Modifier
                                 .fillMaxWidth()
                                 .clickable {
-                                    picked = c
-                                    query = c.label()
+                                    dialPicked = c
+                                    dialQuery = c.label()
                                 }
                                 .padding(horizontal = 16.dp, vertical = 12.dp),
                             verticalAlignment = Alignment.CenterVertically
@@ -842,26 +848,21 @@ class MainActivity : ComponentActivity() {
                     }
                 }
             }
-            Text("Call with", style = MaterialTheme.typography.labelLarge)
             SingleChoiceSegmentedButtonRow(Modifier.fillMaxWidth()) {
                 ModeOptions()
             }
             OutlinedButton(
                 onClick = { showContacts = true },
-                modifier = Modifier.fillMaxWidth().height(56.dp)
+                modifier = Modifier.fillMaxWidth().height(48.dp)
             ) {
                 Icon(Icons.Filled.Person, contentDescription = null)
                 Spacer(Modifier.width(8.dp))
                 Text("Choose from contacts")
             }
             Button(
-                onClick = {
-                    val c = picked
-                    val n = if (c != null && c.label() == query.trim()) c.number
-                    else query.substringBefore("·").filter { it.isDigit() || it == '+' || it == '*' || it == '#' }
-                    if (n.isEmpty()) toast("Pick a contact or enter a number") else s.dial(n, dialMode)
-                },
-                modifier = Modifier.fillMaxWidth().height(56.dp),
+                onClick = { s.dial(number, dialMode) },
+                enabled = valid,
+                modifier = Modifier.fillMaxWidth().height(48.dp),
                 colors = if (dialMode == "wa") ButtonDefaults.buttonColors(
                     containerColor = Color(0xFF1E8E3E),
                     contentColor = Color.White
@@ -869,159 +870,30 @@ class MainActivity : ComponentActivity() {
             ) {
                 Icon(Icons.Filled.Call, contentDescription = null)
                 Spacer(Modifier.width(8.dp))
-                Text(when (dialMode) { "wa" -> "WhatsApp call"; "auto" -> "Call (auto)"; else -> "Call" })
+                Text(if (dialMode == "wa") "WhatsApp call" else "Call")
             }
-            if (dialMode != "sim") {
+            if (dialMode == "wa") {
                 Text(
-                    if (dialMode == "auto") "Auto: calls by WhatsApp when the gateway has the contact in WhatsApp, otherwise by SIM."
-                    else "The number must be a WhatsApp contact in the gateway phone's contacts.",
+                    "The number must be a WhatsApp contact in the gateway phone's contacts.",
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant
                 )
             }
+        }
+    }
+
+    /** The voice link itself runs automatically over Bluetooth; the only choice is the loudspeaker. */
+    @Composable
+    private fun SpeakerCard(s: LinkService) {
+        tick // read the refresh counter so this card redraws on every update
+        val loud = s.speakerOn
+        SectionCard("Speaker") {
+            SwitchRow("Loudspeaker", loud) { on -> s.setLocalSpeaker(on) }
             Text(
-                "${contacts.size} contacts available",
+                "Off: sound plays in this phone's earpiece.",
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant
             )
-        }
-    }
-
-    @Composable
-    private fun VoiceCard(s: LinkService, isRemote: Boolean) {
-        tick // read the refresh counter so this card redraws on every update
-        // Read service state outside the lambda so the card refreshes (see LogCard).
-        val voiceOn = s.voiceActive
-        val localSpeaker = s.speakerOn
-        val gatewaySpeaker = s.gatewaySpeakerOn
-        SectionCard("Voice link") {
-            Text(
-                "Talk live between the two phones over Bluetooth.",
-                style = MaterialTheme.typography.bodyMedium,
-                color = MaterialTheme.colorScheme.onSurfaceVariant
-            )
-            if (voiceOn) {
-                Button(
-                    onClick = { s.toggleVoice() },
-                    modifier = Modifier.fillMaxWidth().height(56.dp),
-                    colors = ButtonDefaults.buttonColors(
-                        containerColor = MaterialTheme.colorScheme.error,
-                        contentColor = MaterialTheme.colorScheme.onError
-                    )
-                ) { Text("End voice link") }
-            } else {
-                FilledTonalButton(
-                    onClick = { s.toggleVoice() },
-                    modifier = Modifier.fillMaxWidth().height(56.dp)
-                ) { Text("Start voice link") }
-            }
-            SwitchRow("This phone's loudspeaker", localSpeaker) { on -> s.setLocalSpeaker(on) }
-            if (isRemote) {
-                SwitchRow("Gateway loudspeaker (during calls)", gatewaySpeaker) { on ->
-                    s.setGatewaySpeaker(on)
-                }
-            }
-        }
-    }
-
-    @Composable
-    private fun SingleChoiceSegmentedButtonRowScope.ModeOptions() {
-        val options = listOf("auto" to "Auto", "sim" to "Phone (SIM)", "wa" to "WhatsApp")
-        options.forEachIndexed { i, (mode, label) ->
-            SegmentedButton(
-                selected = dialMode == mode,
-                onClick = {
-                    dialMode = mode
-                    prefs.edit().putString("dial_via", mode).apply()
-                },
-                shape = SegmentedButtonDefaults.itemShape(i, options.size)
-            ) { Text(label) }
-        }
-    }
-
-    /** Full-screen contact list: tap a contact to call it with the chosen method. */
-    @Composable
-    private fun ContactsPage() {
-        tick // read the refresh counter so this page redraws on every update
-        var query by remember { mutableStateOf("") }
-        val q = query.trim().lowercase()
-        val qd = ContactStore.digits(q)
-        val shown = if (q.isEmpty()) contacts else contacts.filter { c ->
-            c.name.lowercase().contains(q) || (qd.isNotEmpty() && ContactStore.digits(c.number).contains(qd))
-        }
-        Scaffold(
-            modifier = Modifier.fillMaxSize(),
-            topBar = {
-                TopAppBar(
-                    title = { Text("Contacts", fontWeight = FontWeight.Bold) },
-                    navigationIcon = {
-                        IconButton(onClick = { showContacts = false }) {
-                            Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back")
-                        }
-                    }
-                )
-            }
-        ) { pad ->
-            Column(
-                Modifier.padding(pad).fillMaxSize().padding(horizontal = 16.dp),
-                verticalArrangement = Arrangement.spacedBy(12.dp)
-            ) {
-                OutlinedTextField(
-                    value = query,
-                    onValueChange = { query = it },
-                    label = { Text("Search (optional)") },
-                    singleLine = true,
-                    shape = RoundedCornerShape(16.dp),
-                    modifier = Modifier.fillMaxWidth()
-                )
-                Text("Call with", style = MaterialTheme.typography.labelLarge)
-                SingleChoiceSegmentedButtonRow(Modifier.fillMaxWidth()) { ModeOptions() }
-                Text(
-                    "${shown.size} of ${contacts.size} contacts · tap one to call",
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant
-                )
-                if (contacts.isEmpty()) {
-                    Text(
-                        "No contacts yet. Connect to the gateway so it can send its contacts, or allow the Contacts permission on this phone.",
-                        style = MaterialTheme.typography.bodyMedium,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant
-                    )
-                }
-                LazyColumn(Modifier.fillMaxSize()) {
-                    items(shown) { c ->
-                        Row(
-                            Modifier
-                                .fillMaxWidth()
-                                .clickable {
-                                    val svc = Hub.service
-                                    if (svc == null || !svc.isActive) toast("Press Start first") else {
-                                        svc.dial(c.number, dialMode)
-                                        showContacts = false
-                                        toast("Calling " + c.name.ifEmpty { c.number })
-                                    }
-                                }
-                                .padding(vertical = 12.dp),
-                            verticalAlignment = Alignment.CenterVertically
-                        ) {
-                            Icon(Icons.Filled.Person, contentDescription = null, tint = MaterialTheme.colorScheme.primary)
-                            Spacer(Modifier.width(16.dp))
-                            Column(Modifier.weight(1f)) {
-                                Text(c.name.ifEmpty { c.number }, style = MaterialTheme.typography.bodyLarge)
-                                if (c.name.isNotEmpty()) {
-                                    Text(
-                                        c.number,
-                                        style = MaterialTheme.typography.bodySmall,
-                                        color = MaterialTheme.colorScheme.onSurfaceVariant
-                                    )
-                                }
-                            }
-                            Icon(Icons.Filled.Call, contentDescription = "Call", tint = MaterialTheme.colorScheme.primary)
-                        }
-                        HorizontalDivider()
-                    }
-                }
-            }
         }
     }
 

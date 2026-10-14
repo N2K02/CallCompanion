@@ -156,6 +156,7 @@ class LinkService : Service() {
                 if (running) shutdown()
                 role = intent.getStringExtra(EXTRA_ROLE) ?: ROLE_REMOTE
                 deviceAddress = intent.getStringExtra(EXTRA_DEVICE)
+                if (role == ROLE_REMOTE) audio.setSpeaker(false) // remote: earpiece unless switched on
                 running = true
                 connectionState = "Starting…"
                 Hub.log("Started as ${if (role == ROLE_GATEWAY) "gateway" else "remote"}")
