@@ -21,6 +21,7 @@ import android.graphics.drawable.Icon
 import android.media.Ringtone
 import android.media.RingtoneManager
 import android.net.Uri
+import android.database.ContentObserver
 import android.os.Build
 import android.os.Bundle
 import android.os.Handler
@@ -164,6 +165,7 @@ class LinkService : Service() {
                 goForeground()
                 if (role == ROLE_GATEWAY) {
                     registerPhoneReceiver()
+                    registerContactObserver()
                     checkNotificationAccess()
                 }
                 startWorker()
@@ -417,6 +419,7 @@ class LinkService : Service() {
             }
             receiverRegistered = false
         }
+        unregisterContactObserver()
         nm.cancel(ID_INCOMING)
         stopForeground(STOP_FOREGROUND_REMOVE)
         connectionState = "Stopped"
@@ -809,6 +812,49 @@ class LinkService : Service() {
     }
 
     // ---------------------------------------------------------------- contacts sync
+
+    // ---------------------------------------------------------------- gateway: contact changes
+
+    private var contactObserver: ContentObserver? = null
+
+    private val syncContactsNow = Runnable {
+        if (running && role == ROLE_GATEWAY && connected) {
+            Hub.log("Contacts changed on the gateway – syncing to remote")
+            io.execute {
+                sendContacts()
+                sendWaContacts()
+            }
+        }
+    }
+
+    /** Any added, edited or deleted contact (also WhatsApp's) is sent to the remote again. */
+    private fun registerContactObserver() {
+        if (contactObserver != null) return
+        val o = object : ContentObserver(main) {
+            override fun onChange(selfChange: Boolean) {
+                // Changes come in bursts (e.g. WhatsApp syncing): wait until it is quiet.
+                main.removeCallbacks(syncContactsNow)
+                main.postDelayed(syncContactsNow, 4000)
+            }
+        }
+        try {
+            contentResolver.registerContentObserver(ContactsContract.AUTHORITY_URI, true, o)
+            contactObserver = o
+        } catch (e: Exception) {
+            Hub.log("Can't watch contact changes: ${e.message}")
+        }
+    }
+
+    private fun unregisterContactObserver() {
+        main.removeCallbacks(syncContactsNow)
+        contactObserver?.let {
+            try {
+                contentResolver.unregisterContentObserver(it)
+            } catch (e: Exception) {
+            }
+        }
+        contactObserver = null
+    }
 
     /** Remote: ask the gateway to send its contact lists again. */
     fun requestContacts() {
