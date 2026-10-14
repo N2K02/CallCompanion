@@ -120,6 +120,7 @@ class LinkService : Service() {
     private var receiverRegistered = false
     private var ringtone: Ringtone? = null
     private var contactBuf: StringBuilder? = null
+    private var waContactBuf: StringBuilder? = null
 
     val isActive: Boolean get() = running
     val voiceActive: Boolean get() = audio.isRunning
@@ -355,6 +356,7 @@ class LinkService : Service() {
         if (role == ROLE_GATEWAY) {
             sendCallState()
             sendContacts()
+            sendWaContacts()
             checkNotificationAccess()
         }
         val input = DataInputStream(BufferedInputStream(s.inputStream, 16384))
@@ -493,6 +495,20 @@ class LinkService : Service() {
                 ContactStore.saveSynced(this, data)
                 Hub.contactsVersion++
                 Hub.log("Received ${ContactStore.parse(data).size} contacts from gateway")
+            }
+            "WACONTACTS_BEGIN" -> waContactBuf = StringBuilder()
+            "WACONTACTS" -> waContactBuf?.append(msg.substringAfter('|'))
+            "WACONTACTS_END" -> {
+                val data = waContactBuf?.toString() ?: ""
+                waContactBuf = null
+                ContactStore.saveSyncedWa(this, data)
+                Hub.contactsVersion++
+                Hub.log("Received ${ContactStore.parse(data).size} WhatsApp contacts from gateway")
+            }
+            // remote -> gateway: "send your contacts again"
+            "CONTACTS_REQ" -> if (role == ROLE_GATEWAY) {
+                sendContacts()
+                sendWaContacts()
             }
             // notifications: gateway -> remote
             "NOTIF" -> showMirrored(arg1, p.getOrElse(2) { "" }, p.getOrElse(3) { "" }, p.drop(4).joinToString("/"))
@@ -793,6 +809,31 @@ class LinkService : Service() {
     }
 
     // ---------------------------------------------------------------- contacts sync
+
+    /** Remote: ask the gateway to send its contact lists again. */
+    fun requestContacts() {
+        if (role == ROLE_REMOTE && connected) send("CONTACTS_REQ")
+    }
+
+    private fun sendWaContacts() {
+        if (!has(Manifest.permission.READ_CONTACTS)) return
+        val w = writer ?: return
+        val list = AppCalls.whatsAppContacts(this)
+        val chunks = ContactStore.toChunks(list)
+        try {
+            io.execute {
+                try {
+                    w.writeCmd("WACONTACTS_BEGIN")
+                    for (c in chunks) w.writeCmd("WACONTACTS|$c")
+                    w.writeCmd("WACONTACTS_END")
+                    Hub.log("Sent ${list.size} WhatsApp contacts to remote")
+                } catch (e: Exception) {
+                    Hub.log("WhatsApp contacts sync failed: ${e.message}")
+                }
+            }
+        } catch (e: Exception) {
+        }
+    }
 
     private fun sendContacts() {
         if (!has(Manifest.permission.READ_CONTACTS)) {

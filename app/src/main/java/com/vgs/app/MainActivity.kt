@@ -84,6 +84,7 @@ import androidx.compose.material3.dynamicDarkColorScheme
 import androidx.compose.material3.dynamicLightColorScheme
 import androidx.compose.material3.lightColorScheme
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
@@ -131,6 +132,7 @@ class MainActivity : ComponentActivity() {
     private var devices by mutableStateOf<List<Pair<String, String>>>(emptyList())
     private var selectedDevice by mutableStateOf<String?>(null)
     private var contacts by mutableStateOf<List<Contact>>(emptyList())
+    private var waContacts by mutableStateOf<List<Contact>>(emptyList())
     /** How outgoing calls are placed: "sim" or "wa". */
     private var dialMode by mutableStateOf("sim")
     /** The "Make a call" input, kept here so the contacts page can fill it. */
@@ -321,7 +323,11 @@ class MainActivity : ComponentActivity() {
         loadedContactsVersion = Hub.contactsVersion
         Thread {
             val list = ContactStore.all(applicationContext)
-            runOnUiThread { contacts = list }
+            val wa = ContactStore.loadSyncedWa(applicationContext)
+            runOnUiThread {
+                contacts = list
+                waContacts = wa
+            }
         }.start()
     }
 
@@ -799,9 +805,10 @@ class MainActivity : ComponentActivity() {
         tick // read the refresh counter so this card redraws on every update
         val query = dialQuery
         val picked = dialPicked
-        val suggestions = remember(query, contacts, picked) {
+        val source = if (dialMode == "wa") waContacts else contacts
+        val suggestions = remember(query, source, picked) {
             if (picked != null && picked.label() == query) emptyList()
-            else ContactStore.search(contacts, query)
+            else ContactStore.search(source, query)
         }
         val number = if (picked != null && picked.label() == query.trim()) picked.number
         else query.substringBefore("·").filter { it.isDigit() || it == '+' || it == '*' || it == '#' }
@@ -921,7 +928,10 @@ class MainActivity : ComponentActivity() {
         var query by remember { mutableStateOf("") }
         val q = query.trim().lowercase()
         val qd = ContactStore.digits(q)
-        val shown = if (q.isEmpty()) contacts else contacts.filter { c ->
+        val wa = dialMode == "wa"
+        val source = if (wa) waContacts else contacts
+        LaunchedEffect(Unit) { Hub.service?.requestContacts() } // refresh the lists from the gateway
+        val shown = if (q.isEmpty()) source else source.filter { c ->
             c.name.lowercase().contains(q) || (qd.isNotEmpty() && ContactStore.digits(c.number).contains(qd))
         }
         Scaffold(
@@ -950,13 +960,15 @@ class MainActivity : ComponentActivity() {
                     modifier = Modifier.fillMaxWidth()
                 )
                 Text(
-                    "${shown.size} of ${contacts.size} contacts · tap one to choose it",
+                    (if (wa) "WhatsApp contacts on the gateway" else "Gateway phone contacts") +
+                        " · ${shown.size} of ${source.size} · tap one to choose it",
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant
                 )
-                if (contacts.isEmpty()) {
+                if (source.isEmpty()) {
                     Text(
-                        "No contacts yet. Connect to the gateway so it can send its contacts, or allow the Contacts permission on this phone.",
+                        if (wa) "No WhatsApp contacts yet. Connect to the gateway so it can send them. If it stays empty, WhatsApp may not be syncing its contacts on the gateway (allow WhatsApp the Contacts permission)."
+                        else "No contacts yet. Connect to the gateway so it can send its contacts.",
                         style = MaterialTheme.typography.bodyMedium,
                         color = MaterialTheme.colorScheme.onSurfaceVariant
                     )

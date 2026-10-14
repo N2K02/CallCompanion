@@ -280,6 +280,34 @@ object AppCalls {
         }
     }
 
+    /** Contacts that have WhatsApp, read from the entries WhatsApp adds to this phone's contacts. */
+    fun whatsAppContacts(ctx: Context): List<Contact> {
+        if (ctx.checkSelfPermission(Manifest.permission.READ_CONTACTS) != PackageManager.PERMISSION_GRANTED) {
+            return emptyList()
+        }
+        val out = ArrayList<Contact>()
+        val seen = HashSet<String>()
+        try {
+            ctx.contentResolver.query(
+                ContactsContract.Data.CONTENT_URI,
+                arrayOf(ContactsContract.Data.DISPLAY_NAME, ContactsContract.Data.DATA1),
+                "${ContactsContract.Data.MIMETYPE} IN (?, ?)",
+                VOIP_MIME.keys.toTypedArray(),
+                ContactsContract.Data.DISPLAY_NAME + " ASC"
+            )?.use { c ->
+                while (c.moveToNext()) {
+                    val jid = c.getString(1) ?: continue // e.g. 31612345678@s.whatsapp.net
+                    val digits = jid.substringBefore('@').filter { it.isDigit() }
+                    if (digits.length < 6 || !seen.add(digits)) continue
+                    out.add(Contact(ContactStore.clean(c.getString(0) ?: ""), "+$digits"))
+                }
+            }
+        } catch (e: Exception) {
+            Hub.log("WhatsApp contacts read error: ${e.message}")
+        }
+        return out
+    }
+
     private fun isInstalled(ctx: Context, pkg: String): Boolean = try {
         ctx.packageManager.getPackageInfo(pkg, 0)
         true

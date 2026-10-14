@@ -17,10 +17,11 @@ data class Contact(val name: String, val number: String) {
  */
 object ContactStore {
     private const val FILE = "synced_contacts.tsv"
+    private const val WA_FILE = "synced_wa_contacts.tsv"
 
     fun digits(s: String): String = s.filter { it.isDigit() }
 
-    private fun clean(s: String): String =
+    fun clean(s: String): String =
         s.replace('|', ' ').replace('\t', ' ').replace('\n', ' ').replace('\r', ' ').trim()
 
     fun readDevice(ctx: Context): List<Contact> {
@@ -93,11 +94,31 @@ object ContactStore {
         emptyList()
     }
 
-    /** Local + synced contacts, one entry per phone number. */
+    fun saveSyncedWa(ctx: Context, data: String) {
+        try {
+            File(ctx.filesDir, WA_FILE).writeText(data)
+        } catch (e: Exception) {
+            Hub.log("Could not save WhatsApp contacts: ${e.message}")
+        }
+    }
+
+    /** The gateway's WhatsApp contacts, as last received. */
+    fun loadSyncedWa(ctx: Context): List<Contact> = try {
+        val f = File(ctx.filesDir, WA_FILE)
+        if (f.exists()) parse(f.readText()) else emptyList()
+    } catch (e: Exception) {
+        emptyList()
+    }
+
+    /**
+     * Contacts for the phone (SIM) list: the gateway's contacts once they have been received,
+     * otherwise this phone's own contacts. One entry per phone number.
+     */
     fun all(ctx: Context): List<Contact> {
         val seen = HashSet<String>()
         val out = ArrayList<Contact>()
-        for (c in readDevice(ctx) + loadSynced(ctx)) {
+        val gateway = loadSynced(ctx)
+        for (c in if (gateway.isNotEmpty()) gateway else readDevice(ctx)) {
             val d = digits(c.number)
             val key = if (d.length > 9) d.takeLast(9) else d // treat +230 5xxx and 5xxx as the same
             if (seen.add(key)) out.add(c)
