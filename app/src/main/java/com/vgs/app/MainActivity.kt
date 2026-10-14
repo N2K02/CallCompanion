@@ -343,15 +343,13 @@ class MainActivity : ComponentActivity() {
         val running = s != null && s.isActive
         val effRole = if (running) s!!.role else role
         val isRemote = effRole == LinkService.ROLE_REMOTE
-        val scroll = TopAppBarDefaults.exitUntilCollapsedScrollBehavior()
 
         Scaffold(
-            modifier = Modifier.fillMaxSize().nestedScroll(scroll.nestedScrollConnection),
+            modifier = Modifier.fillMaxSize(),
             topBar = {
-                LargeTopAppBar(
-                    title = { Text("VGS", fontWeight = FontWeight.Bold) },
-                    actions = { BackToSetupButton() },
-                    scrollBehavior = scroll
+                TopAppBar(
+                    title = { Text("VGS remote", fontWeight = FontWeight.Bold) },
+                    actions = { BackToSetupButton() }
                 )
             },
         ) { pad ->
@@ -365,7 +363,6 @@ class MainActivity : ComponentActivity() {
                 verticalArrangement = Arrangement.spacedBy(16.dp)
             ) {
                 UpdateCard()
-                RoleCard(running, effRole)
                 if (isRemote && !running) DeviceCard()
                 ConnectionCard(s, running)
                 if (running && isRemote) CallCard(s!!, isRemote)
@@ -616,29 +613,6 @@ class MainActivity : ComponentActivity() {
     }
 
     @Composable
-    private fun RoleCard(running: Boolean, effRole: String) {
-        tick // read the refresh counter so this card redraws on every update
-        val isGateway = effRole == LinkService.ROLE_GATEWAY
-        SectionCard("This phone") {
-            Text(
-                if (isGateway) "Gateway" else "Remote",
-                style = MaterialTheme.typography.titleLarge
-            )
-            Text(
-                if (isGateway) "Has the SIM / internet. Sends calls and notifications to the remote."
-                else "Watch mode: no internet. Rings, answers and dials through the gateway.",
-                style = MaterialTheme.typography.bodyMedium,
-                color = MaterialTheme.colorScheme.onSurfaceVariant
-            )
-            OutlinedButton(
-                onClick = { inMain = false },
-                enabled = !running,
-                modifier = Modifier.fillMaxWidth()
-            ) { Text(if (running) "Stop first to change role or permissions" else "Change role / permissions") }
-        }
-    }
-
-    @Composable
     private fun DeviceCard() {
         tick // read the refresh counter so this card redraws on every update
         SectionCard("Gateway phone") {
@@ -696,12 +670,12 @@ class MainActivity : ComponentActivity() {
                 Button(
                     onClick = { startLink() },
                     enabled = !running,
-                    modifier = Modifier.weight(1f).height(56.dp)
+                    modifier = Modifier.weight(1f).height(48.dp)
                 ) { Text("Start") }
                 OutlinedButton(
                     onClick = { stopLink() },
                     enabled = running,
-                    modifier = Modifier.weight(1f).height(56.dp)
+                    modifier = Modifier.weight(1f).height(48.dp)
                 ) { Text("Stop") }
             }
         }
