@@ -57,7 +57,6 @@ class LinkService : Service() {
         const val ACTION_REJECT = "com.vgs.app.REJECT"
         const val ACTION_NOTIF_DISMISSED = "com.vgs.app.NOTIF_DISMISSED"
         const val EXTRA_KEY = "key"
-        const val EXTRA_SHOW_LOGS = "show_logs"
         const val EXTRA_ROLE = "role"
         const val EXTRA_DEVICE = "device"
 
@@ -919,14 +918,6 @@ class LinkService : Service() {
     private fun action(icon: Int, title: String, pi: PendingIntent): Notification.Action =
         Notification.Action.Builder(Icon.createWithResource(this, icon), title, pi).build()
 
-    private fun logsPi(): PendingIntent = PendingIntent.getActivity(
-        this, 11,
-        Intent(this, MainActivity::class.java)
-            .addFlags(Intent.FLAG_ACTIVITY_SINGLE_TOP or Intent.FLAG_ACTIVITY_NEW_TASK)
-            .putExtra(EXTRA_SHOW_LOGS, true),
-        PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT
-    )
-
     private fun statusNotification(): Notification {
         var text = if (audio.isRunning) "$connectionState · voice link ON" else connectionState
         if (role == ROLE_GATEWAY) {
@@ -937,15 +928,17 @@ class LinkService : Service() {
             }
             if (!NotifListener.isEnabled(this)) text += " · ⚠ notification access is off"
         }
-        return Notification.Builder(this, CH_STATUS)
+        val b = Notification.Builder(this, CH_STATUS)
             .setSmallIcon(android.R.drawable.sym_action_call)
             .setContentTitle(if (role == ROLE_GATEWAY) "VGS gateway" else "VGS remote")
             .setContentText(text)
             .setOngoing(true)
-            .setContentIntent(openAppPi())
-            .addAction(action(android.R.drawable.ic_menu_close_clear_cancel, "Stop", actionPi(ACTION_STOP, 10)))
-            .addAction(action(android.R.drawable.ic_menu_info_details, "Logs", logsPi()))
-            .build()
+            .setContentIntent(openAppPi()) // tapping it opens the app on its main page
+        // The gateway has no buttons here: Start/Stop live on its page in the app.
+        if (role != ROLE_GATEWAY) {
+            b.addAction(action(android.R.drawable.ic_menu_close_clear_cancel, "Stop", actionPi(ACTION_STOP, 10)))
+        }
+        return b.build()
     }
 
     private fun goForeground() {

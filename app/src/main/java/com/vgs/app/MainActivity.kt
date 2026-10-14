@@ -160,9 +160,7 @@ class MainActivity : ComponentActivity() {
             }
         }
         // Straight to the main page when everything is in order, otherwise the setup page.
-        // The gateway shows its status page only while running; otherwise the setup page has "Start gateway".
-        val running = Hub.service?.isActive == true
-        inMain = roleChosen && allOk() && (role == LinkService.ROLE_REMOTE || running)
+        inMain = roleChosen && allOk()
         loadDevices()
         loadContacts()
     }
@@ -181,7 +179,6 @@ class MainActivity : ComponentActivity() {
         }
         val running = Hub.service?.isActive == true
         if (!running && !(roleChosen && allOk())) inMain = false // something was switched off: set up again
-        if (!running && role == LinkService.ROLE_GATEWAY) inMain = false // stopped (e.g. from the notification)
         if (role == LinkService.ROLE_GATEWAY) NotifListener.rebind(this)
         tick++
     }
@@ -413,20 +410,32 @@ class MainActivity : ComponentActivity() {
                     }
                     Text(
                         "This phone only passes calls and notifications between the remote and the outside. " +
-                            "You can close the app: the notification keeps showing the status, with Stop and Logs.",
+                            "You can close the app: the notification keeps showing the status.",
                         style = MaterialTheme.typography.bodyMedium,
                         color = MaterialTheme.colorScheme.onSurfaceVariant
                     )
+                    Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                        Button(
+                            onClick = { startLink() },
+                            enabled = !running,
+                            modifier = Modifier.weight(1f).height(56.dp)
+                        ) { Text("Start") }
+                        OutlinedButton(
+                            onClick = { stopLink() },
+                            enabled = running,
+                            modifier = Modifier.weight(1f).height(56.dp)
+                        ) { Text("Stop") }
+                    }
+                }
+                SectionCard("Test") {
                     OutlinedButton(
                         onClick = {
-                            stopLink()
-                            inMain = false
+                            if (s == null || !running) toast("Press Start first") else s.sendTestNotification()
                         },
-                        enabled = running,
                         modifier = Modifier.fillMaxWidth().height(56.dp)
-                    ) { Text("Stop") }
+                    ) { Text("Send test notification to remote") }
                 }
-                LogCard(withTest = true)
+                LogCard()
                 Spacer(Modifier.height(24.dp))
             }
         }
@@ -516,12 +525,11 @@ class MainActivity : ComponentActivity() {
                         prefs.edit().putString("role", role).apply()
                         loadDevices()
                         loadContacts()
-                        if (role == LinkService.ROLE_GATEWAY) startLink()
                         inMain = true
                     },
                     enabled = allOk,
                     modifier = Modifier.fillMaxWidth().height(64.dp)
-                ) { Text(if (sel == LinkService.ROLE_GATEWAY) "Start gateway" else "Continue") }
+                ) { Text("Continue") }
                 if (!allOk) {
                     Text(
                         if (chosen) "Allow every permission above to continue." else "Choose Gateway or Remote to continue.",
@@ -1039,7 +1047,7 @@ class MainActivity : ComponentActivity() {
     }
 
     @Composable
-    private fun LogCard(withTest: Boolean = false) {
+    private fun LogCard() {
         tick // read the refresh counter so this card redraws on every update
         // Read outside the SectionCard lambda: Compose memoizes that lambda, so values read
         // only inside it would never refresh. A new value here makes a new lambda.
@@ -1062,15 +1070,6 @@ class MainActivity : ComponentActivity() {
                 Icon(Icons.Filled.Delete, contentDescription = "Clear log", tint = MaterialTheme.colorScheme.primary)
             }
         }) {
-            if (withTest) {
-                OutlinedButton(
-                    onClick = {
-                        val svc = Hub.service
-                        if (svc == null || !svc.isActive) toast("Gateway is not running") else svc.sendTestNotification()
-                    },
-                    modifier = Modifier.fillMaxWidth()
-                ) { Text("Send test notification to remote") }
-            }
             Text(
                 text.ifEmpty { "Nothing yet" },
                 style = MaterialTheme.typography.bodySmall,
