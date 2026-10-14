@@ -31,7 +31,10 @@ class AppCall(
     val decline: PendingIntent?,
     val hangUp: PendingIntent?,
     val buttons: String,
-)
+) {
+    /** True when WhatsApp says it is a video call (the remote only does the voice part). */
+    var video: Boolean = false
+}
 
 /**
  * WhatsApp calls on the gateway. WhatsApp has no calling API, so:
@@ -111,6 +114,14 @@ object AppCalls {
         val name = person?.toString()?.takeIf { it.isNotBlank() }
             ?: ex?.getCharSequence(Notification.EXTRA_TITLE)?.toString()?.takeIf { it.isNotBlank() }
             ?: ""
+        // The notification text says "Incoming video call" / "voice call" (not the title: that is the contact's name).
+        val blob = listOfNotNull(
+            ex?.getCharSequence(Notification.EXTRA_TEXT),
+            ex?.getCharSequence(Notification.EXTRA_BIG_TEXT),
+            ex?.getCharSequence(Notification.EXTRA_SUB_TEXT),
+            n.tickerText,
+        ).joinToString(" ") + " " + titles.joinToString(" ")
+        val video = Regex("vid[eé]o", RegexOption.IGNORE_CASE).containsMatchIn(blob)
         return AppCall(
             key = sbn.key,
             app = APPS[sbn.packageName] ?: sbn.packageName,
@@ -120,7 +131,7 @@ object AppCalls {
             decline = decline,
             hangUp = ongoingHangUp,
             buttons = titles.joinToString(", ").ifEmpty { "none" },
-        )
+        ).also { it.video = video }
     }
 
     /** Presses a notification button. Returns false if it no longer works. */

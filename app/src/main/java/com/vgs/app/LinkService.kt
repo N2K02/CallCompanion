@@ -589,7 +589,7 @@ class LinkService : Service() {
             callState = if (a.ringing) CALL_RINGING else CALL_OFFHOOK
             callNumber = ""
             callName = a.name
-            callSource = a.app
+            callSource = if (a.video) a.app + " video" else a.app
         }
         if (callState == CALL_IDLE) {
             callNumber = ""
@@ -610,6 +610,7 @@ class LinkService : Service() {
         if (!running || role != ROLE_GATEWAY) return
         main.removeCallbacks(endAppCall)
         val prev = appCall
+        if (prev?.video == true) c.video = true // once seen as a video call, it stays one (notification gets swapped)
         appCall = c
         if (prev == null || prev.ringing != c.ringing) {
             Hub.log("${c.app} call ${if (c.ringing) "ringing" else "active"}: ${c.name.ifEmpty { "?" }} (buttons: ${c.buttons})")
@@ -1060,6 +1061,7 @@ class LinkService : Service() {
             .setSmallIcon(android.R.drawable.sym_call_incoming)
             .setContentTitle("Incoming ${kindLabel()}call")
             .setContentText(display())
+            .setSubText(if (callSource.endsWith("video")) "Video stays off here – you get the voice only" else null)
             .setCategory(Notification.CATEGORY_CALL)
             .setOngoing(true)
             .setContentIntent(openAppPi())

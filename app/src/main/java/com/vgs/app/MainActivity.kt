@@ -246,6 +246,12 @@ class MainActivity : ComponentActivity() {
         if (Build.VERSION.SDK_INT >= 33) {
             l += runtimeReq("Notifications", "Show the call and status notifications", listOf(Manifest.permission.POST_NOTIFICATIONS))
         }
+        l += Req(
+            "Unrestricted battery",
+            "Stops Android from putting VGS to sleep, so the link stays up in the background",
+            getSystemService(android.os.PowerManager::class.java)?.isIgnoringBatteryOptimizations(packageName) == true,
+            emptyList()
+        ) { askBatteryExemption() }
         if (r == LinkService.ROLE_GATEWAY) {
             l += runtimeReq(
                 "Phone and calls", "See, answer, end and place SIM calls",
@@ -265,6 +271,18 @@ class MainActivity : ComponentActivity() {
             ) { openSettings(Settings.ACTION_MANAGE_OVERLAY_PERMISSION, withPackage = true) }
         }
         return l
+    }
+
+    @SuppressLint("BatteryLife")
+    private fun askBatteryExemption() {
+        try {
+            startActivity(
+                Intent(Settings.ACTION_REQUEST_IGNORE_BATTERY_OPTIMIZATIONS)
+                    .setData(Uri.fromParts("package", packageName, null))
+            )
+        } catch (e: Exception) {
+            openSettings(Settings.ACTION_IGNORE_BATTERY_OPTIMIZATION_SETTINGS)
+        }
     }
 
     private fun allOk(): Boolean = requirements(role).all { it.ok }
