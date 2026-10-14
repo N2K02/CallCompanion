@@ -135,6 +135,10 @@ class MainActivity : ComponentActivity() {
     /** How outgoing calls are placed: "auto" (WhatsApp if possible, else SIM), "sim" or "wa". */
     private var dialMode by mutableStateOf("auto")
     private var showContacts by mutableStateOf(false)
+    /** False until the user has picked a role (first launch). */
+    private var roleChosen by mutableStateOf(false)
+    /** false = setup page (role + permissions), true = main page. */
+    private var inMain by mutableStateOf(false)
     private var loadedContactsVersion = -1
 
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -142,17 +146,20 @@ class MainActivity : ComponentActivity() {
         super.onCreate(savedInstanceState)
         AppUpdater.init(this, "N2K02/VGS", "VGS")
         prefs = getSharedPreferences("vgs", MODE_PRIVATE)
-        role = prefs.getString("role", LinkService.ROLE_REMOTE) ?: LinkService.ROLE_REMOTE
+        val savedRole = prefs.getString("role", null)
+        roleChosen = savedRole != null
+        role = savedRole ?: LinkService.ROLE_REMOTE
         selectedDevice = prefs.getString("device", null)
         mirrorOn = prefs.getBoolean("mirror", true)
         dialMode = prefs.getString("dial_via", "auto") ?: "auto"
         setContent {
             VgsTheme {
                 BackHandler(enabled = showContacts) { showContacts = false }
-                if (showContacts) ContactsPage() else Screen()
+                if (showContacts) ContactsPage() else if (inMain) Screen() else SetupPage()
             }
         }
-        requestPermissions(allPerms().toTypedArray(), 1)
+        // Straight to the main page when everything is in order, otherwise the setup page.
+        inMain = roleChosen && allOk()
         loadDevices()
         loadContacts()
     }
@@ -164,6 +171,8 @@ class MainActivity : ComponentActivity() {
             tick++
             if (Hub.contactsVersion != loadedContactsVersion) loadContacts()
         }
+        val running = Hub.service?.isActive == true
+        if (!running && !(roleChosen && allOk())) inMain = false // something was switched off: set up again
         if (role == LinkService.ROLE_GATEWAY) NotifListener.rebind(this)
         tick++
     }
@@ -195,9 +204,6 @@ class MainActivity : ComponentActivity() {
         Manifest.permission.CALL_PHONE,
     )
 
-    private fun allPerms(): List<String> =
-        corePerms() + gatewayPerms() + optionalPerms()
-
     /** Nice to have: names for calls, and the number dialed in the phone's own dialer. */
     @Suppress("DEPRECATION")
     private fun optionalPerms(): List<String> = listOf(
@@ -207,6 +213,50 @@ class MainActivity : ComponentActivity() {
     )
 
     private fun granted(p: String) = checkSelfPermission(p) == PackageManager.PERMISSION_GRANTED
+
+    /** One line in the setup checklist. [ask] = runtime permissions still to request. */
+    private class Req(val label: String, val why: String, val ok: Boolean, val ask: List<String>, val fix: () -> Unit)
+
+    private fun runtimeReq(label: String, why: String, required: List<String>, extra: List<String> = emptyList()): Req {
+        val missing = (required + extra).filter { !granted(it) }
+        return Req(label, why, required.all { granted(it) }, missing) {
+            if (missing.isNotEmpty()) requestPermissions(missing.toTypedArray(), 1)
+        }
+    }
+
+    /** Everything this phone needs for the given role. */
+    @Suppress("DEPRECATION")
+    private fun requirements(r: String): List<Req> {
+        val l = mutableListOf<Req>()
+        l += runtimeReq("Microphone", "Voice link between the two phones", listOf(Manifest.permission.RECORD_AUDIO))
+        if (Build.VERSION.SDK_INT >= 31) {
+            l += runtimeReq("Bluetooth", "Connect to the other phone", listOf(Manifest.permission.BLUETOOTH_CONNECT))
+        }
+        if (Build.VERSION.SDK_INT >= 33) {
+            l += runtimeReq("Notifications", "Show the call and status notifications", listOf(Manifest.permission.POST_NOTIFICATIONS))
+        }
+        if (r == LinkService.ROLE_GATEWAY) {
+            l += runtimeReq(
+                "Phone and calls", "See, answer, end and place SIM calls",
+                gatewayPerms(), listOf(Manifest.permission.PROCESS_OUTGOING_CALLS)
+            )
+            l += runtimeReq("Contacts", "Send your contacts to the remote and find WhatsApp contacts", listOf(Manifest.permission.READ_CONTACTS))
+            l += runtimeReq("Call log", "Show who is calling", listOf(Manifest.permission.READ_CALL_LOG))
+            l += Req(
+                "Notification access",
+                "Mirror notifications and see WhatsApp calls. If it is greyed out: App info → ⋮ → Allow restricted settings.",
+                NotifListener.isEnabled(this), emptyList()
+            ) { openSettings(Settings.ACTION_NOTIFICATION_LISTENER_SETTINGS) }
+            l += Req(
+                "Display over other apps",
+                "Lets VGS open WhatsApp's call screen from the background",
+                AppCalls.canOpenFromBackground(this), emptyList()
+            ) { openSettings(Settings.ACTION_MANAGE_OVERLAY_PERMISSION, withPackage = true) }
+        }
+        return l
+    }
+
+    private fun allOk(): Boolean = requirements(role).all { it.ok }
 
     // ---------------------------------------------------------------- actions
 
@@ -324,6 +374,134 @@ class MainActivity : ComponentActivity() {
     }
 
     @Composable
+    private fun SetupPage() {
+        tick // permissions are re-checked on every update (also after returning from Settings)
+        val running = Hub.service?.isActive == true
+        val chosen = roleChosen
+        val sel = if (chosen) role else ""
+        val reqs = if (chosen) requirements(role) else emptyList()
+        val allOk = chosen && reqs.all { it.ok }
+        val toAsk = reqs.flatMap { it.ask }.distinct()
+        val scroll = TopAppBarDefaults.exitUntilCollapsedScrollBehavior()
+
+        Scaffold(
+            modifier = Modifier.fillMaxSize().nestedScroll(FooterScroll.connection).nestedScroll(scroll.nestedScrollConnection),
+            topBar = {
+                LargeTopAppBar(
+                    title = { Text("VGS", fontWeight = FontWeight.Bold) },
+                    scrollBehavior = scroll
+                )
+            },
+            bottomBar = { UpdateFooterBar("VGS") },
+        ) { pad ->
+            Column(
+                Modifier
+                    .padding(pad)
+                    .fillMaxSize()
+                    .verticalScroll(rememberScrollState())
+                    .padding(horizontal = 16.dp, vertical = 8.dp),
+                verticalArrangement = Arrangement.spacedBy(16.dp)
+            ) {
+                SectionCard("1 · What is this phone?") {
+                    RoleChoice(
+                        LinkService.ROLE_GATEWAY, "Gateway",
+                        "Has the SIM and internet. Sends calls and notifications to the remote.", sel, !running
+                    )
+                    RoleChoice(
+                        LinkService.ROLE_REMOTE, "Remote",
+                        "Watch mode: no internet. Rings, answers and dials through the gateway.", sel, !running
+                    )
+                }
+                SectionCard("2 · Permissions") {
+                    if (!chosen) {
+                        Text(
+                            "Choose a role above first.",
+                            style = MaterialTheme.typography.bodyMedium,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                    } else {
+                        reqs.forEach { r ->
+                            Row(verticalAlignment = Alignment.CenterVertically) {
+                                Dot(if (r.ok) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.error)
+                                Spacer(Modifier.width(12.dp))
+                                Column(Modifier.weight(1f)) {
+                                    Text(r.label, style = MaterialTheme.typography.bodyLarge)
+                                    Text(
+                                        r.why,
+                                        style = MaterialTheme.typography.bodySmall,
+                                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                                    )
+                                }
+                                if (!r.ok) {
+                                    Spacer(Modifier.width(8.dp))
+                                    FilledTonalButton(onClick = { r.fix() }) { Text("Allow") }
+                                }
+                            }
+                        }
+                        if (toAsk.isNotEmpty()) {
+                            Button(
+                                onClick = { requestPermissions(toAsk.toTypedArray(), 1) },
+                                modifier = Modifier.fillMaxWidth().height(56.dp)
+                            ) { Text("Allow all permissions") }
+                        }
+                        if (!allOk) {
+                            OutlinedButton(
+                                onClick = { openSettings(Settings.ACTION_APPLICATION_DETAILS_SETTINGS, withPackage = true) },
+                                modifier = Modifier.fillMaxWidth()
+                            ) { Text("Open App info (if a permission won't show its prompt)") }
+                        }
+                    }
+                }
+                Button(
+                    onClick = {
+                        prefs.edit().putString("role", role).apply()
+                        loadDevices()
+                        loadContacts()
+                        inMain = true
+                    },
+                    enabled = allOk,
+                    modifier = Modifier.fillMaxWidth().height(64.dp)
+                ) { Text("Continue") }
+                if (!allOk) {
+                    Text(
+                        if (chosen) "Allow every permission above to continue." else "Choose Gateway or Remote to continue.",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                }
+                Spacer(Modifier.height(24.dp))
+            }
+        }
+    }
+
+    @Composable
+    private fun RoleChoice(r: String, title: String, desc: String, selected: String, enabled: Boolean) {
+        Row(
+            Modifier
+                .fillMaxWidth()
+                .clip(RoundedCornerShape(16.dp))
+                .clickable(enabled = enabled) {
+                    role = r
+                    roleChosen = true
+                    prefs.edit().putString("role", r).apply()
+                }
+                .padding(vertical = 4.dp),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            RadioButton(selected = selected == r, onClick = null, enabled = enabled)
+            Spacer(Modifier.width(12.dp))
+            Column {
+                Text(title, style = MaterialTheme.typography.titleMedium)
+                Text(
+                    desc,
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+            }
+        }
+    }
+
+    @Composable
     private fun SectionCard(
         title: String,
         action: (@Composable () -> Unit)? = null,
@@ -352,27 +530,23 @@ class MainActivity : ComponentActivity() {
     @Composable
     private fun RoleCard(running: Boolean, effRole: String) {
         tick // read the refresh counter so this card redraws on every update
+        val isGateway = effRole == LinkService.ROLE_GATEWAY
         SectionCard("This phone") {
-            SingleChoiceSegmentedButtonRow(Modifier.fillMaxWidth()) {
-                val options = listOf(LinkService.ROLE_GATEWAY to "Gateway", LinkService.ROLE_REMOTE to "Remote")
-                options.forEachIndexed { i, (r, label) ->
-                    SegmentedButton(
-                        selected = effRole == r,
-                        onClick = {
-                            role = r
-                            prefs.edit().putString("role", r).apply()
-                        },
-                        shape = SegmentedButtonDefaults.itemShape(i, options.size),
-                        enabled = !running
-                    ) { Text(label) }
-                }
-            }
             Text(
-                if (effRole == LinkService.ROLE_GATEWAY) "Has the SIM / internet. Sends calls and notifications to the remote."
+                if (isGateway) "Gateway" else "Remote",
+                style = MaterialTheme.typography.titleLarge
+            )
+            Text(
+                if (isGateway) "Has the SIM / internet. Sends calls and notifications to the remote."
                 else "Watch mode: no internet. Rings, answers and dials through the gateway.",
                 style = MaterialTheme.typography.bodyMedium,
                 color = MaterialTheme.colorScheme.onSurfaceVariant
             )
+            OutlinedButton(
+                onClick = { inMain = false },
+                enabled = !running,
+                modifier = Modifier.fillMaxWidth()
+            ) { Text(if (running) "Stop first to change role or permissions" else "Change role / permissions") }
         }
     }
 
