@@ -1,6 +1,12 @@
 # VGS
 
+[![Latest release](https://img.shields.io/github/v/release/N2K02/VGS?label=download)](https://github.com/N2K02/VGS/releases/latest) ![Android 8.0+](https://img.shields.io/badge/Android-8.0%2B-3DDC84?logo=android&logoColor=white) ![Kotlin](https://img.shields.io/badge/Kotlin-7F52FF?logo=kotlin&logoColor=white) [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
+
 Use an Android phone **without internet** like a smartwatch for a phone that **has a SIM / internet**, over Bluetooth.
+
+*Bluetooth phone companion app for Android: turn a spare phone into a smartwatch-style remote for SIM and WhatsApp calls.*
+
+**[⬇ Download the latest APK](https://github.com/N2K02/VGS/releases/latest)** · Android 8.0 or newer · Free and open source
 
 Install the same app on both phones and pick a role:
 
