@@ -365,7 +365,6 @@ class MainActivity : ComponentActivity() {
                 if (running) CallCard(s!!, isRemote)
                 if (running && isRemote) DialCard(s!!)
                 if (effRole == LinkService.ROLE_GATEWAY) NotificationCard(s, running)
-                if (effRole == LinkService.ROLE_GATEWAY) WhatsAppCard()
                 if (running) VoiceCard(s!!, isRemote)
                 LogCard()
                 Spacer(Modifier.height(24.dp))
@@ -851,74 +850,17 @@ class MainActivity : ComponentActivity() {
                     style = MaterialTheme.typography.bodyLarge
                 )
             }
-            if (!enabled) {
-                Text(
-                    "Allow VGS in Notification access. If it's greyed out (\"Restricted setting\"): open App info → ⋮ (top right) → Allow restricted settings, then try again.",
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant
-                )
-            } else if (!bound) {
-                Text(
-                    "If this stays, turn VGS off and on again in Notification access.",
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant
-                )
-            }
             SwitchRow("Send notifications to the remote", mirrorOn) { on ->
                 mirrorOn = on
                 prefs.edit().putBoolean("mirror", on).apply()
                 Hub.log("Notification sync switch " + if (on) "ON" else "OFF")
             }
-            FilledTonalButton(
-                onClick = { openSettings(Settings.ACTION_NOTIFICATION_LISTENER_SETTINGS) },
-                modifier = Modifier.fillMaxWidth()
-            ) {
-                Icon(Icons.Filled.Settings, contentDescription = null)
-                Spacer(Modifier.width(8.dp))
-                Text("Notification access settings")
-            }
-            OutlinedButton(
-                onClick = { openSettings(Settings.ACTION_APPLICATION_DETAILS_SETTINGS, withPackage = true) },
-                modifier = Modifier.fillMaxWidth()
-            ) { Text("App info (Allow restricted settings)") }
             OutlinedButton(
                 onClick = {
                     if (s == null || !running) toast("Press Start first") else s.sendTestNotification()
                 },
                 modifier = Modifier.fillMaxWidth()
             ) { Text("Send test notification to remote") }
-        }
-    }
-
-    @Composable
-    private fun WhatsAppCard() {
-        tick // read the refresh counter so this card redraws on every update
-        val overlay = AppCalls.canOpenFromBackground(this)
-        SectionCard("WhatsApp calls") {
-            Text(
-                "WhatsApp calls ring on the remote and can be answered, declined, hung up and started from there. " +
-                    "Needs Notification access (above) and \"Display over other apps\", so VGS can open WhatsApp's call screen in the background.",
-                style = MaterialTheme.typography.bodyMedium,
-                color = MaterialTheme.colorScheme.onSurfaceVariant
-            )
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                Dot(if (overlay) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.error)
-                Spacer(Modifier.width(12.dp))
-                Text(
-                    if (overlay) "Display over other apps: ON" else "Display over other apps: OFF",
-                    style = MaterialTheme.typography.bodyLarge
-                )
-            }
-            if (!overlay) {
-                FilledTonalButton(
-                    onClick = { openSettings(Settings.ACTION_MANAGE_OVERLAY_PERMISSION, withPackage = true) },
-                    modifier = Modifier.fillMaxWidth()
-                ) {
-                    Icon(Icons.Filled.Settings, contentDescription = null)
-                    Spacer(Modifier.width(8.dp))
-                    Text("Allow display over other apps")
-                }
-            }
         }
     }
 
