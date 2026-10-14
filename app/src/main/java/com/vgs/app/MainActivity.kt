@@ -350,6 +350,7 @@ class MainActivity : ComponentActivity() {
             topBar = {
                 LargeTopAppBar(
                     title = { Text("VGS", fontWeight = FontWeight.Bold) },
+                    actions = { BackToSetupButton() },
                     scrollBehavior = scroll
                 )
             },
@@ -376,7 +377,15 @@ class MainActivity : ComponentActivity() {
         }
     }
 
-    /** The gateway is only a mediator: status, Stop and Logs. */
+    /** Top-right button on the main pages: back to the setup page (change role, check permissions). */
+    @Composable
+    private fun BackToSetupButton() {
+        IconButton(onClick = { inMain = false }) {
+            Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back to setup")
+        }
+    }
+
+    /** The gateway is only a mediator: status, Start/Stop and logs. */
     @Composable
     private fun GatewayPage() {
         tick // read the refresh counter so this page redraws on every update
@@ -386,7 +395,12 @@ class MainActivity : ComponentActivity() {
         val status = if (!running) "Stopped" else s!!.connectionState
         Scaffold(
             modifier = Modifier.fillMaxSize(),
-            topBar = { TopAppBar(title = { Text("VGS gateway", fontWeight = FontWeight.Bold) }) },
+            topBar = {
+                TopAppBar(
+                    title = { Text("VGS gateway", fontWeight = FontWeight.Bold) },
+                    actions = { BackToSetupButton() }
+                )
+            },
         ) { pad ->
             Column(
                 Modifier
@@ -417,12 +431,12 @@ class MainActivity : ComponentActivity() {
                         Button(
                             onClick = { startLink() },
                             enabled = !running,
-                            modifier = Modifier.weight(1f).height(56.dp)
+                            modifier = Modifier.weight(1f).height(48.dp)
                         ) { Text("Start") }
                         OutlinedButton(
                             onClick = { stopLink() },
                             enabled = running,
-                            modifier = Modifier.weight(1f).height(56.dp)
+                            modifier = Modifier.weight(1f).height(48.dp)
                         ) { Text("Stop") }
                     }
                 }
@@ -431,7 +445,7 @@ class MainActivity : ComponentActivity() {
                         onClick = {
                             if (s == null || !running) toast("Press Start first") else s.sendTestNotification()
                         },
-                        modifier = Modifier.fillMaxWidth().height(56.dp)
+                        modifier = Modifier.fillMaxWidth().height(48.dp)
                     ) { Text("Send test notification to remote") }
                 }
                 LogCard()
@@ -470,6 +484,13 @@ class MainActivity : ComponentActivity() {
             ) {
                 UpdateCard()
                 SectionCard("1 · What is this phone?") {
+                    if (running) {
+                        Text(
+                            "VGS is running. Stop it first if you want to change the role.",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                    }
                     RoleChoice(
                         LinkService.ROLE_GATEWAY, "Gateway",
                         "Has the SIM and internet. Sends calls and notifications to the remote.", sel, !running

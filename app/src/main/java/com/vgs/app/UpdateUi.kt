@@ -15,6 +15,7 @@ import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
@@ -145,6 +146,7 @@ fun UpdateCard(modifier: Modifier = Modifier, appName: String = "VGS") {
                             FilledTonalButton(
                                 onClick = { AppUpdater.check(manual = true) },
                                 enabled = state !is AppUpdater.State.Checking,
+                                modifier = Modifier.height(48.dp),
                             ) { Text("Check for updates") }
                             when (state) {
                                 is AppUpdater.State.Checking -> {
