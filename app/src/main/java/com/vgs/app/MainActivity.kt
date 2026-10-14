@@ -5,6 +5,8 @@ package com.vgs.app
 import android.Manifest
 import android.annotation.SuppressLint
 import android.bluetooth.BluetoothManager
+import android.content.ClipData
+import android.content.ClipboardManager
 import android.content.Intent
 import android.content.SharedPreferences
 import android.content.pm.PackageManager
@@ -14,6 +16,7 @@ import android.os.Bundle
 import android.provider.Settings
 import android.widget.Toast
 import androidx.activity.ComponentActivity
+import androidx.activity.compose.BackHandler
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
 import androidx.compose.foundation.background
@@ -32,12 +35,15 @@ import androidx.compose.foundation.layout.imePadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.Call
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.Notifications
@@ -53,6 +59,7 @@ import androidx.compose.material3.ExperimentalMaterial3ExpressiveApi
 import androidx.compose.material3.FilledTonalButton
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
 import androidx.compose.material3.LargeTopAppBar
 import androidx.compose.material3.LoadingIndicator
 import androidx.compose.material3.MaterialExpressiveTheme
@@ -65,9 +72,11 @@ import androidx.compose.material3.Scaffold
 import androidx.compose.material3.SegmentedButton
 import androidx.compose.material3.SegmentedButtonDefaults
 import androidx.compose.material3.SingleChoiceSegmentedButtonRow
+import androidx.compose.material3.SingleChoiceSegmentedButtonRowScope
 import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
+import androidx.compose.material3.TopAppBar
 import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.material3.darkColorScheme
 import androidx.compose.material3.dynamicDarkColorScheme
@@ -83,6 +92,9 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.SolidColor
+import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.graphics.vector.addPathNodes
 import androidx.compose.ui.input.nestedscroll.nestedScroll
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontFamily
@@ -119,7 +131,9 @@ class MainActivity : ComponentActivity() {
     private var selectedDevice by mutableStateOf<String?>(null)
     private var contacts by mutableStateOf<List<Contact>>(emptyList())
     private var mirrorOn by mutableStateOf(true)
-    private var dialWhatsApp by mutableStateOf(false)
+    /** How outgoing calls are placed: "auto" (WhatsApp if possible, else SIM), "sim" or "wa". */
+    private var dialMode by mutableStateOf("auto")
+    private var showContacts by mutableStateOf(false)
     private var loadedContactsVersion = -1
 
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -130,8 +144,13 @@ class MainActivity : ComponentActivity() {
         role = prefs.getString("role", LinkService.ROLE_REMOTE) ?: LinkService.ROLE_REMOTE
         selectedDevice = prefs.getString("device", null)
         mirrorOn = prefs.getBoolean("mirror", true)
-        dialWhatsApp = prefs.getString("dial_via", "sim") == "wa"
-        setContent { VgsTheme { Screen() } }
+        dialMode = prefs.getString("dial_via", "auto") ?: "auto"
+        setContent {
+            VgsTheme {
+                BackHandler(enabled = showContacts) { showContacts = false }
+                if (showContacts) ContactsPage() else Screen()
+            }
+        }
         requestPermissions(allPerms().toTypedArray(), 1)
         loadDevices()
         loadContacts()
@@ -304,14 +323,26 @@ class MainActivity : ComponentActivity() {
     }
 
     @Composable
-    private fun SectionCard(title: String, content: @Composable ColumnScope.() -> Unit) {
+    private fun SectionCard(
+        title: String,
+        action: (@Composable () -> Unit)? = null,
+        content: @Composable ColumnScope.() -> Unit
+    ) {
         Card(
             modifier = Modifier.fillMaxWidth(),
             shape = RoundedCornerShape(28.dp),
             colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceContainer)
         ) {
             Column(Modifier.padding(20.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
-                Text(title, style = MaterialTheme.typography.titleMedium, color = MaterialTheme.colorScheme.primary)
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Text(
+                        title,
+                        style = MaterialTheme.typography.titleMedium,
+                        color = MaterialTheme.colorScheme.primary,
+                        modifier = Modifier.weight(1f)
+                    )
+                    action?.invoke()
+                }
                 content()
             }
         }
@@ -576,38 +607,37 @@ class MainActivity : ComponentActivity() {
             }
             Text("Call with", style = MaterialTheme.typography.labelLarge)
             SingleChoiceSegmentedButtonRow(Modifier.fillMaxWidth()) {
-                val options = listOf(false to "Phone (SIM)", true to "WhatsApp")
-                options.forEachIndexed { i, (wa, label) ->
-                    SegmentedButton(
-                        selected = dialWhatsApp == wa,
-                        onClick = {
-                            dialWhatsApp = wa
-                            prefs.edit().putString("dial_via", if (wa) "wa" else "sim").apply()
-                        },
-                        shape = SegmentedButtonDefaults.itemShape(i, options.size)
-                    ) { Text(label) }
-                }
+                ModeOptions()
+            }
+            OutlinedButton(
+                onClick = { showContacts = true },
+                modifier = Modifier.fillMaxWidth().height(56.dp)
+            ) {
+                Icon(Icons.Filled.Person, contentDescription = null)
+                Spacer(Modifier.width(8.dp))
+                Text("Choose from contacts")
             }
             Button(
                 onClick = {
                     val c = picked
                     val n = if (c != null && c.label() == query.trim()) c.number
                     else query.substringBefore("·").filter { it.isDigit() || it == '+' || it == '*' || it == '#' }
-                    if (n.isEmpty()) toast("Pick a contact or enter a number") else s.dial(n, dialWhatsApp)
+                    if (n.isEmpty()) toast("Pick a contact or enter a number") else s.dial(n, dialMode)
                 },
                 modifier = Modifier.fillMaxWidth().height(56.dp),
-                colors = if (dialWhatsApp) ButtonDefaults.buttonColors(
+                colors = if (dialMode == "wa") ButtonDefaults.buttonColors(
                     containerColor = Color(0xFF1E8E3E),
                     contentColor = Color.White
                 ) else ButtonDefaults.buttonColors()
             ) {
                 Icon(Icons.Filled.Call, contentDescription = null)
                 Spacer(Modifier.width(8.dp))
-                Text(if (dialWhatsApp) "WhatsApp call" else "Call")
+                Text(when (dialMode) { "wa" -> "WhatsApp call"; "auto" -> "Call (auto)"; else -> "Call" })
             }
-            if (dialWhatsApp) {
+            if (dialMode != "sim") {
                 Text(
-                    "The number must be a WhatsApp contact in the gateway phone's contacts.",
+                    if (dialMode == "auto") "Auto: calls by WhatsApp when the gateway has the contact in WhatsApp, otherwise by SIM."
+                    else "The number must be a WhatsApp contact in the gateway phone's contacts.",
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant
                 )
@@ -755,6 +785,107 @@ class MainActivity : ComponentActivity() {
     }
 
     @Composable
+    private fun SingleChoiceSegmentedButtonRowScope.ModeOptions() {
+        val options = listOf("auto" to "Auto", "sim" to "Phone (SIM)", "wa" to "WhatsApp")
+        options.forEachIndexed { i, (mode, label) ->
+            SegmentedButton(
+                selected = dialMode == mode,
+                onClick = {
+                    dialMode = mode
+                    prefs.edit().putString("dial_via", mode).apply()
+                },
+                shape = SegmentedButtonDefaults.itemShape(i, options.size)
+            ) { Text(label) }
+        }
+    }
+
+    /** Full-screen contact list: tap a contact to call it with the chosen method. */
+    @Composable
+    private fun ContactsPage() {
+        tick // read the refresh counter so this page redraws on every update
+        var query by remember { mutableStateOf("") }
+        val q = query.trim().lowercase()
+        val qd = ContactStore.digits(q)
+        val shown = if (q.isEmpty()) contacts else contacts.filter { c ->
+            c.name.lowercase().contains(q) || (qd.isNotEmpty() && ContactStore.digits(c.number).contains(qd))
+        }
+        Scaffold(
+            modifier = Modifier.fillMaxSize(),
+            topBar = {
+                TopAppBar(
+                    title = { Text("Contacts", fontWeight = FontWeight.Bold) },
+                    navigationIcon = {
+                        IconButton(onClick = { showContacts = false }) {
+                            Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back")
+                        }
+                    }
+                )
+            }
+        ) { pad ->
+            Column(
+                Modifier.padding(pad).fillMaxSize().padding(horizontal = 16.dp),
+                verticalArrangement = Arrangement.spacedBy(12.dp)
+            ) {
+                OutlinedTextField(
+                    value = query,
+                    onValueChange = { query = it },
+                    label = { Text("Search (optional)") },
+                    singleLine = true,
+                    shape = RoundedCornerShape(16.dp),
+                    modifier = Modifier.fillMaxWidth()
+                )
+                Text("Call with", style = MaterialTheme.typography.labelLarge)
+                SingleChoiceSegmentedButtonRow(Modifier.fillMaxWidth()) { ModeOptions() }
+                Text(
+                    "${shown.size} of ${contacts.size} contacts · tap one to call",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+                if (contacts.isEmpty()) {
+                    Text(
+                        "No contacts yet. Connect to the gateway so it can send its contacts, or allow the Contacts permission on this phone.",
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                }
+                LazyColumn(Modifier.fillMaxSize()) {
+                    items(shown) { c ->
+                        Row(
+                            Modifier
+                                .fillMaxWidth()
+                                .clickable {
+                                    val svc = Hub.service
+                                    if (svc == null || !svc.isActive) toast("Press Start first") else {
+                                        svc.dial(c.number, dialMode)
+                                        showContacts = false
+                                        toast("Calling " + c.name.ifEmpty { c.number })
+                                    }
+                                }
+                                .padding(vertical = 12.dp),
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Icon(Icons.Filled.Person, contentDescription = null, tint = MaterialTheme.colorScheme.primary)
+                            Spacer(Modifier.width(16.dp))
+                            Column(Modifier.weight(1f)) {
+                                Text(c.name.ifEmpty { c.number }, style = MaterialTheme.typography.bodyLarge)
+                                if (c.name.isNotEmpty()) {
+                                    Text(
+                                        c.number,
+                                        style = MaterialTheme.typography.bodySmall,
+                                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                                    )
+                                }
+                            }
+                            Icon(Icons.Filled.Call, contentDescription = "Call", tint = MaterialTheme.colorScheme.primary)
+                        }
+                        HorizontalDivider()
+                    }
+                }
+            }
+        }
+    }
+
+    @Composable
     private fun SwitchRow(label: String, checked: Boolean, onChange: (Boolean) -> Unit) {
         Row(
             Modifier
@@ -775,7 +906,18 @@ class MainActivity : ComponentActivity() {
         // Read outside the SectionCard lambda: Compose memoizes that lambda, so values read
         // only inside it would never refresh. A new value here makes a new lambda.
         val text = Hub.logText()
-        SectionCard("Log") {
+        SectionCard("Log", action = {
+            IconButton(onClick = {
+                val all = Hub.logCopyText()
+                if (all.isEmpty()) toast("Nothing to copy yet") else {
+                    getSystemService(ClipboardManager::class.java)
+                        ?.setPrimaryClip(ClipData.newPlainText("VGS log", all))
+                    toast("Log copied")
+                }
+            }) {
+                Icon(CopyIcon, contentDescription = "Copy log", tint = MaterialTheme.colorScheme.primary)
+            }
+        }) {
             Text(
                 text.ifEmpty { "Nothing yet" },
                 style = MaterialTheme.typography.bodySmall,
@@ -785,3 +927,17 @@ class MainActivity : ComponentActivity() {
         }
     }
 }
+
+/** Material "content copy" icon (drawn here so we don't need the large extended icon set). */
+private val CopyIcon: ImageVector = ImageVector.Builder(
+    name = "ContentCopy",
+    defaultWidth = 24.dp,
+    defaultHeight = 24.dp,
+    viewportWidth = 24f,
+    viewportHeight = 24f
+).addPath(
+    pathData = addPathNodes(
+        "M16,1H4C2.9,1 2,1.9 2,3v14h2V3h12V1zM19,5H8C6.9,5 6,5.9 6,7v14c0,1.1 0.9,2 2,2h11c1.1,0 2,-0.9 2,-2V7C21,5.9 20.1,5 19,5zM19,21H8V7h11V21z"
+    ),
+    fill = SolidColor(Color.Black)
+).build()

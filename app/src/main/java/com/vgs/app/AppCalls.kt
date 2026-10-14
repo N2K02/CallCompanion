@@ -151,29 +151,53 @@ object AppCalls {
         val tail = digits.takeLast(9)
 
         var match: Pair<Long, String>? = null
+        var rows = 0
+        val byContact = HashMap<Long, Pair<Long, String>>()
         try {
             val mimes = VOIP_MIME.keys.toTypedArray()
             ctx.contentResolver.query(
                 ContactsContract.Data.CONTENT_URI,
-                arrayOf(ContactsContract.Data._ID, ContactsContract.Data.MIMETYPE, ContactsContract.Data.DATA1),
+                arrayOf(
+                    ContactsContract.Data._ID, ContactsContract.Data.MIMETYPE,
+                    ContactsContract.Data.DATA1, ContactsContract.Data.CONTACT_ID
+                ),
                 "${ContactsContract.Data.MIMETYPE} IN (?, ?)",
                 mimes,
                 null
             )?.use { c ->
                 while (c.moveToNext()) {
+                    rows++
+                    val entry = c.getLong(0) to (c.getString(1) ?: "")
+                    byContact.putIfAbsent(c.getLong(3), entry)
                     val jid = c.getString(2) ?: continue // e.g. 31612345678@s.whatsapp.net
-                    if (jid.substringBefore('@').filter { it.isDigit() }.endsWith(tail)) {
-                        match = c.getLong(0) to (c.getString(1) ?: "")
-                        break
+                    if (match == null && jid.substringBefore('@').filter { it.isDigit() }.endsWith(tail)) {
+                        match = entry
                     }
+                }
+            }
+            // Second chance: find the contact by its phone number, then use its WhatsApp entry.
+            // Works when the number is saved in another format than WhatsApp's own.
+            if (match == null && byContact.isNotEmpty()) {
+                ctx.contentResolver.query(
+                    android.net.Uri.withAppendedPath(
+                        ContactsContract.PhoneLookup.CONTENT_FILTER_URI, android.net.Uri.encode(number)
+                    ),
+                    arrayOf(ContactsContract.PhoneLookup._ID), null, null, null
+                )?.use { c ->
+                    while (match == null && c.moveToNext()) match = byContact[c.getLong(0)]
                 }
             }
         } catch (e: Exception) {
             return "WhatsApp call failed: couldn't read contacts (${e.message})"
         }
         val (id, mime) = match
-            ?: return "WhatsApp call failed: $number isn't a WhatsApp contact on the gateway " +
-                "(save it in Contacts there, then open WhatsApp once so it syncs)"
+            ?: return if (rows == 0) {
+                "WhatsApp call failed: the gateway's Contacts has no WhatsApp entries at all. " +
+                    "In WhatsApp allow the Contacts permission, and check WhatsApp contact sync is on (Settings › Accounts)"
+            } else {
+                "WhatsApp call failed: $number isn't a WhatsApp contact on the gateway ($rows WhatsApp contacts checked). " +
+                    "Save it in Contacts there, then open WhatsApp once so it syncs"
+            }
 
         if (!canOpenFromBackground(ctx)) {
             Hub.log("⚠️ 'Display over other apps' is OFF for VGS on the gateway – Android may block opening WhatsApp")

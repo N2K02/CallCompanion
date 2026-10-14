@@ -63,10 +63,13 @@ object Hub {
         android.util.Log.i("VGS", msg)
         synchronized(lines) {
             lines.addLast(fmt.format(Date()) + "  " + msg)
-            while (lines.size > 60) lines.removeFirst()
+            while (lines.size > 300) lines.removeFirst()
         }
         notifyUi()
     }
+
+    /** Whole log, oldest first, for copying. */
+    fun logCopyText(): String = synchronized(lines) { lines.joinToString("\n") }
 
     fun logText(): String = synchronized(lines) { lines.reversed().joinToString("\n") }
 

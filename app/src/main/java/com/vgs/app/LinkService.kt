@@ -201,10 +201,11 @@ class LinkService : Service() {
     }
 
     /** [whatsApp] = call through WhatsApp on the gateway instead of the SIM. */
-    fun dial(number: String, whatsApp: Boolean = false) {
-        if (role == ROLE_GATEWAY) gatewayDial(number, whatsApp) else {
+    /** [mode]: "sim", "wa", or "auto" (WhatsApp if the gateway has the contact there, else SIM). */
+    fun dial(number: String, mode: String = "sim") {
+        if (role == ROLE_GATEWAY) gatewayDial(number, mode) else {
             autoTake = true
-            send("DIAL", number, if (whatsApp) "wa" else "sim")
+            send("DIAL", number, mode)
         }
     }
 
@@ -462,7 +463,7 @@ class LinkService : Service() {
             // remote -> gateway
             "ANSWER" -> gatewayAnswer()
             "REJECT", "HANGUP" -> gatewayEnd()
-            "DIAL" -> gatewayDial(arg1, p.getOrElse(2) { "sim" } == "wa")
+            "DIAL" -> gatewayDial(arg1, p.getOrElse(2) { "sim" })
             "SPEAKER" -> {
                 gatewaySpeakerOn = arg1 == "1"
                 AudioRoute.setSpeaker(this, arg1 == "1")
@@ -657,13 +658,20 @@ class LinkService : Service() {
     }
 
     @SuppressLint("MissingPermission")
-    private fun gatewayDial(number: String, whatsApp: Boolean = false) {
+    private fun gatewayDial(number: String, mode: String = "sim") {
         val n = number.trim()
         if (n.isEmpty()) return
-        if (whatsApp) {
+        if (mode == "wa" || mode == "auto") {
             val err = AppCalls.startWhatsAppCall(this, n)
-            Hub.log(err ?: "WhatsApp calling $n")
-            return
+            if (err == null) {
+                Hub.log("WhatsApp calling $n")
+                return
+            }
+            if (mode == "wa") {
+                Hub.log(err)
+                return
+            }
+            Hub.log("$n is not reachable on WhatsApp ($err) – calling by SIM instead")
         }
         if (!has(Manifest.permission.CALL_PHONE)) {
             Hub.log("Dial failed: 'Phone' permission missing on gateway")
