@@ -158,6 +158,7 @@ class LinkService : Service() {
                 deviceAddress = intent.getStringExtra(EXTRA_DEVICE)
                 running = true
                 connectionState = "Starting…"
+                Hub.log("Started as ${if (role == ROLE_GATEWAY) "gateway" else "remote"}")
                 goForeground()
                 if (role == ROLE_GATEWAY) {
                     registerPhoneReceiver()

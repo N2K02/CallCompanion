@@ -382,16 +382,19 @@ class MainActivity : ComponentActivity() {
     @Composable
     private fun ConnectionCard(s: LinkService?, running: Boolean) {
         tick // read the refresh counter so this card redraws on every update
+        // Read service state outside the lambda so the card refreshes (see LogCard).
+        val connected = running && s!!.connected
+        val status = if (!running) "Stopped" else s!!.connectionState
         SectionCard("Connection") {
             Row(verticalAlignment = Alignment.CenterVertically) {
                 when {
                     !running -> Dot(MaterialTheme.colorScheme.outline)
-                    s!!.connected -> Dot(MaterialTheme.colorScheme.primary)
+                    connected -> Dot(MaterialTheme.colorScheme.primary)
                     else -> LoadingIndicator(Modifier.size(28.dp))
                 }
                 Spacer(Modifier.width(12.dp))
                 Text(
-                    if (!running) "Stopped" else s!!.connectionState,
+                    status,
                     style = MaterialTheme.typography.titleLarge
                 )
             }
@@ -421,6 +424,10 @@ class MainActivity : ComponentActivity() {
         val state = s.callState
         val ringing = state == LinkService.CALL_RINGING
         val inCall = state == LinkService.CALL_OFFHOOK
+        // Read service state outside the Card lambda so the card refreshes (see LogCard).
+        val kind = s.kindLabel()
+        val who = s.display()
+        val takenHere = s.takenHere
         Card(
             modifier = Modifier.fillMaxWidth(),
             shape = RoundedCornerShape(32.dp),
@@ -442,23 +449,23 @@ class MainActivity : ComponentActivity() {
                 )
                 Text(
                     when {
-                        ringing -> "Incoming ${s.kindLabel()}call"
-                        inCall -> "In ${s.kindLabel()}call"
+                        ringing -> "Incoming ${kind}call"
+                        inCall -> "In ${kind}call"
                         else -> "No active phone call"
                     },
                     style = MaterialTheme.typography.labelLarge
                 )
                 if (ringing || inCall) {
-                    Text(s.display(), style = MaterialTheme.typography.headlineMedium, textAlign = TextAlign.Center)
+                    Text(who, style = MaterialTheme.typography.headlineMedium, textAlign = TextAlign.Center)
                 }
                 if (inCall && isRemote) {
                     Text(
-                        if (s.takenHere) "You're talking on this phone (gateway on loudspeaker)"
+                        if (takenHere) "You're talking on this phone (gateway on loudspeaker)"
                         else "Audio is on the gateway phone",
                         style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant
                     )
-                    if (s.takenHere) {
+                    if (takenHere) {
                         OutlinedButton(
                             onClick = { s.giveCallBack() },
                             modifier = Modifier.fillMaxWidth().height(56.dp)
@@ -713,13 +720,17 @@ class MainActivity : ComponentActivity() {
     @Composable
     private fun VoiceCard(s: LinkService, isRemote: Boolean) {
         tick // read the refresh counter so this card redraws on every update
+        // Read service state outside the lambda so the card refreshes (see LogCard).
+        val voiceOn = s.voiceActive
+        val localSpeaker = s.speakerOn
+        val gatewaySpeaker = s.gatewaySpeakerOn
         SectionCard("Voice link") {
             Text(
                 "Talk live between the two phones over Bluetooth.",
                 style = MaterialTheme.typography.bodyMedium,
                 color = MaterialTheme.colorScheme.onSurfaceVariant
             )
-            if (s.voiceActive) {
+            if (voiceOn) {
                 Button(
                     onClick = { s.toggleVoice() },
                     modifier = Modifier.fillMaxWidth().height(56.dp),
@@ -734,9 +745,9 @@ class MainActivity : ComponentActivity() {
                     modifier = Modifier.fillMaxWidth().height(56.dp)
                 ) { Text("Start voice link") }
             }
-            SwitchRow("This phone's loudspeaker", s.speakerOn) { on -> s.setLocalSpeaker(on) }
+            SwitchRow("This phone's loudspeaker", localSpeaker) { on -> s.setLocalSpeaker(on) }
             if (isRemote) {
-                SwitchRow("Gateway loudspeaker (during calls)", s.gatewaySpeakerOn) { on ->
+                SwitchRow("Gateway loudspeaker (during calls)", gatewaySpeaker) { on ->
                     s.setGatewaySpeaker(on)
                 }
             }
@@ -761,8 +772,10 @@ class MainActivity : ComponentActivity() {
     @Composable
     private fun LogCard() {
         tick // read the refresh counter so this card redraws on every update
+        // Read outside the SectionCard lambda: Compose memoizes that lambda, so values read
+        // only inside it would never refresh. A new value here makes a new lambda.
+        val text = Hub.logText()
         SectionCard("Log") {
-            val text = Hub.logText()
             Text(
                 text.ifEmpty { "Nothing yet" },
                 style = MaterialTheme.typography.bodySmall,
