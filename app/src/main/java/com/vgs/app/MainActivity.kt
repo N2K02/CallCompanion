@@ -1165,12 +1165,23 @@ class MainActivity : ComponentActivity() {
                 Icon(Icons.Filled.Delete, contentDescription = "Clear log", tint = MaterialTheme.colorScheme.primary)
             }
         }) {
-            Text(
-                text.ifEmpty { "Nothing yet" },
-                style = MaterialTheme.typography.bodySmall,
-                fontFamily = FontFamily.Monospace,
-                color = MaterialTheme.colorScheme.onSurfaceVariant
-            )
+            // Fixed-height box that scrolls on its own, so a long log never stretches the page.
+            Box(
+                Modifier
+                    .fillMaxWidth()
+                    .height(320.dp)
+                    .clip(RoundedCornerShape(16.dp))
+                    .background(MaterialTheme.colorScheme.surfaceContainerHighest)
+                    .verticalScroll(rememberScrollState())
+                    .padding(12.dp)
+            ) {
+                Text(
+                    text.ifEmpty { "Nothing yet" },
+                    style = MaterialTheme.typography.bodySmall,
+                    fontFamily = FontFamily.Monospace,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+            }
         }
     }
 }
