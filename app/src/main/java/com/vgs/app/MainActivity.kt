@@ -859,6 +859,8 @@ class MainActivity : ComponentActivity() {
                 Spacer(Modifier.width(8.dp))
                 Text("Choose from contacts")
             }
+            // Extra gap so the Call button is not hit by accident when choosing a contact.
+            Spacer(Modifier.height(28.dp))
             Button(
                 onClick = { s.dial(number, dialMode) },
                 enabled = valid,
