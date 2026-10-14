@@ -51,7 +51,6 @@ import androidx.compose.material.icons.filled.Notifications
 import androidx.compose.material.icons.filled.Person
 import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.filled.Settings
-import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Card
@@ -135,7 +134,6 @@ class MainActivity : ComponentActivity() {
     /** How outgoing calls are placed: "auto" (WhatsApp if possible, else SIM), "sim" or "wa". */
     private var dialMode by mutableStateOf("auto")
     private var showContacts by mutableStateOf(false)
-    private var showLog by mutableStateOf(false)
     /** False until the user has picked a role (first launch). */
     private var roleChosen by mutableStateOf(false)
     /** false = setup page (role + permissions), true = main page. */
@@ -159,14 +157,12 @@ class MainActivity : ComponentActivity() {
                 else if (inMain) {
                     if (role == LinkService.ROLE_GATEWAY) GatewayPage() else Screen()
                 } else SetupPage()
-                if (showLog) LogDialog()
             }
         }
         // Straight to the main page when everything is in order, otherwise the setup page.
         // The gateway shows its status page only while running; otherwise the setup page has "Start gateway".
         val running = Hub.service?.isActive == true
         inMain = roleChosen && allOk() && (role == LinkService.ROLE_REMOTE || running)
-        if (intent.getBooleanExtra(LinkService.EXTRA_SHOW_LOGS, false)) showLog = true
         loadDevices()
         loadContacts()
     }
@@ -174,7 +170,6 @@ class MainActivity : ComponentActivity() {
     override fun onNewIntent(intent: Intent) {
         super.onNewIntent(intent)
         setIntent(intent)
-        if (intent.getBooleanExtra(LinkService.EXTRA_SHOW_LOGS, false)) showLog = true
     }
 
     override fun onResume() {
@@ -422,75 +417,19 @@ class MainActivity : ComponentActivity() {
                         style = MaterialTheme.typography.bodyMedium,
                         color = MaterialTheme.colorScheme.onSurfaceVariant
                     )
-                    Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-                        OutlinedButton(
-                            onClick = {
-                                stopLink()
-                                inMain = false
-                            },
-                            enabled = running,
-                            modifier = Modifier.weight(1f).height(56.dp)
-                        ) { Text("Stop") }
-                        Button(
-                            onClick = { showLog = true },
-                            modifier = Modifier.weight(1f).height(56.dp)
-                        ) { Text("Logs") }
-                    }
-                }
-            }
-        }
-    }
-
-    /** Popup with the test-notification button and the log. */
-    @Composable
-    private fun LogDialog() {
-        tick // read the refresh counter so the popup redraws on every update
-        val text = Hub.logText()
-        val svc = Hub.service
-        val running = svc != null && svc.isActive
-        AlertDialog(
-            onDismissRequest = { showLog = false },
-            title = {
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                    Text("Log", modifier = Modifier.weight(1f))
-                    IconButton(onClick = {
-                        val all = Hub.logCopyText()
-                        if (all.isEmpty()) toast("Nothing to copy yet") else {
-                            getSystemService(ClipboardManager::class.java)
-                                ?.setPrimaryClip(ClipData.newPlainText("VGS log", all))
-                            toast("Log copied")
-                        }
-                    }) {
-                        Icon(CopyIcon, contentDescription = "Copy log", tint = MaterialTheme.colorScheme.primary)
-                    }
-                    IconButton(onClick = {
-                        Hub.clearLog()
-                        toast("Log cleared")
-                    }) {
-                        Icon(Icons.Filled.Delete, contentDescription = "Clear log", tint = MaterialTheme.colorScheme.primary)
-                    }
-                }
-            },
-            text = {
-                Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
                     OutlinedButton(
                         onClick = {
-                            if (!running) toast("Gateway is not running") else svc!!.sendTestNotification()
+                            stopLink()
+                            inMain = false
                         },
-                        modifier = Modifier.fillMaxWidth()
-                    ) { Text("Send test notification to remote") }
-                    Column(Modifier.weight(1f, fill = false).verticalScroll(rememberScrollState())) {
-                        Text(
-                            text.ifEmpty { "Nothing yet" },
-                            style = MaterialTheme.typography.bodySmall,
-                            fontFamily = FontFamily.Monospace,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant
-                        )
-                    }
+                        enabled = running,
+                        modifier = Modifier.fillMaxWidth().height(56.dp)
+                    ) { Text("Stop") }
                 }
-            },
-            confirmButton = { TextButton(onClick = { showLog = false }) { Text("Close") } }
-        )
+                LogCard(withTest = true)
+                Spacer(Modifier.height(24.dp))
+            }
+        }
     }
 
     @Composable
@@ -1100,7 +1039,7 @@ class MainActivity : ComponentActivity() {
     }
 
     @Composable
-    private fun LogCard() {
+    private fun LogCard(withTest: Boolean = false) {
         tick // read the refresh counter so this card redraws on every update
         // Read outside the SectionCard lambda: Compose memoizes that lambda, so values read
         // only inside it would never refresh. A new value here makes a new lambda.
@@ -1123,6 +1062,15 @@ class MainActivity : ComponentActivity() {
                 Icon(Icons.Filled.Delete, contentDescription = "Clear log", tint = MaterialTheme.colorScheme.primary)
             }
         }) {
+            if (withTest) {
+                OutlinedButton(
+                    onClick = {
+                        val svc = Hub.service
+                        if (svc == null || !svc.isActive) toast("Gateway is not running") else svc.sendTestNotification()
+                    },
+                    modifier = Modifier.fillMaxWidth()
+                ) { Text("Send test notification to remote") }
+            }
             Text(
                 text.ifEmpty { "Nothing yet" },
                 style = MaterialTheme.typography.bodySmall,
