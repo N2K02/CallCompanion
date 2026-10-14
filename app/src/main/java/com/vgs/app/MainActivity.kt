@@ -125,6 +125,7 @@ class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         enableEdgeToEdge()
         super.onCreate(savedInstanceState)
+        AppUpdater.init(this, "N2K02/VGS", "VGS")
         prefs = getSharedPreferences("vgs", MODE_PRIVATE)
         role = prefs.getString("role", LinkService.ROLE_REMOTE) ?: LinkService.ROLE_REMOTE
         selectedDevice = prefs.getString("device", null)
@@ -138,6 +139,7 @@ class MainActivity : ComponentActivity() {
 
     override fun onResume() {
         super.onResume()
+        AppUpdater.onResume(this)
         Hub.listener = {
             tick++
             if (Hub.contactsVersion != loadedContactsVersion) loadContacts()
@@ -285,6 +287,7 @@ class MainActivity : ComponentActivity() {
                     .padding(horizontal = 16.dp, vertical = 8.dp),
                 verticalArrangement = Arrangement.spacedBy(16.dp)
             ) {
+                UpdateCard()
                 RoleCard(running, effRole)
                 if (isRemote && !running) DeviceCard()
                 ConnectionCard(s, running)
@@ -294,6 +297,7 @@ class MainActivity : ComponentActivity() {
                 if (effRole == LinkService.ROLE_GATEWAY) WhatsAppCard()
                 if (running) VoiceCard(s!!, isRemote)
                 LogCard()
+                UpdateFooter("VGS")
                 Spacer(Modifier.height(24.dp))
             }
         }

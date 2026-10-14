@@ -62,4 +62,6 @@ dependencies {
     implementation("androidx.compose.material3:material3:1.5.0-beta01")
     implementation("androidx.compose.material:material-icons-core:1.7.8")
     implementation("androidx.activity:activity-compose:1.11.0")
+    // In-app updates (AppUpdater)
+    implementation("org.jetbrains.kotlinx:kotlinx-coroutines-android:1.10.2")
 }

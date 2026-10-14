@@ -48,6 +48,15 @@ Android does **not** let a normal app capture or inject the audio of a SIM call.
 
 Tip: on some phones (Xiaomi, Samsung, Huawei) set VGS battery usage to **Unrestricted** so it keeps running in the background.
 
+## Updates
+
+The app updates itself from this repo's Releases:
+
+- When you open it (at most every 12 hours) it checks for a newer release. If there is one, a card shows **what's new** with **Update now**, **Later** or **Skip this version**.
+- **Check for updates** is at the bottom of the main screen, next to the version number.
+- The APK is downloaded inside the app, checked (size, SHA-256 checksum from GitHub, same app, newer version, same signing key) and installed with Android's own installer.
+- The first time, Android asks you to allow installs from this app ("Install unknown apps"); after that you just confirm the update.
+
 ## Build
 
 Every push to `main` builds the APK with GitHub Actions and publishes it as a release named "VGS <version>" (1.0, 1.1, 1.2 …, one decimal place) with release notes listing the changes since the previous release. To jump to a new number (e.g. 2.0), run the workflow by hand from the Actions tab and type the version. Locally: `./gradlew assembleRelease` (shrunk APK) (needs JDK 17 + Android SDK).
