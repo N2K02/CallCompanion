@@ -270,7 +270,7 @@ class MainActivity : ComponentActivity() {
         val scroll = TopAppBarDefaults.exitUntilCollapsedScrollBehavior()
 
         Scaffold(
-            modifier = Modifier.fillMaxSize().nestedScroll(scroll.nestedScrollConnection),
+            modifier = Modifier.fillMaxSize().nestedScroll(FooterScroll.connection).nestedScroll(scroll.nestedScrollConnection),
             topBar = {
                 LargeTopAppBar(
                     title = { Text("VGS", fontWeight = FontWeight.Bold) },

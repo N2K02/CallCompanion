@@ -2,12 +2,9 @@ package com.vgs.app
 
 import android.annotation.SuppressLint
 import android.app.Activity
-import android.app.PendingIntent
-import android.content.BroadcastReceiver
 import android.content.Context
 import android.content.Intent
 import android.content.pm.PackageInfo
-import android.content.pm.PackageInstaller
 import android.content.pm.PackageManager
 import android.net.Uri
 import android.os.Build
@@ -23,6 +20,7 @@ import kotlinx.coroutines.withContext
 import org.json.JSONObject
 import java.io.File
 import java.io.IOException
+import java.lang.ref.WeakReference
 import java.net.HttpURLConnection
 import java.net.URL
 import java.security.MessageDigest
@@ -35,11 +33,12 @@ import java.security.MessageDigest
  *    versionCode the build uses (1.8 -> 18) and compared with the installed one.
  * 2. Download: the APK goes to the app's private cache, with progress.
  * 3. Verify before installing: size and SHA-256 (from GitHub), same package name,
- *    newer versionCode and the same signing key as the installed app.
- * 4. Install with Android's PackageInstaller (the modern, supported way). Android asks the
- *    user to confirm; the first time it also asks to allow installs from this app.
+ *    newer versionCode and a signing key the installed app trusts.
+ * 4. Install: opens Android's own package installer screen (the same one as tapping a
+ *    downloaded APK), with the file shared through [UpdateFileProvider]. The first time,
+ *    Android asks to allow installs from this app.
  *
- * Nothing runs in the background and no data is sent anywhere except the request to GitHub.
+ * Nothing runs in the background and no data is sent anywhere except the requests to GitHub.
  */
 object AppUpdater {
     /** "owner/repo" on GitHub. Set in [init]. */
@@ -48,6 +47,7 @@ object AppUpdater {
     private lateinit var app: Context
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Main)
     private var job: Job? = null
+    private var activityRef: WeakReference<Activity>? = null
 
     private const val CHECK_EVERY_MS = 12 * 60 * 60 * 1000L
 
@@ -73,9 +73,8 @@ object AppUpdater {
         data class Downloading(val release: Release, val progress: Float?) : State
         /** Downloaded and checked; Android needs "install unknown apps" allowed for this app first. */
         data class NeedsPermission(val release: Release) : State
-        data class Installing(val release: Release) : State
-        /** Android is waiting for the user to confirm the install. */
-        data class Confirm(val release: Release, val intent: Intent) : State
+        /** Downloaded and checked; tap Install to open Android's installer (again). */
+        data class Ready(val release: Release) : State
         data class Failed(val message: String, val release: Release?) : State
     }
 
@@ -88,7 +87,8 @@ object AppUpdater {
         app = context.applicationContext
         this.repo = repo
         this.appName = appName
-        // An update that installed: remove its downloaded APK.
+        if (context is Activity) activityRef = WeakReference(context)
+        // A new app start: an update that installed (or was abandoned) leaves its APK behind.
         if (_state.value is State.Idle) runCatching { updateDir().deleteRecursively() }
     }
 
@@ -100,14 +100,15 @@ object AppUpdater {
 
     /** Call from the activity's onResume: checks if due, and continues an install waiting for permission. */
     fun onResume(activity: Activity) {
-        val s = _state.value
-        if (s is State.NeedsPermission && canInstall()) {
-            install(s.release)
-            return
+        activityRef = WeakReference(activity)
+        when (val s = _state.value) {
+            is State.NeedsPermission -> if (canInstall()) openInstaller(s.release)
+            is State.Idle -> {
+                val last = prefs.getLong("lastCheck", 0L)
+                if (System.currentTimeMillis() - last > CHECK_EVERY_MS) check(manual = false)
+            }
+            else -> Unit
         }
-        if (s is State.Confirm) return
-        val last = prefs.getLong("lastCheck", 0L)
-        if (s is State.Idle && System.currentTimeMillis() - last > CHECK_EVERY_MS) check(manual = false)
     }
 
     /** Asks GitHub for the latest release. [manual]: also show "up to date" and ignore "skip". */
@@ -157,8 +158,17 @@ object AppUpdater {
                 _state.value = State.Failed("Download failed. Check your connection and try again.", release)
                 return@launch
             }
-            if (canInstall()) install(release) else _state.value = State.NeedsPermission(release)
+            if (canInstall()) openInstaller(release) else _state.value = State.NeedsPermission(release)
         }
+    }
+
+    /** Install button: opens Android's installer for the downloaded update. */
+    fun install(release: Release) {
+        if (!apkFile(release).exists()) {
+            update(release)
+            return
+        }
+        if (canInstall()) openInstaller(release) else _state.value = State.NeedsPermission(release)
     }
 
     /** Opens Android's "Install unknown apps" setting for this app. */
@@ -170,15 +180,24 @@ object AppUpdater {
         }
     }
 
-    /** Shows Android's install confirmation (if it didn't open by itself). */
-    fun confirm(activity: Activity, s: State.Confirm) {
-        runCatching { activity.startActivity(s.intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)) }
-            .onFailure { _state.value = State.Failed("Couldn't open the installer.", s.release) }
-    }
-
     fun openReleasePage(activity: Activity, release: Release?) {
         val url = release?.pageUrl ?: "https://github.com/$repo/releases/latest"
         runCatching { activity.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(url))) }
+    }
+
+    /**
+     * Hands the APK to Android's package installer (the standard install screen). If Play Protect
+     * asks to scan it, that happens in the same screen. Installing replaces and restarts the app.
+     */
+    private fun openInstaller(release: Release) {
+        val file = apkFile(release)
+        _state.value = State.Ready(release)
+        val activity = activityRef?.get()?.takeUnless { it.isFinishing || it.isDestroyed } ?: return
+        val intent = Intent(Intent.ACTION_VIEW)
+            .setDataAndType(UpdateFileProvider.uriFor(app, file), "application/vnd.android.package-archive")
+            .addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+        runCatching { activity.startActivity(intent) }
+            .onFailure { _state.value = State.Failed("Couldn't open Android's installer.", release) }
     }
 
     // ---------------------------------------------------------------- GitHub
@@ -238,7 +257,7 @@ object AppUpdater {
 
     // ---------------------------------------------------------------- download + verify
 
-    private fun updateDir() = File(app.cacheDir, "update")
+    private fun updateDir() = File(app.cacheDir, UpdateFileProvider.DIR)
 
     private fun apkFile(release: Release) =
         File(updateDir(), release.apkName.replace(Regex("[^A-Za-z0-9._-]"), "_"))
@@ -299,7 +318,6 @@ object AppUpdater {
         release.sha256?.let { expected ->
             if (sha256(file) != expected) return@withContext "The download is damaged (checksum mismatch). Please try again."
         }
-        val pm = app.packageManager
         val apk = archiveInfo(file) ?: return@withContext "The downloaded file isn't a valid app."
         if (apk.packageName != app.packageName) return@withContext "The downloaded file is a different app."
         if (versionCodeOf(apk) <= installedVersionCode) return@withContext "The downloaded version isn't newer than this one."
@@ -324,92 +342,7 @@ object AppUpdater {
         return md.digest().joinToString("") { "%02x".format(it) }
     }
 
-    // ---------------------------------------------------------------- install
-
     private fun canInstall() = app.packageManager.canRequestPackageInstalls()
-
-    private fun install(release: Release) {
-        val file = apkFile(release)
-        if (!file.exists()) {
-            _state.value = State.Available(release)
-            return
-        }
-        _state.value = State.Installing(release)
-        scope.launch {
-            try {
-                withContext(Dispatchers.IO) {
-                    val installer = app.packageManager.packageInstaller
-                    val params = PackageInstaller.SessionParams(PackageInstaller.SessionParams.MODE_FULL_INSTALL).apply {
-                        setAppPackageName(app.packageName)
-                        setSize(file.length())
-                        if (Build.VERSION.SDK_INT >= 31) {
-                            // Lets Android update without a prompt when this app installed itself before.
-                            setRequireUserAction(PackageInstaller.SessionParams.USER_ACTION_NOT_REQUIRED)
-                        }
-                        if (Build.VERSION.SDK_INT >= 33) {
-                            setPackageSource(PackageInstaller.PACKAGE_SOURCE_DOWNLOADED_FILE)
-                        }
-                    }
-                    val id = installer.createSession(params)
-                    installer.openSession(id).use { session ->
-                        file.inputStream().use { input ->
-                            session.openWrite("base.apk", 0, file.length()).use { out ->
-                                input.copyTo(out, 64 * 1024)
-                                session.fsync(out)
-                            }
-                        }
-                        val flags = PendingIntent.FLAG_UPDATE_CURRENT or
-                            (if (Build.VERSION.SDK_INT >= 31) PendingIntent.FLAG_MUTABLE else 0)
-                        val pi = PendingIntent.getBroadcast(
-                            app, id,
-                            Intent(app, UpdateReceiver::class.java).setPackage(app.packageName),
-                            flags,
-                        )
-                        session.commit(pi.intentSender)
-                    }
-                }
-            } catch (e: Exception) {
-                _state.value = State.Failed("Couldn't start the install: ${e.message ?: "unknown error"}", release)
-            }
-        }
-    }
-
-    /** Result of the install, from [UpdateReceiver]. */
-    internal fun onInstallStatus(context: Context, intent: Intent) {
-        val release = when (val s = _state.value) {
-            is State.Installing -> s.release
-            is State.Confirm -> s.release
-            else -> null
-        }
-        when (intent.getIntExtra(PackageInstaller.EXTRA_STATUS, PackageInstaller.STATUS_FAILURE)) {
-            PackageInstaller.STATUS_PENDING_USER_ACTION -> {
-                @Suppress("DEPRECATION")
-                val confirm = (if (Build.VERSION.SDK_INT >= 33) {
-                    intent.getParcelableExtra(Intent.EXTRA_INTENT, Intent::class.java)
-                } else {
-                    intent.getParcelableExtra(Intent.EXTRA_INTENT)
-                }) ?: return
-                if (release != null) _state.value = State.Confirm(release, confirm)
-                // Open Android's confirmation now; the card also has a button in case this is blocked.
-                runCatching { context.startActivity(confirm.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)) }
-            }
-            PackageInstaller.STATUS_SUCCESS -> {
-                // Usually the app is restarted before this arrives.
-                _state.value = State.Idle
-            }
-            PackageInstaller.STATUS_FAILURE_ABORTED -> {
-                _state.value = if (release != null) State.Available(release) else State.Idle
-            }
-            PackageInstaller.STATUS_FAILURE_CONFLICT, PackageInstaller.STATUS_FAILURE_INCOMPATIBLE ->
-                _state.value = State.Failed("Android refused the update (signing key or version conflict).", release)
-            PackageInstaller.STATUS_FAILURE_STORAGE ->
-                _state.value = State.Failed("Not enough storage to install the update.", release)
-            else -> {
-                val msg = intent.getStringExtra(PackageInstaller.EXTRA_STATUS_MESSAGE)
-                _state.value = State.Failed("The install didn't finish${msg?.let { ": $it" } ?: "."}", release)
-            }
-        }
-    }
 
     // ---------------------------------------------------------------- package info helpers
 
@@ -448,12 +381,5 @@ object AppUpdater {
         } ?: return emptySet()
         val md = MessageDigest.getInstance("SHA-256")
         return sigs.map { sig -> md.digest(sig.toByteArray()).joinToString("") { "%02x".format(it) } }.toSet()
-    }
-}
-
-/** Receives the result of an update install from Android's PackageInstaller. */
-class UpdateReceiver : BroadcastReceiver() {
-    override fun onReceive(context: Context, intent: Intent) {
-        AppUpdater.onInstallStatus(context, intent)
     }
 }

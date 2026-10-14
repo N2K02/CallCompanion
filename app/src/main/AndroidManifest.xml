@@ -80,9 +80,11 @@
             </intent-filter>
         </service>
 
-        <!-- Result of installing an app update -->
-        <receiver
-            android:name=".UpdateReceiver"
-            android:exported="false" />
+        <!-- Shares a downloaded update APK with Android's installer (read-only, not exported) -->
+        <provider
+            android:name=".UpdateFileProvider"
+            android:authorities="${applicationId}.updates"
+            android:exported="false"
+            android:grantUriPermissions="true" />
     </application>
 </manifest>
