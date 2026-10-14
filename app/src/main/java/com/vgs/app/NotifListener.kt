@@ -51,6 +51,10 @@ class NotifListener : NotificationListenerService() {
 
     private val lastSent = HashMap<String, String>()
 
+    /** The last "not sent" reason that was logged, so it is logged once instead of per notification. */
+    @Volatile
+    private var lastBlockReason: String? = null
+
     override fun onListenerConnected() {
         instance = this
         Hub.log("🔔 Notification listener connected")
@@ -65,25 +69,29 @@ class NotifListener : NotificationListenerService() {
     override fun onNotificationPosted(sbn: StatusBarNotification) {
         if (sbn.packageName == packageName) return
         if (AppCalls.isCall(sbn)) { // WhatsApp call: ringing / active
+            val svc = Hub.service?.takeIf { it.isActive } ?: return // VGS stopped: ignore
             val call = AppCalls.parse(sbn) ?: return
-            Hub.service?.onAppCall(call)
+            svc.onAppCall(call)
             return
         }
         if (sbn.isOngoing) return // music players, navigation, downloads…
         val n = sbn.notification ?: return
         if ((n.flags and Notification.FLAG_GROUP_SUMMARY) != 0) return // e.g. "3 new messages" bundle
         if (n.category == Notification.CATEGORY_CALL) return // calls are handled separately
-        val app = appName(sbn.packageName)
+        // Android keeps this listener running even when VGS is stopped. In that case the
+        // notification is ignored without reading it, and the reason is logged only once.
         val svc = Hub.service
-        if (svc == null) {
-            Hub.log("🔔 $app notification NOT sent: VGS is stopped (press Start)")
+        val why = if (svc == null) "VGS is stopped (press Start)" else svc.mirrorBlockReason()
+        if (svc == null || why != null) {
+            synchronized(lastSent) { lastSent.clear() }
+            if (why != lastBlockReason) {
+                lastBlockReason = why
+                Hub.log("🔔 Notifications are not being sent: $why")
+            }
             return
         }
-        val why = svc.mirrorBlockReason()
-        if (why != null) {
-            Hub.log("🔔 $app notification NOT sent: $why")
-            return
-        }
+        lastBlockReason = null
+        val app = appName(sbn.packageName)
 
         val ex = n.extras ?: return
         val title = ex.getCharSequence(Notification.EXTRA_TITLE)?.toString() ?: ""
@@ -105,12 +113,13 @@ class NotifListener : NotificationListenerService() {
     }
 
     override fun onNotificationRemoved(sbn: StatusBarNotification) {
+        val svc = Hub.service ?: return // VGS stopped: nothing to clear on the remote
         if (AppCalls.isCall(sbn)) {
-            Hub.service?.onAppCallRemoved(sbn.key)
+            svc.onAppCallRemoved(sbn.key)
             return
         }
         synchronized(lastSent) { lastSent.remove(sbn.key) }
-        Hub.service?.mirrorRemoved(sbn.key)
+        svc.mirrorRemoved(sbn.key)
     }
 
     /** Called when the user swipes the copy away on the remote phone. */
