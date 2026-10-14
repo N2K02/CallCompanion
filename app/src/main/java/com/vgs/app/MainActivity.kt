@@ -51,6 +51,7 @@ import androidx.compose.material.icons.filled.Notifications
 import androidx.compose.material.icons.filled.Person
 import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.filled.Settings
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Card
@@ -134,6 +135,7 @@ class MainActivity : ComponentActivity() {
     /** How outgoing calls are placed: "auto" (WhatsApp if possible, else SIM), "sim" or "wa". */
     private var dialMode by mutableStateOf("auto")
     private var showContacts by mutableStateOf(false)
+    private var showLog by mutableStateOf(false)
     /** False until the user has picked a role (first launch). */
     private var roleChosen by mutableStateOf(false)
     /** false = setup page (role + permissions), true = main page. */
@@ -153,19 +155,26 @@ class MainActivity : ComponentActivity() {
         setContent {
             VgsTheme {
                 BackHandler(enabled = showContacts) { showContacts = false }
-                if (showContacts) ContactsPage() else if (inMain) Screen() else SetupPage()
+                if (showContacts) ContactsPage()
+                else if (inMain) {
+                    if (role == LinkService.ROLE_GATEWAY) GatewayPage() else Screen()
+                } else SetupPage()
+                if (showLog) LogDialog()
             }
         }
         // Straight to the main page when everything is in order, otherwise the setup page.
-        inMain = roleChosen && allOk()
+        // The gateway shows its status page only while running; otherwise the setup page has "Start gateway".
+        val running = Hub.service?.isActive == true
+        inMain = roleChosen && allOk() && (role == LinkService.ROLE_REMOTE || running)
+        if (intent.getBooleanExtra(LinkService.EXTRA_SHOW_LOGS, false)) showLog = true
         loadDevices()
         loadContacts()
-        autoStartGateway()
     }
 
-    /** The gateway is only the link between the phones, so it connects as soon as the app opens. */
-    private fun autoStartGateway() {
-        if (inMain && role == LinkService.ROLE_GATEWAY && Hub.service?.isActive != true) startLink()
+    override fun onNewIntent(intent: Intent) {
+        super.onNewIntent(intent)
+        setIntent(intent)
+        if (intent.getBooleanExtra(LinkService.EXTRA_SHOW_LOGS, false)) showLog = true
     }
 
     override fun onResume() {
@@ -177,6 +186,7 @@ class MainActivity : ComponentActivity() {
         }
         val running = Hub.service?.isActive == true
         if (!running && !(roleChosen && allOk())) inMain = false // something was switched off: set up again
+        if (!running && role == LinkService.ROLE_GATEWAY) inMain = false // stopped (e.g. from the notification)
         if (role == LinkService.ROLE_GATEWAY) NotifListener.rebind(this)
         tick++
     }
@@ -368,12 +378,119 @@ class MainActivity : ComponentActivity() {
                 ConnectionCard(s, running)
                 if (running && isRemote) CallCard(s!!, isRemote)
                 if (running && isRemote) DialCard(s!!)
-                if (effRole == LinkService.ROLE_GATEWAY) NotificationCard(s, running)
                 if (running && isRemote) VoiceCard(s!!, isRemote)
                 LogCard()
                 Spacer(Modifier.height(24.dp))
             }
         }
+    }
+
+    /** The gateway is only a mediator: status, Stop and Logs. */
+    @Composable
+    private fun GatewayPage() {
+        tick // read the refresh counter so this page redraws on every update
+        val s = Hub.service
+        val running = s != null && s.isActive
+        val connected = running && s!!.connected
+        val status = if (!running) "Stopped" else s!!.connectionState
+        Scaffold(
+            modifier = Modifier.fillMaxSize().nestedScroll(FooterScroll.connection),
+            topBar = { TopAppBar(title = { Text("VGS gateway", fontWeight = FontWeight.Bold) }) },
+            bottomBar = { UpdateFooterBar("VGS") },
+        ) { pad ->
+            Column(
+                Modifier
+                    .padding(pad)
+                    .fillMaxSize()
+                    .verticalScroll(rememberScrollState())
+                    .padding(horizontal = 16.dp, vertical = 8.dp),
+                verticalArrangement = Arrangement.spacedBy(16.dp)
+            ) {
+                SectionCard("Status") {
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        when {
+                            !running -> Dot(MaterialTheme.colorScheme.outline)
+                            connected -> Dot(MaterialTheme.colorScheme.primary)
+                            else -> LoadingIndicator(Modifier.size(28.dp))
+                        }
+                        Spacer(Modifier.width(12.dp))
+                        Text(status, style = MaterialTheme.typography.titleLarge)
+                    }
+                    Text(
+                        "This phone only passes calls and notifications between the remote and the outside. " +
+                            "You can close the app: the notification keeps showing the status, with Stop and Logs.",
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                    Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                        OutlinedButton(
+                            onClick = {
+                                stopLink()
+                                inMain = false
+                            },
+                            enabled = running,
+                            modifier = Modifier.weight(1f).height(56.dp)
+                        ) { Text("Stop") }
+                        Button(
+                            onClick = { showLog = true },
+                            modifier = Modifier.weight(1f).height(56.dp)
+                        ) { Text("Logs") }
+                    }
+                }
+            }
+        }
+    }
+
+    /** Popup with the test-notification button and the log. */
+    @Composable
+    private fun LogDialog() {
+        tick // read the refresh counter so the popup redraws on every update
+        val text = Hub.logText()
+        val svc = Hub.service
+        val running = svc != null && svc.isActive
+        AlertDialog(
+            onDismissRequest = { showLog = false },
+            title = {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Text("Log", modifier = Modifier.weight(1f))
+                    IconButton(onClick = {
+                        val all = Hub.logCopyText()
+                        if (all.isEmpty()) toast("Nothing to copy yet") else {
+                            getSystemService(ClipboardManager::class.java)
+                                ?.setPrimaryClip(ClipData.newPlainText("VGS log", all))
+                            toast("Log copied")
+                        }
+                    }) {
+                        Icon(CopyIcon, contentDescription = "Copy log", tint = MaterialTheme.colorScheme.primary)
+                    }
+                    IconButton(onClick = {
+                        Hub.clearLog()
+                        toast("Log cleared")
+                    }) {
+                        Icon(Icons.Filled.Delete, contentDescription = "Clear log", tint = MaterialTheme.colorScheme.primary)
+                    }
+                }
+            },
+            text = {
+                Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                    OutlinedButton(
+                        onClick = {
+                            if (!running) toast("Gateway is not running") else svc!!.sendTestNotification()
+                        },
+                        modifier = Modifier.fillMaxWidth()
+                    ) { Text("Send test notification to remote") }
+                    Column(Modifier.weight(1f, fill = false).verticalScroll(rememberScrollState())) {
+                        Text(
+                            text.ifEmpty { "Nothing yet" },
+                            style = MaterialTheme.typography.bodySmall,
+                            fontFamily = FontFamily.Monospace,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                    }
+                }
+            },
+            confirmButton = { TextButton(onClick = { showLog = false }) { Text("Close") } }
+        )
     }
 
     @Composable
@@ -460,12 +577,12 @@ class MainActivity : ComponentActivity() {
                         prefs.edit().putString("role", role).apply()
                         loadDevices()
                         loadContacts()
+                        if (role == LinkService.ROLE_GATEWAY) startLink()
                         inMain = true
-                        autoStartGateway()
                     },
                     enabled = allOk,
                     modifier = Modifier.fillMaxWidth().height(64.dp)
-                ) { Text("Continue") }
+                ) { Text(if (sel == LinkService.ROLE_GATEWAY) "Start gateway" else "Continue") }
                 if (!allOk) {
                     Text(
                         if (chosen) "Allow every permission above to continue." else "Choose Gateway or Remote to continue.",
@@ -826,41 +943,6 @@ class MainActivity : ComponentActivity() {
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant
             )
-        }
-    }
-
-    @Composable
-    private fun NotificationCard(s: LinkService?, running: Boolean) {
-        tick // read the refresh counter so this card redraws on every update
-        val enabled = NotifListener.isEnabled(this)
-        val bound = NotifListener.instance != null
-        SectionCard("Notification sync") {
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                Icon(
-                    Icons.Filled.Notifications,
-                    contentDescription = null,
-                    tint = when {
-                        !enabled -> MaterialTheme.colorScheme.error
-                        !bound -> MaterialTheme.colorScheme.tertiary
-                        else -> MaterialTheme.colorScheme.primary
-                    }
-                )
-                Spacer(Modifier.width(12.dp))
-                Text(
-                    when {
-                        !enabled -> "Notification access is OFF"
-                        !bound -> "Access ON – listener not connected yet"
-                        else -> "Notification sync is active"
-                    },
-                    style = MaterialTheme.typography.bodyLarge
-                )
-            }
-            OutlinedButton(
-                onClick = {
-                    if (s == null || !running) toast("Press Start first") else s.sendTestNotification()
-                },
-                modifier = Modifier.fillMaxWidth()
-            ) { Text("Send test notification to remote") }
         }
     }
 
