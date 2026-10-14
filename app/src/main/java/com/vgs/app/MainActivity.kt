@@ -898,6 +898,101 @@ class MainActivity : ComponentActivity() {
     }
 
     @Composable
+    private fun SingleChoiceSegmentedButtonRowScope.ModeOptions() {
+        val options = listOf("sim" to "Phone (SIM)", "wa" to "WhatsApp")
+        options.forEachIndexed { i, (mode, label) ->
+            SegmentedButton(
+                selected = dialMode == mode,
+                onClick = {
+                    dialMode = mode
+                    prefs.edit().putString("dial_via", mode).apply()
+                },
+                shape = SegmentedButtonDefaults.itemShape(i, options.size)
+            ) { Text(label) }
+        }
+    }
+
+    /** Full-screen contact list: tap a contact to call it with the chosen method. */
+    @Composable
+    private fun ContactsPage() {
+        tick // read the refresh counter so this page redraws on every update
+        var query by remember { mutableStateOf("") }
+        val q = query.trim().lowercase()
+        val qd = ContactStore.digits(q)
+        val shown = if (q.isEmpty()) contacts else contacts.filter { c ->
+            c.name.lowercase().contains(q) || (qd.isNotEmpty() && ContactStore.digits(c.number).contains(qd))
+        }
+        Scaffold(
+            modifier = Modifier.fillMaxSize(),
+            topBar = {
+                TopAppBar(
+                    title = { Text("Contacts", fontWeight = FontWeight.Bold) },
+                    navigationIcon = {
+                        IconButton(onClick = { showContacts = false }) {
+                            Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back")
+                        }
+                    }
+                )
+            }
+        ) { pad ->
+            Column(
+                Modifier.padding(pad).fillMaxSize().padding(horizontal = 16.dp),
+                verticalArrangement = Arrangement.spacedBy(12.dp)
+            ) {
+                OutlinedTextField(
+                    value = query,
+                    onValueChange = { query = it },
+                    label = { Text("Search (optional)") },
+                    singleLine = true,
+                    shape = RoundedCornerShape(16.dp),
+                    modifier = Modifier.fillMaxWidth()
+                )
+                Text(
+                    "${shown.size} of ${contacts.size} contacts · tap one to choose it",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+                if (contacts.isEmpty()) {
+                    Text(
+                        "No contacts yet. Connect to the gateway so it can send its contacts, or allow the Contacts permission on this phone.",
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                }
+                LazyColumn(Modifier.fillMaxSize()) {
+                    items(shown) { c ->
+                        Row(
+                            Modifier
+                                .fillMaxWidth()
+                                .clickable {
+                                    dialPicked = c
+                                    dialQuery = c.label()
+                                    showContacts = false
+                                }
+                                .padding(vertical = 12.dp),
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Icon(Icons.Filled.Person, contentDescription = null, tint = MaterialTheme.colorScheme.primary)
+                            Spacer(Modifier.width(16.dp))
+                            Column(Modifier.weight(1f)) {
+                                Text(c.name.ifEmpty { c.number }, style = MaterialTheme.typography.bodyLarge)
+                                if (c.name.isNotEmpty()) {
+                                    Text(
+                                        c.number,
+                                        style = MaterialTheme.typography.bodySmall,
+                                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                                    )
+                                }
+                            }
+                        }
+                        HorizontalDivider()
+                    }
+                }
+            }
+        }
+    }
+
+    @Composable
     private fun SwitchRow(label: String, checked: Boolean, onChange: (Boolean) -> Unit) {
         Row(
             Modifier
