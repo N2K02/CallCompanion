@@ -57,6 +57,10 @@ The app updates itself from this repo's Releases:
 - The APK is downloaded inside the app, checked (size, SHA-256 checksum from GitHub, same app, newer version, same signing key) and installed with Android's own installer.
 - The first time, Android asks you to allow installs from this app ("Install unknown apps"); after that you just confirm the update.
 
+## Signing
+
+Releases are signed with a private key that is kept encrypted in `signing/keys.tar.enc` and unlocked during the build with the `SIGNING_PASSPHRASE` repository secret (see [signing/README.md](signing/README.md)). Earlier builds used a public test key; Android's key rotation moves installed apps to the private key on the next update, without reinstalling.
+
 ## Build
 
 Every push to `main` builds the APK with GitHub Actions and publishes it as a release named "VGS <version>" (1.0, 1.1, 1.2 …, one decimal place) with release notes listing the changes since the previous release. To jump to a new number (e.g. 2.0), run the workflow by hand from the Actions tab and type the version. Locally: `./gradlew assembleRelease` (shrunk APK) (needs JDK 17 + Android SDK).

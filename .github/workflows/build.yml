@@ -72,6 +72,8 @@ jobs:
           cat release-notes.md
 
       - name: Build APK
+        env:
+          SIGNING_PASSPHRASE: ${{ secrets.SIGNING_PASSPHRASE }}
         run: |
           echo "Android SDK: ${ANDROID_HOME:-$ANDROID_SDK_ROOT}"
           yes | "${ANDROID_HOME:-$ANDROID_SDK_ROOT}/cmdline-tools/latest/bin/sdkmanager" --licenses >/dev/null || true
@@ -83,8 +85,30 @@ jobs:
             echo "::error title=Build failed::$msg"
             exit 1
           }
+          # Sign with the app's private key. It is stored encrypted in signing/keys.tar.enc and
+          # unlocked with the SIGNING_PASSPHRASE repository secret, only for this step.
+          # Key rotation: Android 9+ moves from the old (public test) key to the private key with
+          # a signed proof, so installed apps keep updating without reinstalling; the old key
+          # can no longer push updates there.
+          if [ -z "$SIGNING_PASSPHRASE" ]; then
+            echo "::error title=Missing signing secret::Add the SIGNING_PASSPHRASE secret: repo Settings > Secrets and variables > Actions > New repository secret"
+            exit 1
+          fi
+          K="$RUNNER_TEMP/keys"; mkdir -p "$K"; chmod 700 "$K"
+          openssl enc -d -aes-256-cbc -pbkdf2 -iter 600000 -in signing/keys.tar.enc -pass env:SIGNING_PASSPHRASE | tar -xf - -C "$K"
+          BT=$(ls -d "${ANDROID_HOME:-$ANDROID_SDK_ROOT}"/build-tools/* | sort -V | tail -1)
+          export RP=$(cat "$K/release.pass") OP=android
+          "$BT/apksigner" rotate --out "$K/lineage" \
+            --old-signer --ks "$K/old.keystore" --ks-pass env:OP --ks-key-alias androiddebugkey --key-pass env:OP \
+            --new-signer --ks "$K/release.p12" --ks-pass env:RP --ks-key-alias release --key-pass env:RP
           # GitHub turns spaces in download names into dots, so the file is "<App>-<version>.apk".
-          cp app/build/outputs/apk/release/app-release.apk "$APP-$VERSION.apk"
+          "$BT/apksigner" sign \
+            --ks "$K/old.keystore" --ks-pass env:OP --ks-key-alias androiddebugkey --key-pass env:OP \
+            --next-signer --ks "$K/release.p12" --ks-pass env:RP --ks-key-alias release --key-pass env:RP \
+            --lineage "$K/lineage" --rotation-min-sdk-version 28 \
+            --out "$APP-$VERSION.apk" app/build/outputs/apk/release/app-release-unsigned.apk
+          rm -rf "$K"
+          "$BT/apksigner" verify --print-certs "$APP-$VERSION.apk" | grep -E "Signer.*(DN|SHA-256 digest)"
 
       - name: Upload APK (workflow artifact)
         uses: actions/upload-artifact@v4

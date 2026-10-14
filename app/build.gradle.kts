@@ -22,28 +22,14 @@ android {
         versionCode = appVersionCode
     }
 
-    signingConfigs {
-        // Fixed key committed to the repo so every CI build can be installed
-        // over the previous one without uninstalling. For testing only.
-        getByName("debug") {
-            storeFile = file("debug.keystore")
-            storePassword = "android"
-            keyAlias = "androiddebugkey"
-            keyPassword = "android"
-        }
-    }
 
     buildTypes {
-        getByName("debug") {
-            signingConfig = signingConfigs.getByName("debug")
-        }
         getByName("release") {
             // R8 removes unused code (most of Compose) and resources: tens of MB -> a few MB.
             isMinifyEnabled = true
             isShrinkResources = true
             proguardFiles(getDefaultProguardFile("proguard-android-optimize.txt"), "proguard-rules.pro")
-            // Same fixed key as debug, so it installs over earlier builds.
-            signingConfig = signingConfigs.getByName("debug")
+            // Left unsigned here: CI signs it with the private key (see .github/workflows/build.yml).
         }
     }
 

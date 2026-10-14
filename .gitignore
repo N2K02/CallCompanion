@@ -7,3 +7,9 @@ local.properties
 captures/
 .externalNativeBuild/
 .cxx/
+
+# Signing keys: only the encrypted signing/keys.tar.enc belongs in the repo
+*.keystore
+*.jks
+*.p12
+keys.tar
