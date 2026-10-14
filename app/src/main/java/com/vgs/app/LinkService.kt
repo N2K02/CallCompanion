@@ -205,6 +205,7 @@ class LinkService : Service() {
     fun dial(number: String, mode: String = "sim") {
         if (role == ROLE_GATEWAY) gatewayDial(number, mode) else {
             autoTake = true
+            Hub.log("Sending call request to gateway: $number (${if (mode == "wa") "WhatsApp" else if (mode == "auto") "auto" else "SIM"})")
             send("DIAL", number, mode)
         }
     }
@@ -463,7 +464,10 @@ class LinkService : Service() {
             // remote -> gateway
             "ANSWER" -> gatewayAnswer()
             "REJECT", "HANGUP" -> gatewayEnd()
-            "DIAL" -> gatewayDial(arg1, p.getOrElse(2) { "sim" })
+            "DIAL" -> {
+                Hub.log("Call request from remote: $arg1 (${p.getOrElse(2) { "sim" }})")
+                gatewayDial(arg1, p.getOrElse(2) { "sim" })
+            }
             "SPEAKER" -> {
                 gatewaySpeakerOn = arg1 == "1"
                 AudioRoute.setSpeaker(this, arg1 == "1")
@@ -664,7 +668,7 @@ class LinkService : Service() {
         if (mode == "wa" || mode == "auto") {
             val err = AppCalls.startWhatsAppCall(this, n)
             if (err == null) {
-                Hub.log("WhatsApp calling $n")
+                Hub.log("Asking WhatsApp to call $n")
                 return
             }
             if (mode == "wa") {

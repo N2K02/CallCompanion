@@ -3,16 +3,23 @@ package com.vgs.app
 import android.Manifest
 import android.app.ActivityOptions
 import android.app.Notification
+import android.app.NotificationChannel
+import android.app.NotificationManager
 import android.app.PendingIntent
 import android.app.Person
 import android.content.ContentUris
 import android.content.Context
 import android.content.Intent
 import android.content.pm.PackageManager
+import android.graphics.PixelFormat
 import android.os.Build
+import android.os.Handler
+import android.os.Looper
 import android.provider.ContactsContract
 import android.provider.Settings
 import android.service.notification.StatusBarNotification
+import android.view.View
+import android.view.WindowManager
 
 /** A WhatsApp call seen on the GATEWAY through its call notification. */
 class AppCall(
@@ -199,15 +206,74 @@ object AppCalls {
                     "Save it in Contacts there, then open WhatsApp once so it syncs"
             }
 
-        if (!canOpenFromBackground(ctx)) {
-            Hub.log("⚠️ 'Display over other apps' is OFF for VGS on the gateway – Android may block opening WhatsApp")
+        Hub.log("WhatsApp: found $number in Contacts ($rows WhatsApp entries), opening the call…")
+        val i = Intent(Intent.ACTION_VIEW)
+            .setDataAndType(ContentUris.withAppendedId(ContactsContract.Data.CONTENT_URI, id), mime)
+            .setPackage(VOIP_MIME[mime])
+            .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+        return launch(ctx, i)
+    }
+
+    private const val LAUNCH_CHANNEL = "vgs_wa_launch"
+
+    /**
+     * Android blocks apps in the background from opening other apps' screens, silently.
+     * With "Display over other apps" allowed we show a 1-pixel overlay for a moment (which
+     * counts as a visible window) and open WhatsApp from it. Without it we post a
+     * notification the user can tap on the gateway.
+     */
+    private fun launch(ctx: Context, i: Intent): String? {
+        val main = Handler(Looper.getMainLooper())
+        if (canOpenFromBackground(ctx)) {
+            main.post {
+                val wm = ctx.getSystemService(WindowManager::class.java)
+                var overlay: View? = null
+                try {
+                    val v = View(ctx)
+                    wm.addView(
+                        v,
+                        WindowManager.LayoutParams(
+                            1, 1, WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY,
+                            WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE or WindowManager.LayoutParams.FLAG_NOT_TOUCHABLE,
+                            PixelFormat.TRANSLUCENT
+                        )
+                    )
+                    overlay = v
+                } catch (e: Exception) {
+                    Hub.log("WhatsApp: overlay window failed (${e.message}), trying anyway")
+                }
+                try {
+                    ctx.startActivity(i)
+                    Hub.log("WhatsApp: call screen requested")
+                } catch (e: Exception) {
+                    Hub.log("WhatsApp call failed: ${e.message}")
+                }
+                overlay?.let { v ->
+                    main.postDelayed({ try { wm.removeView(v) } catch (e: Exception) {} }, 4000)
+                }
+            }
+            return null
         }
         return try {
-            val i = Intent(Intent.ACTION_VIEW)
-                .setDataAndType(ContentUris.withAppendedId(ContactsContract.Data.CONTENT_URI, id), mime)
-                .setPackage(VOIP_MIME[mime])
-                .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
-            ctx.startActivity(i)
+            val nm = ctx.getSystemService(NotificationManager::class.java)
+            nm.createNotificationChannel(
+                NotificationChannel(LAUNCH_CHANNEL, "Start WhatsApp call", NotificationManager.IMPORTANCE_HIGH)
+            )
+            val pi = PendingIntent.getActivity(
+                ctx, 77, i, PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT
+            )
+            nm.notify(
+                7701,
+                Notification.Builder(ctx, LAUNCH_CHANNEL)
+                    .setSmallIcon(android.R.drawable.sym_action_call)
+                    .setContentTitle("Tap to start the WhatsApp call")
+                    .setContentText("Allow 'Display over other apps' for VGS to skip this tap")
+                    .setContentIntent(pi)
+                    .setFullScreenIntent(pi, true)
+                    .setAutoCancel(true)
+                    .build()
+            )
+            Hub.log("⚠️ 'Display over other apps' is OFF on the gateway, so Android won't let VGS open WhatsApp by itself. Tap the 'Start the WhatsApp call' notification on the gateway, or allow it in the WhatsApp calls card")
             null
         } catch (e: Exception) {
             "WhatsApp call failed: ${e.message}"
