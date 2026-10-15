@@ -146,6 +146,10 @@ class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         enableEdgeToEdge()
         super.onCreate(savedInstanceState)
+        VgsCallAudioAccess.initialize(this,
+            frameSink = { frame -> Hub.service?.onPrivilegedCallAudioFrame(frame) },
+            stateSink = { state -> Hub.service?.onPrivilegedCaptureState(state) ?: Hub.log("Call-audio helper: $state") }
+        )
         AppUpdater.init(this, "N2K02/VGS", "VGS")
         prefs = getSharedPreferences("vgs", MODE_PRIVATE)
         val savedRole = prefs.getString("role", null)
@@ -581,6 +585,19 @@ class MainActivity : ComponentActivity() {
                                 modifier = Modifier.fillMaxWidth()
                             ) { Text("Open App info (if a permission won't show its prompt)") }
                         }
+                    }
+                }
+                if (chosen && role == LinkService.ROLE_GATEWAY) {
+                    SectionCard("3 · Experimental call-audio capture") {
+                        Text(
+                            "Optional prototype. This runs only on the SIM gateway and needs Shizuku running there. It attempts protected VOICE_CALL capture; device support is not guaranteed. The Huawei remote needs no debugging setup.",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                        Button(
+                            onClick = { VgsCallAudioAccess.requestPermission(this@MainActivity) },
+                            modifier = Modifier.fillMaxWidth().height(48.dp)
+                        ) { Text("Connect / grant Shizuku access") }
                     }
                 }
                 Button(

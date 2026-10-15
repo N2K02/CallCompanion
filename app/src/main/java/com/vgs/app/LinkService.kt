@@ -119,6 +119,7 @@ class LinkService : Service() {
     private var receiverRegistered = false
     private var ringtone: Ringtone? = null
     private var contactBuf: StringBuilder? = null
+    @Volatile private var privilegedCaptureActive = false
 
     val isActive: Boolean get() = running
     val voiceActive: Boolean get() = audio.isRunning
@@ -146,6 +147,10 @@ class LinkService : Service() {
     override fun onCreate() {
         super.onCreate()
         Hub.service = this
+        VgsCallAudioAccess.initialize(this,
+            frameSink = { frame -> Hub.service?.onPrivilegedCallAudioFrame(frame) },
+            stateSink = { state -> Hub.service?.onPrivilegedCaptureState(state) ?: Hub.log("Call-audio helper: $state") }
+        )
         createChannels()
     }
 
@@ -287,6 +292,7 @@ class LinkService : Service() {
 
     fun toggleVoice() {
         if (audio.isRunning) {
+            stopPrivilegedCallAudio()
             audio.stop()
             send("VOICE_STOP")
         } else {
@@ -299,6 +305,7 @@ class LinkService : Service() {
                 return
             }
             audio.start()
+            if (role == ROLE_GATEWAY) startPrivilegedCallAudioIfReady()
             send("VOICE_START")
         }
         updateStatus()
@@ -419,6 +426,7 @@ class LinkService : Service() {
             if (writer === w) writer = null
             if (socket === s) socket = null
             connected = false
+            stopPrivilegedCallAudio()
             audio.stop()
             if (role == ROLE_GATEWAY) resetGatewaySpeaker() // link dropped: don't stay on loudspeaker
             if (role == ROLE_REMOTE) {
@@ -452,6 +460,7 @@ class LinkService : Service() {
         worker = null
         writer = null
         connected = false
+        stopPrivilegedCallAudio()
         audio.stop()
         stopRinging()
         if (receiverRegistered) {
@@ -523,11 +532,14 @@ class LinkService : Service() {
             }
             // both directions
             "VOICE_START" -> {
-                if (has(Manifest.permission.RECORD_AUDIO)) audio.start()
-                else Hub.log("Peer started voice link but microphone permission is missing")
+                if (has(Manifest.permission.RECORD_AUDIO)) {
+                    audio.start()
+                    if (role == ROLE_GATEWAY) startPrivilegedCallAudioIfReady()
+                } else Hub.log("Peer started voice link but microphone permission is missing")
                 updateStatus()
             }
             "VOICE_STOP" -> {
+                stopPrivilegedCallAudio()
                 audio.stop()
                 updateStatus()
             }
@@ -615,7 +627,12 @@ class LinkService : Service() {
         if (callState == CALL_IDLE) {
             callNumber = ""
             callName = ""
-            if (role == ROLE_GATEWAY) resetGatewaySpeaker()
+            if (role == ROLE_GATEWAY) {
+                stopPrivilegedCallAudio()
+                resetGatewaySpeaker()
+            }
+        } else if (role == ROLE_GATEWAY && callState == CALL_OFFHOOK && audio.isRunning) {
+            startPrivilegedCallAudioIfReady()
         }
         val sig = listOf(callState, callNumber, callName).joinToString("|")
         if (sig != lastCallSent) {
@@ -624,6 +641,44 @@ class LinkService : Service() {
             sendCallState()
         }
         Hub.notifyUi()
+    }
+
+    /** Forward PCM from the shell-UID helper to the remote over the existing audio frame type. */
+    fun onPrivilegedCallAudioFrame(frame: ByteArray) {
+        if (role != ROLE_GATEWAY || !privilegedCaptureActive || !connected) return
+        try {
+            writer?.writeAudio(frame, frame.size)
+        } catch (e: Exception) {
+            Hub.log("Privileged call-audio send failed: ${e.message}")
+        }
+    }
+
+    fun onPrivilegedCaptureState(state: String) {
+        Hub.log("Call-audio helper: $state")
+        when {
+            state.startsWith("CAPTURING") -> {
+                privilegedCaptureActive = true
+                audio.setTransmitEnabled(false)
+            }
+            state.startsWith("ERROR") || state.startsWith("STOPPED") -> {
+                privilegedCaptureActive = false
+                audio.setTransmitEnabled(true)
+            }
+        }
+        Hub.notifyUi()
+    }
+
+    private fun startPrivilegedCallAudioIfReady() {
+        if (role != ROLE_GATEWAY || simState != CALL_OFFHOOK || !audio.isRunning) return
+        if (!VgsCallAudioAccess.startCapture()) {
+            Hub.log("Privileged call audio unavailable; ordinary microphone bridge remains active")
+        }
+    }
+
+    private fun stopPrivilegedCallAudio() {
+        VgsCallAudioAccess.stopCapture()
+        privilegedCaptureActive = false
+        if (audio.isRunning) audio.setTransmitEnabled(true)
     }
 
     private fun sendCallState() {

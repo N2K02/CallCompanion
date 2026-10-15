@@ -35,6 +35,7 @@ android {
 
     buildFeatures {
         compose = true
+        aidl = true
     }
 
     compileOptions {
@@ -50,4 +51,6 @@ dependencies {
     implementation("androidx.activity:activity-compose:1.11.0")
     // In-app updates (AppUpdater)
     implementation("org.jetbrains.kotlinx:kotlinx-coroutines-android:1.10.2")
+    // Optional shell-privileged call-audio helper; Shizuku must be started by the user on the gateway.
+    implementation("dev.rikka.shizuku:api:13.1.5")
 }

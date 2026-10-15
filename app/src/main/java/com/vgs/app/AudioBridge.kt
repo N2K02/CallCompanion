@@ -34,6 +34,7 @@ class AudioBridge(
     private var playThread: Thread? = null
     private val queue = ArrayBlockingQueue<ByteArray>(25)
     @Volatile private var droppedFrames = 0
+    @Volatile private var transmitEnabled = true
     private var restoreNormalMode = false
 
     @Volatile
@@ -43,6 +44,12 @@ class AudioBridge(
     @Volatile private var rxFrames = 0
 
     val isRunning: Boolean get() = running
+
+    /** Keep playback alive while privileged gateway capture supplies the remote call audio. */
+    fun setTransmitEnabled(enabled: Boolean) {
+        transmitEnabled = enabled
+        Hub.log(if (enabled) "Microphone uplink enabled" else "Microphone uplink paused (privileged call audio active)")
+    }
 
     @Synchronized
     fun start() {
@@ -173,11 +180,13 @@ class AudioBridge(
                             tryNext = true
                             break
                         }
-                        try {
-                            sender(buf, n)
-                        } catch (e: Exception) {
-                            Hub.log("Audio send failed: ${e.message}")
-                            return
+                        if (transmitEnabled) {
+                            try {
+                                sender(buf, n)
+                            } catch (e: Exception) {
+                                Hub.log("Audio send failed: ${e.message}")
+                                return
+                            }
                         }
                         val now = System.currentTimeMillis()
                         if (now - lastReport >= 3000 && reports < 10) {

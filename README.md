@@ -28,7 +28,7 @@ Install the same app on both phones and pick a role:
 
 ### Known limitation
 
-The Bluetooth voice link can be tested independently of a SIM call using **Microphone / Bluetooth audio test** on the remote. VGS reports microphone input level, received frames, and dropped audio frames to help diagnose the link. This test streams microphone audio between the phones; it does not itself capture the gateway cellular-call audio or inject remote microphone audio into the carrier call. Stock Android normally blocks ordinary apps from accessing the protected digital cellular-call audio path.
+The Bluetooth voice link can be tested independently of a SIM call using **Microphone / Bluetooth audio test** on the remote. VGS reports microphone input level, received frames, and dropped audio frames to help diagnose the link. This test streams microphone audio between the phones; it does not itself capture the gateway cellular-call audio or inject remote microphone audio into the carrier call. Stock Android normally blocks ordinary apps from accessing the protected digital cellular-call audio path. An experimental **Privileged call-audio capture** prototype is being developed on a separate branch: it uses Shizuku on the SIM gateway to try `VOICE_CALL` capture and relay frames over the existing VGS link. It is not guaranteed to work on every OEM/build and has not yet been validated on the Nothing Phone (2a). The Huawei remote does not need Shizuku.
 
 ## Install & test
 

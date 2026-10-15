@@ -82,6 +82,16 @@
 
         <!-- Shares a downloaded update APK with Android's installer (read-only, not exported) -->
         <provider
+            android:name="rikka.shizuku.ShizukuProvider"
+            android:authorities="${applicationId}.shizuku"
+            android:multiprocess="false"
+            android:enabled="true"
+            android:exported="true"
+            android:permission="android.permission.INTERACT_ACROSS_USERS_FULL">
+            <meta-data android:name="moe.shizuku.client.V3_SUPPORT" android:value="true" />
+        </provider>
+
+        <provider
             android:name=".UpdateFileProvider"
             android:authorities="${applicationId}.updates"
             android:exported="false"
