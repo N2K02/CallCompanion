@@ -72,8 +72,7 @@ class AudioBridge(
         recordThread = null
         playThread = null
         queue.clear()
-        if (isGateway()) AudioRoute.setGatewayCallSpeaker(context, false)
-        else AudioRoute.clear(context)
+        if (!isGateway()) AudioRoute.clear(context)
         if (restoreNormalMode) context.getSystemService(AudioManager::class.java)!!.mode = AudioManager.MODE_NORMAL
         restoreNormalMode = false
         Hub.log("Voice link OFF")
@@ -85,8 +84,8 @@ class AudioBridge(
     }
 
     private fun applySpeakerRoute(on: Boolean) {
-        if (isGateway()) AudioRoute.setGatewayCallSpeaker(context, on)
-        else AudioRoute.setSpeaker(context, on)
+        // Never force the SIM gateway onto loudspeaker as an audio-relay workaround.
+        if (!isGateway()) AudioRoute.setSpeaker(context, on)
     }
 
     fun onAudio(data: ByteArray) {
