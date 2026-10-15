@@ -11,7 +11,7 @@ import kotlin.math.max
 
 /** Independent VGS capture agent, instantiated by Shizuku in a shell-UID process. */
 @Keep
-class VgsPrivilegedCallAudioAgent : IVgsPrivilegedAudioAgent.Stub() {
+class VgsPrivilegedCallAudioAgent : IVgsPrivilegedAudioAgent.Stub {
     @Volatile private var capturing = false
     @Volatile private var recorder: AudioRecord? = null
     @Volatile private var captureThread: Thread? = null
