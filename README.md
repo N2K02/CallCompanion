@@ -58,3 +58,8 @@ Every push to `main` builds the APK with GitHub Actions and publishes a release 
 ## License
 
 MIT. See [LICENSE](LICENSE).
+
+
+## Experimental APK build
+
+The experimental HFP branch has a separate `experimental` build type. GitHub Actions builds it as `VGS Experimental` with application ID `com.vgs.app.experimental`, so it can be installed alongside the regular VGS app. The build is unsigned by the release key and is intended for testing only; download the `VGS-Experimental` artifact from the **Build VGS Experimental APK** workflow.
