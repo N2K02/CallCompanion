@@ -59,12 +59,34 @@ class VgsPrivilegedCallAudioAgent : IVgsPrivilegedAudioAgent.Stub {
             if (local.recordingState != AudioRecord.RECORDSTATE_RECORDING) throw IllegalStateException("VOICE_CALL source did not start")
             notifyState("CAPTURING: VOICE_CALL at 8 kHz PCM mono")
             val frame = ByteArray(FRAME_BYTES)
+            var lastLevelReport = System.currentTimeMillis()
+            var peak = 0
+            var rms = 0
             while (capturing) {
                 val count = local.read(frame, 0, frame.size, AudioRecord.READ_BLOCKING)
                 if (count > 0) {
+                    var maxSample = 0
+                    var sumSquares = 0L
+                    var samples = 0
+                    var i = 0
+                    while (i + 1 < count) {
+                        val sample = ((frame[i + 1].toInt() shl 8) or (frame[i].toInt() and 0xff)).toShort().toInt()
+                        val magnitude = kotlin.math.abs(sample)
+                        maxSample = maxOf(maxSample, magnitude)
+                        sumSquares += magnitude.toLong() * magnitude.toLong()
+                        samples++
+                        i += 2
+                    }
+                    peak = maxSample
+                    rms = if (samples == 0) 0 else kotlin.math.sqrt(sumSquares.toDouble() / samples).toInt()
                     val chunk = if (count == frame.size) frame.copyOf() else frame.copyOf(count)
                     try { callback?.onPcmFrame(chunk) } catch (e: RemoteException) {
                         throw IllegalStateException("VGS receiver disconnected", e)
+                    }
+                    val now = System.currentTimeMillis()
+                    if (now - lastLevelReport >= 3000) {
+                        notifyState("LEVEL: VOICE_CALL peak=$peak rms=$rms")
+                        lastLevelReport = now
                     }
                 } else if (count < 0) throw IllegalStateException("AudioRecord.read failed: $count")
             }
