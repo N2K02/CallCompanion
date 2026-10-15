@@ -28,7 +28,7 @@ Install the same app on both phones and pick a role:
 
 ### Known limitation
 
-The Bluetooth voice link can be tested independently of a SIM call using **Microphone / Bluetooth audio test** on the remote. It streams the phones’ microphone audio to each other, but does not itself capture the gateway cellular-call audio or inject remote microphone audio into the carrier call. Some devices may permit privileged capture through a Shizuku/ADB-assisted server, as in separate projects, but that must be verified per device. Digital uplink injection remains a separate, unproven problem on stock Android.
+The Bluetooth voice link can be tested independently of a SIM call using **Microphone / Bluetooth audio test** on the remote. VGS reports microphone input level, received frames, and dropped audio frames to help diagnose the link. This test streams microphone audio between the phones; it does not itself capture the gateway cellular-call audio or inject remote microphone audio into the carrier call. Stock Android normally blocks ordinary apps from accessing the protected digital cellular-call audio path.
 
 ## Install & test
 
