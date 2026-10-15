@@ -1,4 +1,4 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
-    <string name="call_audio_description">VGS keeps the microphone available during phone and WhatsApp calls so the remote can hear the caller. It does not read your screen.</string>
+    <string name="call_audio_description">VGS keeps the microphone available during phone calls so the remote can hear the caller. It does not read your screen.</string>
 </resources>

@@ -139,9 +139,6 @@ class MainActivity : ComponentActivity() {
     private var devices by mutableStateOf<List<Pair<String, String>>>(emptyList())
     private var selectedDevice by mutableStateOf<String?>(null)
     private var contacts by mutableStateOf<List<Contact>>(emptyList())
-    private var waContacts by mutableStateOf<List<Contact>>(emptyList())
-    /** How outgoing calls are placed: "sim" or "wa". */
-    private var dialMode by mutableStateOf("sim")
     /** The "Make a call" input, kept here so the contacts page can fill it. */
     private var dialQuery by mutableStateOf("")
     private var dialPicked by mutableStateOf<Contact?>(null)
@@ -161,7 +158,6 @@ class MainActivity : ComponentActivity() {
         roleChosen = savedRole != null
         role = savedRole ?: LinkService.ROLE_REMOTE
         selectedDevice = prefs.getString("device", null)
-        dialMode = if (prefs.getString("dial_via", "sim") == "wa") "wa" else "sim"
         setContent {
             VgsTheme {
                 BackHandler(enabled = showContacts) { showContacts = false }
@@ -282,18 +278,13 @@ class MainActivity : ComponentActivity() {
                 "Phone and calls", "See, answer, end and place SIM calls",
                 gatewayPerms(), listOf(Manifest.permission.PROCESS_OUTGOING_CALLS)
             )
-            l += runtimeReq("Contacts", "Send your contacts to the remote and find WhatsApp contacts", listOf(Manifest.permission.READ_CONTACTS))
+            l += runtimeReq("Contacts", "Send your contacts to the remote", listOf(Manifest.permission.READ_CONTACTS))
             l += runtimeReq("Call log", "Show who is calling", listOf(Manifest.permission.READ_CALL_LOG))
             l += Req(
                 "Notification access",
-                "Mirror notifications and see WhatsApp calls. If it is greyed out: App info → ⋮ → Allow restricted settings.",
+                "Mirror notifications to the remote. If it is greyed out: App info → ⋮ → Allow restricted settings.",
                 NotifListener.isEnabled(this), emptyList()
             ) { openSettings(Settings.ACTION_NOTIFICATION_LISTENER_SETTINGS) }
-            l += Req(
-                "Display over other apps",
-                "Lets VGS open WhatsApp's call screen from the background",
-                AppCalls.canOpenFromBackground(this), emptyList()
-            ) { openSettings(Settings.ACTION_MANAGE_OVERLAY_PERMISSION, withPackage = true) }
             l += Req(
                 "Call audio helper",
                 "Recommended: turn on \"VGS call audio\" under Accessibility so the microphone keeps working during calls. It reads nothing from the screen.",
@@ -434,10 +425,8 @@ class MainActivity : ComponentActivity() {
         loadedContactsVersion = Hub.contactsVersion
         Thread {
             val list = ContactStore.all(applicationContext)
-            val wa = ContactStore.loadSyncedWa(applicationContext)
             runOnUiThread {
                 contacts = list
-                waContacts = wa
             }
         }.start()
     }
@@ -822,7 +811,6 @@ class MainActivity : ComponentActivity() {
         val ringing = state == LinkService.CALL_RINGING
         val inCall = state == LinkService.CALL_OFFHOOK
         // Read service state outside the Card lambda so the card refreshes (see LogCard).
-        val kind = s.kindLabel()
         val who = s.display()
         val takenHere = s.takenHere
         Card(
@@ -846,8 +834,8 @@ class MainActivity : ComponentActivity() {
                 )
                 Text(
                     when {
-                        ringing -> "Incoming ${kind}call"
-                        inCall -> "In ${kind}call"
+                        ringing -> "Incoming call"
+                        inCall -> "In call"
                         else -> "No active phone call"
                     },
                     style = MaterialTheme.typography.labelLarge
@@ -925,14 +913,14 @@ class MainActivity : ComponentActivity() {
         tick // read the refresh counter so this card redraws on every update
         val query = dialQuery
         val picked = dialPicked
-        val source = if (dialMode == "wa") waContacts else contacts
+        val source = contacts
         val suggestions = remember(query, source, picked) {
             if (picked != null && picked.label() == query) emptyList()
             else ContactStore.search(source, query)
         }
         val number = if (picked != null && picked.label() == query.trim()) picked.number
         else query.substringBefore("·").filter { it.isDigit() || it == '+' || it == '*' || it == '#' }
-        val valid = number.count { it.isDigit() } >= (if (dialMode == "wa") 6 else 3)
+        val valid = number.count { it.isDigit() } >= 3
         SectionCard("Make a call") {
             OutlinedTextField(
                 value = query,
@@ -975,9 +963,6 @@ class MainActivity : ComponentActivity() {
                     }
                 }
             }
-            SingleChoiceSegmentedButtonRow(Modifier.fillMaxWidth()) {
-                ModeOptions()
-            }
             OutlinedButton(
                 onClick = { showContacts = true },
                 modifier = Modifier.fillMaxWidth().height(48.dp)
@@ -989,24 +974,13 @@ class MainActivity : ComponentActivity() {
             // Extra gap so the Call button is not hit by accident when choosing a contact.
             Spacer(Modifier.height(28.dp))
             Button(
-                onClick = { s.dial(number, dialMode) },
+                onClick = { s.dial(number) },
                 enabled = valid,
-                modifier = Modifier.fillMaxWidth().height(48.dp),
-                colors = if (dialMode == "wa") ButtonDefaults.buttonColors(
-                    containerColor = Color(0xFF1E8E3E),
-                    contentColor = Color.White
-                ) else ButtonDefaults.buttonColors()
+                modifier = Modifier.fillMaxWidth().height(48.dp)
             ) {
                 Icon(Icons.Filled.Call, contentDescription = null)
                 Spacer(Modifier.width(8.dp))
-                Text(if (dialMode == "wa") "WhatsApp call" else "Call")
-            }
-            if (dialMode == "wa") {
-                Text(
-                    "The number must be a WhatsApp contact in the gateway phone's contacts.",
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant
-                )
+                Text("Call")
             }
         }
     }
@@ -1026,21 +1000,6 @@ class MainActivity : ComponentActivity() {
         }
     }
 
-    @Composable
-    private fun SingleChoiceSegmentedButtonRowScope.ModeOptions() {
-        val options = listOf("sim" to "Phone (SIM)", "wa" to "WhatsApp")
-        options.forEachIndexed { i, (mode, label) ->
-            SegmentedButton(
-                selected = dialMode == mode,
-                onClick = {
-                    dialMode = mode
-                    prefs.edit().putString("dial_via", mode).apply()
-                },
-                shape = SegmentedButtonDefaults.itemShape(i, options.size)
-            ) { Text(label) }
-        }
-    }
-
     /** Full-screen contact list: tap a contact to call it with the chosen method. */
     @Composable
     private fun ContactsPage() {
@@ -1048,8 +1007,7 @@ class MainActivity : ComponentActivity() {
         var query by remember { mutableStateOf("") }
         val q = query.trim().lowercase()
         val qd = ContactStore.digits(q)
-        val wa = dialMode == "wa"
-        val source = if (wa) waContacts else contacts
+        val source = contacts
         LaunchedEffect(Unit) { Hub.service?.requestContacts() } // refresh the lists from the gateway
         val shown = if (q.isEmpty()) source else source.filter { c ->
             c.name.lowercase().contains(q) || (qd.isNotEmpty() && ContactStore.digits(c.number).contains(qd))
@@ -1080,15 +1038,14 @@ class MainActivity : ComponentActivity() {
                     modifier = Modifier.fillMaxWidth()
                 )
                 Text(
-                    (if (wa) "WhatsApp contacts on the gateway" else "Gateway phone contacts") +
+                    "Gateway phone contacts" +
                         " · ${shown.size} of ${source.size} · tap one to choose it",
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant
                 )
                 if (source.isEmpty()) {
                     Text(
-                        if (wa) "No WhatsApp contacts yet. Connect to the gateway so it can send them. If it stays empty, WhatsApp may not be syncing its contacts on the gateway (allow WhatsApp the Contacts permission)."
-                        else "No contacts yet. Connect to the gateway so it can send its contacts.",
+                        "No contacts yet. Connect to the gateway so it can send its contacts.",
                         style = MaterialTheme.typography.bodyMedium,
                         color = MaterialTheme.colorScheme.onSurfaceVariant
                     )

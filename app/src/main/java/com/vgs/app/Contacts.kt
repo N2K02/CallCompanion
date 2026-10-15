@@ -17,7 +17,6 @@ data class Contact(val name: String, val number: String) {
  */
 object ContactStore {
     private const val FILE = "synced_contacts.tsv"
-    private const val WA_FILE = "synced_wa_contacts.tsv"
 
     fun digits(s: String): String = s.filter { it.isDigit() }
 
@@ -89,22 +88,6 @@ object ContactStore {
 
     fun loadSynced(ctx: Context): List<Contact> = try {
         val f = File(ctx.filesDir, FILE)
-        if (f.exists()) parse(f.readText()) else emptyList()
-    } catch (e: Exception) {
-        emptyList()
-    }
-
-    fun saveSyncedWa(ctx: Context, data: String) {
-        try {
-            File(ctx.filesDir, WA_FILE).writeText(data)
-        } catch (e: Exception) {
-            Hub.log("Could not save WhatsApp contacts: ${e.message}")
-        }
-    }
-
-    /** The gateway's WhatsApp contacts, as last received. */
-    fun loadSyncedWa(ctx: Context): List<Contact> = try {
-        val f = File(ctx.filesDir, WA_FILE)
         if (f.exists()) parse(f.readText()) else emptyList()
     } catch (e: Exception) {
         emptyList()

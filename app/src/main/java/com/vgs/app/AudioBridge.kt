@@ -49,7 +49,7 @@ class AudioBridge(
         queue.clear()
         rxFrames = 0
         val am = context.getSystemService(AudioManager::class.java)!!
-        // During a SIM call (in-call mode) or a WhatsApp call (communication mode) the call app owns the
+        // During a SIM call (in-call mode) the phone app owns the
         // audio mode: changing it can mute the call's own microphone. Only set it when nothing else did.
         restoreNormalMode = am.mode == AudioManager.MODE_NORMAL
         if (restoreNormalMode) am.mode = AudioManager.MODE_IN_COMMUNICATION
