@@ -372,6 +372,9 @@ class LinkService : Service() {
             sendCallState()
             sendContacts()
             sendWaContacts()
+            if (has(Manifest.permission.READ_CONTACTS)) {
+                lastSyncHash = ContactStore.readDevice(this).hashCode() * 31 + AppCalls.whatsAppContacts(this).hashCode()
+            }
             checkNotificationAccess()
         }
         val input = DataInputStream(BufferedInputStream(s.inputStream, 16384))
@@ -833,10 +836,17 @@ class LinkService : Service() {
 
     private var contactObserver: ContentObserver? = null
 
+    /** Fingerprint of the lists last sent from here, so a call's "times contacted" update doesn't resend them. */
+    @Volatile private var lastSyncHash = 0
+
     private val syncContactsNow = Runnable {
         if (running && role == ROLE_GATEWAY && connected) {
-            Hub.log("Contacts changed on the gateway – syncing to remote")
             io.execute {
+                if (!has(Manifest.permission.READ_CONTACTS)) return@execute
+                val hash = ContactStore.readDevice(this).hashCode() * 31 + AppCalls.whatsAppContacts(this).hashCode()
+                if (hash == lastSyncHash) return@execute // only usage counters changed, not the contacts
+                lastSyncHash = hash
+                Hub.log("Contacts changed on the gateway – syncing to remote")
                 sendContacts()
                 sendWaContacts()
             }
