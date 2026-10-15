@@ -34,7 +34,7 @@ The Bluetooth voice link can be tested independently of a SIM call using **Micro
 
 1. Download `VGS-<version>.apk` (e.g. `VGS-1.0.apk`) from the latest **Release** of this repo and install it on **both** phones (allow "install unknown apps").
 2. Pair the two phones in Android **Settings → Bluetooth**.
-3. **Gateway phone:** open VGS → choose *Gateway* → **Start** → allow all permissions (Phone, Microphone, Nearby devices, Notifications, Contacts, Call logs).
+3. **Gateway phone:** open VGS → choose *Gateway* → **Start** → allow the requested permissions (Phone, Microphone, Nearby devices, Notifications, Contacts, Call logs).
 4. **Remote phone:** open VGS → choose *Remote* → pick the gateway phone from the list → **Start** → allow permissions.
 5. Status should turn green: *Connected to …*.
 6. Call the gateway's number from a third phone. The remote rings with Answer / Reject.

@@ -26,8 +26,6 @@
     <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
     <uses-permission android:name="android.permission.REQUEST_IGNORE_BATTERY_OPTIMIZATIONS" />
     <!-- Lets the gateway start by itself when the paired remote phone appears nearby -->
-    <uses-permission android:name="android.permission.REQUEST_OBSERVE_COMPANION_DEVICE_PRESENCE" />
-    <uses-feature android:name="android.software.companion_device_setup" android:required="false" />
     <uses-permission android:name="android.permission.USE_FULL_SCREEN_INTENT" />
     <uses-permission android:name="android.permission.VIBRATE" />
 
@@ -80,29 +78,6 @@
             <intent-filter>
                 <action android:name="android.service.notification.NotificationListenerService" />
             </intent-filter>
-        </service>
-
-        <service
-            android:name=".RemotePresenceService"
-            android:exported="true"
-            android:permission="android.permission.BIND_COMPANION_DEVICE_SERVICE">
-            <intent-filter>
-                <action android:name="android.companion.CompanionDeviceService" />
-            </intent-filter>
-        </service>
-
-        <!-- Optional helper intended to improve microphone availability during calls. -->
-        <service
-            android:name=".CallAudioService"
-            android:exported="true"
-            android:label="VGS call audio"
-            android:permission="android.permission.BIND_ACCESSIBILITY_SERVICE">
-            <intent-filter>
-                <action android:name="android.accessibilityservice.AccessibilityService" />
-            </intent-filter>
-            <meta-data
-                android:name="android.accessibilityservice"
-                android:resource="@xml/call_audio_service" />
         </service>
 
         <!-- Shares a downloaded update APK with Android's installer (read-only, not exported) -->
