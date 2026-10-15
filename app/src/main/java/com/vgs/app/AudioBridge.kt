@@ -45,7 +45,7 @@ class AudioBridge(
     val isRunning: Boolean get() = running
 
     @Synchronized
-    fun start() {
+    fun start(captureMicrophone: Boolean = true, playIncoming: Boolean = true) {
         if (running) return
         running = true
         queue.clear()
@@ -53,14 +53,28 @@ class AudioBridge(
         droppedFrames = 0
         val am = context.getSystemService(AudioManager::class.java)!!
         // Do not override MODE_IN_CALL: changing it during a SIM call can mute the call microphone.
-        // MODE_IN_COMMUNICATION is appropriate for the remote VoIP endpoint, but can
-        // interfere with Telecom's SIM-call routing on the gateway.
-        restoreNormalMode = !isGateway() && am.mode == AudioManager.MODE_NORMAL
+        // Only configure communication playback when this endpoint will play received audio.
+        restoreNormalMode = playIncoming && !isGateway() && am.mode == AudioManager.MODE_NORMAL
         if (restoreNormalMode) am.mode = AudioManager.MODE_IN_COMMUNICATION
-        applySpeakerRoute(speakerOn)
-        recordThread = Thread({ recordLoop() }, "vgs-record").also { it.start() }
-        playThread = Thread({ playLoop() }, "vgs-play").also { it.start() }
-        Hub.log("Voice link ON")
+        if (playIncoming) applySpeakerRoute(speakerOn)
+        if (captureMicrophone) {
+            recordThread = Thread({ recordLoop() }, "vgs-record").also { it.start() }
+        } else {
+            recordThread = null
+        }
+        if (playIncoming) {
+            playThread = Thread({ playLoop() }, "vgs-play").also { it.start() }
+        } else {
+            playThread = null
+        }
+        Hub.log(
+            when {
+                captureMicrophone && playIncoming -> "Two-way voice link ON"
+                captureMicrophone -> "Microphone capture ON"
+                playIncoming -> "Incoming audio playback ON"
+                else -> "Audio link has no active direction"
+            }
+        )
     }
 
     @Synchronized
