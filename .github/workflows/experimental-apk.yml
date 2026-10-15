@@ -21,7 +21,7 @@ jobs:
       - name: Check out experimental source
         uses: actions/checkout@v5
         with:
-          ref: ${{ github.event.pull_request.head.sha || inputs.ref || github.sha }}
+          ref: ${{ github.event.pull_request.head.sha || github.event.inputs.ref || github.sha }}
 
       - name: Set up Java
         uses: actions/setup-java@v5
