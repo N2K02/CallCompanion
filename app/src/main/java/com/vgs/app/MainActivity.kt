@@ -6,13 +6,9 @@ import android.Manifest
 import android.annotation.SuppressLint
 import android.bluetooth.BluetoothManager
 import android.bluetooth.BluetoothDevice
-import android.companion.AssociationRequest
-import android.companion.BluetoothDeviceFilter
-import android.companion.CompanionDeviceManager
 import android.content.ClipData
 import android.content.ClipboardManager
 import android.content.Intent
-import android.content.IntentSender
 import android.content.SharedPreferences
 import android.content.pm.PackageManager
 import android.net.Uri
@@ -22,8 +18,6 @@ import android.provider.Settings
 import android.widget.Toast
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.BackHandler
-import androidx.activity.result.IntentSenderRequest
-import androidx.activity.result.contract.ActivityResultContracts
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
 import androidx.compose.foundation.background
@@ -285,26 +279,9 @@ class MainActivity : ComponentActivity() {
                 "Mirror notifications to the remote. If it is greyed out: App info → ⋮ → Allow restricted settings.",
                 NotifListener.isEnabled(this), emptyList()
             ) { openSettings(Settings.ACTION_NOTIFICATION_LISTENER_SETTINGS) }
-            l += Req(
-                "Call audio helper",
-                "Optional: enable VGS call audio under Accessibility to test whether it improves microphone availability during calls. It does not read screen content.",
-                a11yEnabled(), emptyList(), required = false
-            ) { openSettings(Settings.ACTION_ACCESSIBILITY_SETTINGS) }
-            if (Build.VERSION.SDK_INT >= 31) {
-                l += Req(
-                    "Start with the remote",
-                    "Recommended: pick the remote phone (make its Bluetooth visible first) so the gateway starts by itself when the remote is near.",
-                    prefs.getBoolean("auto_start", false), emptyList(), required = false
-                ) { startCompanionPairing() }
-            }
+
         }
         return l
-    }
-
-    private fun a11yEnabled(): Boolean {
-        val flat = Settings.Secure.getString(contentResolver, Settings.Secure.ENABLED_ACCESSIBILITY_SERVICES)
-            ?: return false
-        return flat.split(':').any { it.startsWith("$packageName/") && it.endsWith("CallAudioService") }
     }
 
     @SuppressLint("BatteryLife")
@@ -317,56 +294,6 @@ class MainActivity : ComponentActivity() {
         } catch (e: Exception) {
             openSettings(Settings.ACTION_IGNORE_BATTERY_OPTIMIZATION_SETTINGS)
         }
-    }
-
-    private val companionLauncher =
-        registerForActivityResult(ActivityResultContracts.StartIntentSenderForResult()) { res ->
-            if (res.resultCode == RESULT_OK) {
-                @Suppress("DEPRECATION")
-                val dev = res.data?.getParcelableExtra<BluetoothDevice>(CompanionDeviceManager.EXTRA_DEVICE)
-                if (dev != null) enableAutoStart(dev.address)
-            }
-        }
-
-    /** Pair the remote phone with Android's companion-device feature, so it can wake the gateway. */
-    private fun startCompanionPairing() {
-        val cdm = getSystemService(CompanionDeviceManager::class.java)
-        if (cdm == null) {
-            toast("This phone doesn't support it")
-            return
-        }
-        val request = AssociationRequest.Builder()
-            .addDeviceFilter(BluetoothDeviceFilter.Builder().build())
-            .setSingleDevice(false)
-            .build()
-        try {
-            @Suppress("DEPRECATION")
-            cdm.associate(request, object : CompanionDeviceManager.Callback() {
-                @Deprecated("Replaced by onAssociationPending")
-                override fun onDeviceFound(chooserLauncher: IntentSender) {
-                    companionLauncher.launch(IntentSenderRequest.Builder(chooserLauncher).build())
-                }
-
-                override fun onFailure(error: CharSequence?) {
-                    toast("Couldn't find the remote: ${error ?: "unknown error"}. Make its Bluetooth visible and try again")
-                }
-            }, null)
-        } catch (e: Exception) {
-            toast("Couldn't start pairing: ${e.message}")
-        }
-    }
-
-    @SuppressLint("MissingPermission")
-    private fun enableAutoStart(address: String) {
-        try {
-            @Suppress("DEPRECATION")
-            getSystemService(CompanionDeviceManager::class.java)?.startObservingDevicePresence(address)
-            prefs.edit().putBoolean("auto_start", true).putString("companion_addr", address).apply()
-            toast("Done: the gateway starts by itself when the remote is near")
-        } catch (e: Exception) {
-            toast("Couldn't watch for the remote: ${e.message}")
-        }
-        tick++
     }
 
     private fun allOk(): Boolean = requirements(role).satisfied()
