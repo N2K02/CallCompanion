@@ -11,7 +11,7 @@ import android.media.AudioTrack
 import android.media.MediaRecorder
 import android.os.Build
 import android.os.Process
-import java.util.concurrent.LinkedBlockingQueue
+import java.util.concurrent.ArrayBlockingQueue
 import java.util.concurrent.TimeUnit
 
 /** Streams microphone audio to the other phone and plays what comes back. */
@@ -32,7 +32,8 @@ class AudioBridge(
     private var running = false
     private var recordThread: Thread? = null
     private var playThread: Thread? = null
-    private val queue = LinkedBlockingQueue<ByteArray>()
+    private val queue = ArrayBlockingQueue<ByteArray>(25)
+    @Volatile private var droppedFrames = 0
     private var restoreNormalMode = false
 
     @Volatile
@@ -49,6 +50,7 @@ class AudioBridge(
         running = true
         queue.clear()
         rxFrames = 0
+        droppedFrames = 0
         val am = context.getSystemService(AudioManager::class.java)!!
         // Do not override MODE_IN_CALL: changing it during a SIM call can mute the call microphone.
         // MODE_IN_COMMUNICATION is appropriate for the remote VoIP endpoint, but can
@@ -90,8 +92,12 @@ class AudioBridge(
     fun onAudio(data: ByteArray) {
         if (!running) return
         rxFrames++
-        if (queue.size > 25) queue.clear() // too much lag: drop and catch up
-        queue.offer(data)
+        // Keep latency bounded. Drop the oldest frame instead of flushing the whole queue.
+        if (!queue.offer(data)) {
+            queue.poll()
+            if (!queue.offer(data)) droppedFrames++
+            else droppedFrames++
+        }
     }
 
     private fun sourceName(source: Int) = when (source) {
@@ -147,14 +153,20 @@ class AudioBridge(
                     val n = rec.read(buf, 0, buf.size)
                     if (n > 0) {
                         var peak = 0
+                        var sumSquares = 0L
+                        var samples = 0
                         var i = 0
                         while (i + 1 < n) {
                             val v = ((buf[i + 1].toInt() shl 8) or (buf[i].toInt() and 0xff)).toShort().toInt()
-                            peak = maxOf(peak, kotlin.math.abs(v))
+                            val magnitude = kotlin.math.abs(v)
+                            peak = maxOf(peak, magnitude)
+                            sumSquares += magnitude.toLong() * magnitude.toLong()
+                            samples++
                             i += 2
                         }
+                        val rms = if (samples == 0) 0 else kotlin.math.sqrt(sumSquares.toDouble() / samples).toInt()
                         sent++
-                        if (peak < 8) silent++
+                        if (peak < 8 || rms < 3) silent++
                         zeroRun = if (peak == 0) zeroRun + 1 else 0
                         if (idx < list.size - 1 && zeroRun >= 100) {
                             Hub.log("Microphone source $name is silent – trying another source")
@@ -170,8 +182,13 @@ class AudioBridge(
                         val now = System.currentTimeMillis()
                         if (now - lastReport >= 3000 && reports < 10) {
                             val pct = if (sent == 0) 0 else silent * 100 / sent
-                            Hub.log("Voice audio: sent $sent frames, received $rxFrames, silent mic $pct% ($name)")
-                            if (pct >= 95) Hub.log("Microphone input is mostly silent; source fallback may be needed")
+                            Hub.log(
+                                "Voice audio ($name): sent=$sent frames, received=$rxFrames, " +
+                                    "low-level=$pct%, peak=$peak, rms=$rms, dropped=$droppedFrames"
+                            )
+                            if (pct >= 95) {
+                                Hub.log("Microphone input is very quiet; test another source and speak near the mic")
+                            }
                             sent = 0
                             silent = 0
                             reports++
@@ -227,12 +244,19 @@ class AudioBridge(
         try {
             track.play()
             while (running) {
-                val data: ByteArray? = try {
+                val data = try {
                     queue.poll(200, TimeUnit.MILLISECONDS)
-                } catch (e: InterruptedException) {
+                } catch (_: InterruptedException) {
+                    if (!running) break
                     null
                 }
-                if (data != null) track.write(data, 0, data.size)
+                if (data != null) {
+                    val written = track.write(data, 0, data.size)
+                    if (written < 0) {
+                        Hub.log("Speaker write failed: $written")
+                        break
+                    }
+                }
             }
         } catch (e: Exception) {
             Hub.log("Playback error: ${e.message}")

@@ -24,10 +24,11 @@ Install the same app on both phones and pick a role:
 | Turn gateway loudspeaker on/off from the remote | Remote command |
 | Calls made in the gateway's own phone app show on the remote (with number) | Outgoing-call broadcast + call state |
 | **Take call here**: talk on the remote | Gateway loudspeaker ON + voice link; automatic when you answer or dial from the remote |
+| **Microphone / Bluetooth audio test** | Manually start the two-way microphone stream from the remote without placing a SIM call |
 
 ### Known limitation
 
-Android does **not** let a normal app capture or inject the audio of a SIM call. So when you answer a SIM call from the remote, the conversation itself still happens on the gateway phone (use its loudspeaker, or a Bluetooth headset on it). Relaying the actual call audio needs root / a system app, or a VoIP (internet) calling setup. The voice link in this app is the audio-relay foundation for that next step.
+The Bluetooth voice link can be tested independently of a SIM call using **Microphone / Bluetooth audio test** on the remote. VGS reports microphone input level, received frames, and dropped audio frames to help diagnose the link. This test streams microphone audio between the phones; it does not itself capture the gateway cellular-call audio or inject remote microphone audio into the carrier call. Stock Android normally blocks ordinary apps from accessing the protected digital cellular-call audio path.
 
 ## Install & test
 

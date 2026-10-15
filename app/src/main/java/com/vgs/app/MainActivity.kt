@@ -477,6 +477,7 @@ class MainActivity : ComponentActivity() {
                 if (running && isRemote) CallCard(s!!, isRemote)
                 if (running && isRemote) DialCard(s!!)
                 if (running && isRemote) SpeakerCard(s!!)
+                if (running && isRemote) AudioTestCard(s!!)
                 LogCard()
                 Spacer(Modifier.height(24.dp))
             }
@@ -982,6 +983,39 @@ class MainActivity : ComponentActivity() {
                 Spacer(Modifier.width(8.dp))
                 Text("Call")
             }
+        }
+    }
+
+    /** Standalone prototype to test remote-mic streaming without needing an active SIM call. */
+    @Composable
+    private fun AudioTestCard(s: LinkService) {
+        tick // re-read voice state whenever the service reports a change
+        val active = s.voiceActive
+        SectionCard("Microphone / Bluetooth audio test") {
+            Text(
+                "Test the remote phone microphone over the existing Bluetooth voice link. " +
+                    "Starting this opens two-way audio on both phones; no SIM call is required.",
+                style = MaterialTheme.typography.bodyMedium,
+                color = MaterialTheme.colorScheme.onSurfaceVariant
+            )
+            Button(
+                onClick = { s.toggleVoice() },
+                enabled = s.connected,
+                modifier = Modifier.fillMaxWidth().height(48.dp)
+            ) {
+                Text(if (active) "Stop audio test" else "Start microphone test")
+            }
+            Text(
+                if (active) "Audio link is active. Speak near the remote phone and listen on the gateway."
+                else "For the first test, keep volume low and place the phones apart to reduce acoustic feedback.",
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant
+            )
+            Text(
+                "Prototype limitation: this sends microphone audio between phones; it does not inject the remote microphone into the gateway's cellular-call uplink.",
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant
+            )
         }
     }
 
