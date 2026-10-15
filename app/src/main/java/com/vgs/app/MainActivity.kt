@@ -285,6 +285,11 @@ class MainActivity : ComponentActivity() {
                 "Mirror notifications to the remote. If it is greyed out: App info → ⋮ → Allow restricted settings.",
                 NotifListener.isEnabled(this), emptyList()
             ) { openSettings(Settings.ACTION_NOTIFICATION_LISTENER_SETTINGS) }
+            l += Req(
+                "Call audio helper",
+                "Optional: enable VGS call audio under Accessibility to test whether it improves microphone availability during calls. It does not read screen content.",
+                a11yEnabled(), emptyList(), required = false
+            ) { openSettings(Settings.ACTION_ACCESSIBILITY_SETTINGS) }
             if (Build.VERSION.SDK_INT >= 31) {
                 l += Req(
                     "Start with the remote",
@@ -294,6 +299,12 @@ class MainActivity : ComponentActivity() {
             }
         }
         return l
+    }
+
+    private fun a11yEnabled(): Boolean {
+        val flat = Settings.Secure.getString(contentResolver, Settings.Secure.ENABLED_ACCESSIBILITY_SERVICES)
+            ?: return false
+        return flat.split(':').any { it.startsWith("$packageName/") && it.endsWith("CallAudioService") }
     }
 
     @SuppressLint("BatteryLife")
