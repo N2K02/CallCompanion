@@ -15,6 +15,7 @@ android {
 
     defaultConfig {
         applicationId = "com.vgs.app"
+        manifestPlaceholders["appLabel"] = "VGS"
         minSdk = 26
         targetSdk = 34
         // One decimal place: 1.0, 1.1 … 1.9, 2.0. versionCode 1.4 -> 14 (always goes up).
@@ -24,6 +25,15 @@ android {
 
 
     buildTypes {
+        // Installable alongside the stable app; uses a separate package ID and visible label.
+        create("experimental") {
+            initWith(getByName("debug"))
+            applicationIdSuffix = ".experimental"
+            versionNameSuffix = "-experimental"
+            manifestPlaceholders["appLabel"] = "VGS Experimental"
+            matchingFallbacks += listOf("debug")
+        }
+
         getByName("release") {
             // R8 removes unused code (most of Compose) and resources: tens of MB -> a few MB.
             isMinifyEnabled = true
