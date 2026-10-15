@@ -904,8 +904,8 @@ class MainActivity : ComponentActivity() {
         val active = s.voiceActive
         SectionCard("Microphone / Bluetooth audio test") {
             Text(
-                "Test the remote phone microphone over the existing Bluetooth voice link. " +
-                    "Starting this opens two-way audio on both phones; no SIM call is required.",
+                "Capture the remote phone's microphone and stream it over Bluetooth to the gateway for playback. " +
+                    "The gateway does not capture its own microphone in this test; no SIM call is required.",
                 style = MaterialTheme.typography.bodyMedium,
                 color = MaterialTheme.colorScheme.onSurfaceVariant
             )
@@ -917,8 +917,8 @@ class MainActivity : ComponentActivity() {
                 Text(if (active) "Stop audio test" else "Start microphone test")
             }
             Text(
-                if (active) "Audio link is active. Speak near the remote phone and listen on the gateway."
-                else "For the first test, keep volume low and place the phones apart to reduce acoustic feedback.",
+                if (active) "Microphone streaming is active. Speak near the remote phone and listen on the gateway."
+                else "Keep the phones apart and gateway playback volume low during testing.",
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant
             )
