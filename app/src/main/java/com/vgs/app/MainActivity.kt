@@ -401,7 +401,7 @@ class MainActivity : ComponentActivity() {
                 UpdateCard()
                 if (isRemote && !running) DeviceCard()
                 ConnectionCard(s, running)
-                if (running && isRemote) CallCard(s!!, isRemote)
+                if (running && isRemote) CallCard(s!!)
                 if (running && isRemote) DialCard(s!!)
                 if (running && isRemote) SpeakerCard(s!!)
                 if (running && isRemote) AudioTestCard(s!!)
@@ -733,14 +733,13 @@ class MainActivity : ComponentActivity() {
     }
 
     @Composable
-    private fun CallCard(s: LinkService, isRemote: Boolean) {
+    private fun CallCard(s: LinkService) {
         tick // read the refresh counter so this card redraws on every update
         val state = s.callState
         val ringing = state == LinkService.CALL_RINGING
         val inCall = state == LinkService.CALL_OFFHOOK
         // Read service state outside the Card lambda so the card refreshes (see LogCard).
         val who = s.display()
-        val takenHere = s.takenHere
         Card(
             modifier = Modifier.fillMaxWidth(),
             shape = RoundedCornerShape(32.dp),
@@ -771,28 +770,13 @@ class MainActivity : ComponentActivity() {
                 if (ringing || inCall) {
                     Text(who, style = MaterialTheme.typography.headlineMedium, textAlign = TextAlign.Center)
                 }
-                if (inCall && isRemote) {
+                if (inCall) {
                     Text(
-                        if (takenHere) "You're talking on this phone (gateway on loudspeaker)"
-                        else "Audio is on the gateway phone",
+                        "Call is active on the gateway. Digital call audio routing is not implemented yet.",
                         style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        textAlign = TextAlign.Center
                     )
-                    if (takenHere) {
-                        OutlinedButton(
-                            onClick = { s.giveCallBack() },
-                            modifier = Modifier.fillMaxWidth().height(56.dp)
-                        ) { Text("Move audio back to gateway") }
-                    } else {
-                        FilledTonalButton(
-                            onClick = { s.takeCallHere() },
-                            modifier = Modifier.fillMaxWidth().height(56.dp)
-                        ) {
-                            Icon(Icons.Filled.Call, contentDescription = null)
-                            Spacer(Modifier.width(8.dp))
-                            Text("Take call here")
-                        }
-                    }
                 }
                 if (ringing) {
                     Row(horizontalArrangement = Arrangement.spacedBy(16.dp)) {
