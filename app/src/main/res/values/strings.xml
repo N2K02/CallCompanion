@@ -1,3 +1,4 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
+    <string name="call_audio_description">VGS call audio helper. It does not retrieve window content or read your screen.</string>
 </resources>
