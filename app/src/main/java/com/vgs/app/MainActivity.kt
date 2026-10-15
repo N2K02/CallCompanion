@@ -898,7 +898,6 @@ class MainActivity : ComponentActivity() {
         }
     }
 
-    /** Standalone prototype to test remote-mic streaming without needing an active SIM call. */
     @Composable
     private fun HfpStatusCard(s: LinkService) {
         tick // refresh when the service reports HFP capability or connection changes
@@ -917,6 +916,7 @@ class MainActivity : ComponentActivity() {
         }
     }
 
+    /** Standalone prototype to test remote-mic streaming without needing an active SIM call. */
     @Composable
     private fun AudioTestCard(s: LinkService) {
         tick // re-read voice state whenever the service reports a change
