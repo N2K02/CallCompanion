@@ -401,6 +401,7 @@ class MainActivity : ComponentActivity() {
                 UpdateCard()
                 if (isRemote && !running) DeviceCard()
                 ConnectionCard(s, running)
+                if (running && isRemote) HfpStatusCard(s!!)
                 if (running && isRemote) CallCard(s!!)
                 if (running && isRemote) DialCard(s!!)
                 if (running && isRemote) SpeakerCard(s!!)
@@ -898,6 +899,24 @@ class MainActivity : ComponentActivity() {
     }
 
     /** Standalone prototype to test remote-mic streaming without needing an active SIM call. */
+    @Composable
+    private fun HfpStatusCard(s: LinkService) {
+        tick // refresh when the service reports HFP capability or connection changes
+        SectionCard("Cellular call audio · HFP") {
+            Text(
+                s.hfpStatus,
+                style = MaterialTheme.typography.bodyMedium,
+                color = MaterialTheme.colorScheme.onSurfaceVariant
+            )
+            Text(
+                "VGS attempts the Android Bluetooth Hands-Free client role on this phone. " +
+                    "Stock firmware may hide or deny this system profile. HFP is separate from the VGS RFCOMM data link.",
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant
+            )
+        }
+    }
+
     @Composable
     private fun AudioTestCard(s: LinkService) {
         tick // re-read voice state whenever the service reports a change
