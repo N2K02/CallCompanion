@@ -126,12 +126,14 @@ class LinkService : Service() {
 
     private val audio: AudioBridge by lazy {
         AudioBridge(this, {
-            if (role == ROLE_GATEWAY) listOf(
+            // Try alternate sources on BOTH phones: some OEMs expose a silent or unusable
+            // VOICE_COMMUNICATION input even though AudioRecord starts successfully.
+            listOf(
                 MediaRecorder.AudioSource.VOICE_COMMUNICATION,
                 MediaRecorder.AudioSource.VOICE_RECOGNITION,
                 MediaRecorder.AudioSource.MIC,
-            ) else listOf(MediaRecorder.AudioSource.VOICE_COMMUNICATION)
-        }) { buf, n ->
+            )
+        }, { role == ROLE_GATEWAY }) { buf, n ->
             val w = writer ?: throw IOException("not connected")
             w.writeAudio(buf, n)
         }
@@ -240,14 +242,14 @@ class LinkService : Service() {
         if (!gatewaySpeakerOn) return
         gatewaySpeakerOn = false
         main.removeCallbacks(reassertSpeaker)
-        AudioRoute.setSpeaker(this, false)
+        AudioRoute.setGatewayCallSpeaker(this, false)
         boostCallVolume(false)
     }
 
     private val reassertSpeaker = object : Runnable {
         override fun run() {
             if (running && role == ROLE_GATEWAY && gatewaySpeakerOn) {
-                AudioRoute.setSpeaker(this@LinkService, true, log = false)
+                AudioRoute.setGatewayCallSpeaker(this@LinkService, true)
                 main.postDelayed(this, 2000)
             }
         }
@@ -512,7 +514,7 @@ class LinkService : Service() {
             }
             "SPEAKER" -> {
                 gatewaySpeakerOn = arg1 == "1"
-                AudioRoute.setSpeaker(this, gatewaySpeakerOn)
+                AudioRoute.setGatewayCallSpeaker(this, gatewaySpeakerOn)
                 boostCallVolume(gatewaySpeakerOn)
                 main.removeCallbacks(reassertSpeaker)
                 // Android's call manager may switch to the earpiece when a call connects.

@@ -19,6 +19,8 @@ class AudioBridge(
     private val context: Context,
     /** Microphone sources to try in order. */
     private val sources: () -> List<Int>,
+    /** True on the SIM gateway: let Telecom control cellular-call routing. */
+    private val isGateway: () -> Boolean,
     private val sender: (ByteArray, Int) -> Unit,
 ) {
     companion object {
@@ -49,9 +51,11 @@ class AudioBridge(
         rxFrames = 0
         val am = context.getSystemService(AudioManager::class.java)!!
         // Do not override MODE_IN_CALL: changing it during a SIM call can mute the call microphone.
-        restoreNormalMode = am.mode == AudioManager.MODE_NORMAL
+        // MODE_IN_COMMUNICATION is appropriate for the remote VoIP endpoint, but can
+        // interfere with Telecom's SIM-call routing on the gateway.
+        restoreNormalMode = !isGateway() && am.mode == AudioManager.MODE_NORMAL
         if (restoreNormalMode) am.mode = AudioManager.MODE_IN_COMMUNICATION
-        AudioRoute.setSpeaker(context, speakerOn)
+        applySpeakerRoute(speakerOn)
         recordThread = Thread({ recordLoop() }, "vgs-record").also { it.start() }
         playThread = Thread({ playLoop() }, "vgs-play").also { it.start() }
         Hub.log("Voice link ON")
@@ -66,7 +70,8 @@ class AudioBridge(
         recordThread = null
         playThread = null
         queue.clear()
-        AudioRoute.clear(context)
+        if (isGateway()) AudioRoute.setGatewayCallSpeaker(context, false)
+        else AudioRoute.clear(context)
         if (restoreNormalMode) context.getSystemService(AudioManager::class.java)!!.mode = AudioManager.MODE_NORMAL
         restoreNormalMode = false
         Hub.log("Voice link OFF")
@@ -74,7 +79,12 @@ class AudioBridge(
 
     fun setSpeaker(on: Boolean) {
         speakerOn = on
-        if (running) AudioRoute.setSpeaker(context, on)
+        if (running) applySpeakerRoute(on)
+    }
+
+    private fun applySpeakerRoute(on: Boolean) {
+        if (isGateway()) AudioRoute.setGatewayCallSpeaker(context, on)
+        else AudioRoute.setSpeaker(context, on)
     }
 
     fun onAudio(data: ByteArray) {
@@ -237,6 +247,21 @@ class AudioBridge(
 }
 
 object AudioRoute {
+    /**
+     * Routes a Telecom-managed cellular call on the SIM gateway. Android's communication
+     * device API is intended for app-managed communication audio; the gateway's carrier
+     * call should use the phone-call speaker route instead.
+     */
+    @Suppress("DEPRECATION")
+    fun setGatewayCallSpeaker(context: Context, on: Boolean) {
+        try {
+            val am = context.getSystemService(AudioManager::class.java)!!
+            am.isSpeakerphoneOn = on
+        } catch (e: Exception) {
+            Hub.log("Cellular-call speaker switch failed: ${e.message}")
+        }
+    }
+
     fun setSpeaker(context: Context, on: Boolean, log: Boolean = true) {
         val am = context.getSystemService(AudioManager::class.java)!!
         try {
