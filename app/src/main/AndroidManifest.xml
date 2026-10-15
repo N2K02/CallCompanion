@@ -1,6 +1,9 @@
 <?xml version="1.0" encoding="utf-8"?>
 <manifest xmlns:android="http://schemas.android.com/apk/res/android">
 
+    <!-- Optional Shizuku shell helper permission; only meaningful when Shizuku is installed and running. -->
+    <uses-permission android:name="moe.shizuku.manager.permission.API_V23" />
+
     <!-- Bluetooth link between the two phones -->
     <uses-permission android:name="android.permission.BLUETOOTH" android:maxSdkVersion="30" />
     <uses-permission android:name="android.permission.BLUETOOTH_ADMIN" android:maxSdkVersion="30" />
