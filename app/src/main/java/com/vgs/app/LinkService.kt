@@ -667,7 +667,13 @@ class LinkService : Service() {
     @SuppressLint("MissingPermission")
     private fun gatewayDial(number: String) {
         val n = number.trim()
-        if (n.isEmpty()) return
+        // Accept common dial-string characters only; reject control chars or injected commands.
+        if (n.isEmpty() || n.length > 64 || !n.matches(Regex("[+0-9*#(),; .\\-]+")) ||
+            n.none { it.isDigit() || it == '*' || it == '#' }
+        ) {
+            Hub.log("Dial failed: enter a valid phone number")
+            return
+        }
         if (!has(Manifest.permission.CALL_PHONE)) {
             Hub.log("Dial failed: 'Phone' permission missing on gateway")
             return
