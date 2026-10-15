@@ -49,7 +49,7 @@
     <application
         android:allowBackup="false"
         android:icon="@android:drawable/sym_action_call"
-        android:label="VGS"
+        android:label="${appLabel}"
         android:theme="@style/Theme.VGS">
 
         <activity
