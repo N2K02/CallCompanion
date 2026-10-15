@@ -22,7 +22,7 @@ Install VGS on both phones and choose a role:
 | Dial a number from the remote using the gateway's SIM | Implemented |
 | Sync gateway contacts to the remote | Implemented |
 | Mirror gateway notifications to the remote | Implemented |
-| Bluetooth microphone/audio test independent of a SIM call | Implemented for diagnostics |
+| Remote microphone streamed over Bluetooth and played on gateway (diagnostic, no SIM call) | Implemented for diagnostics |
 | Use the remote microphone as the cellular caller's microphone | **Not implemented — needs further investigation** |
 | Send the other party's cellular-call audio digitally to the remote | **Not implemented — needs further investigation** |
 
@@ -47,7 +47,7 @@ Both directions need further investigation on the target gateway phone. The stan
 3. On the gateway, open VGS, choose **Gateway**, press **Start**, and grant the requested permissions.
 4. On the remote, open VGS, choose **Remote**, select the paired gateway, press **Start**, and grant the requested permissions.
 5. Confirm the status says **Connected**.
-6. Test call notifications and remote dialing. For the Bluetooth audio transport only, use **Microphone / Bluetooth audio test** on the remote. This test does not connect its audio to a cellular call.
+6. Test call notifications and remote dialing. To test the digital microphone path independently of a SIM call, use **Microphone / Bluetooth audio test** on the remote. It captures the remote microphone and streams PCM frames over Bluetooth for playback on the gateway; the gateway does not capture its own microphone during this test. This verifies transport only and does not connect the audio to a cellular call.
 
 On some phones, set VGS battery usage to **Unrestricted** so Android is less likely to stop it in the background.
 
