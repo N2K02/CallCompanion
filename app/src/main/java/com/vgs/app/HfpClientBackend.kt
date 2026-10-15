@@ -31,15 +31,22 @@ class HfpClientBackend(
     }
 
     private val main = Handler(Looper.getMainLooper())
+    private val profileTimeout = Runnable {
+        if (!closed && proxy == null) {
+            onStatus("HFP client profile did not become available; this firmware may disable HFP HF support")
+        }
+    }
     @Volatile private var proxy: BluetoothProfile? = null
     @Volatile private var device: BluetoothDevice? = null
     @Volatile private var pendingCallState: String = LinkService.CALL_IDLE
     @Volatile private var closed = false
     private var adapter: BluetoothAdapter? = null
+    @Volatile private var audioRequested = false
 
     private val listener = object : BluetoothProfile.ServiceListener {
         override fun onServiceConnected(profile: Int, service: BluetoothProfile) {
             if (closed || profile != PROFILE_HEADSET_CLIENT) return
+            main.removeCallbacks(profileTimeout)
             proxy = service
             onStatus("HFP client profile is available; trying to connect to gateway…")
             connectDevice()
@@ -79,6 +86,10 @@ class HfpClientBackend(
             val requested = a.getProfileProxy(context, listener, PROFILE_HEADSET_CLIENT)
             if (!requested) {
                 onStatus("HFP client profile is not exposed by this phone's Bluetooth stack")
+            } else {
+                // Some stacks accept the request but never bind because the profile is disabled.
+                main.removeCallbacks(profileTimeout)
+                main.postDelayed(profileTimeout, 4000L)
             }
         } catch (e: SecurityException) {
             onStatus("HFP blocked by Android/OEM Bluetooth permissions: ${e.message ?: "permission denied"}")
@@ -150,14 +161,20 @@ class HfpClientBackend(
             if (state != BluetoothProfile.STATE_CONNECTED) return
             when (pendingCallState) {
                 LinkService.CALL_OFFHOOK -> {
-                    val result = invokeDeviceMethod(p, "connectAudio", d)
-                    onStatus(
-                        if (result == true) "HFP call audio connection requested"
-                        else "HFP audio request rejected; cellular audio may not be available"
-                    )
+                    if (!audioRequested) {
+                        val result = invokeProfileMethod(p, "connectAudio", d) as? Boolean
+                        audioRequested = result == true
+                        onStatus(
+                            if (audioRequested) "HFP call audio connection requested; waiting for SCO state"
+                            else "HFP audio request rejected; cellular audio may not be available"
+                        )
+                    }
                 }
                 LinkService.CALL_IDLE -> {
-                    try { invokeDeviceMethod(p, "disconnectAudio", d) } catch (_: Exception) {}
+                    if (audioRequested) {
+                        try { invokeProfileMethod(p, "disconnectAudio", d) } catch (_: Exception) {}
+                    }
+                    audioRequested = false
                     onStatus("HFP connected; no active cellular call")
                 }
                 // Do not open audio while ringing. VGS's Answer command answers through gateway Telecom.
@@ -167,16 +184,23 @@ class HfpClientBackend(
         }
     }
 
-    private fun invokeDeviceMethod(target: Any, name: String, d: BluetoothDevice): Any? {
-        val method = target.javaClass.methods.firstOrNull {
+    private fun invokeDeviceMethod(target: Any, name: String, d: BluetoothDevice): Any? =
+        invokeProfileMethod(target, name, d)
+
+    /**
+     * HFP client API signatures differ across Android generations: most device operations take
+     * BluetoothDevice, while older branches exposed connectAudio/disconnectAudio with no args.
+     * Prefer the current per-device form and retain the legacy zero-argument fallback.
+     */
+    private fun invokeProfileMethod(target: Any, name: String, d: BluetoothDevice): Any? {
+        val methods = target.javaClass.methods.toList() + target.javaClass.declaredMethods.toList()
+        val method = methods.firstOrNull {
             it.name == name && it.parameterTypes.size == 1 &&
                 BluetoothDevice::class.java.isAssignableFrom(it.parameterTypes[0])
-        } ?: target.javaClass.declaredMethods.firstOrNull {
-            it.name == name && it.parameterTypes.size == 1 &&
-                BluetoothDevice::class.java.isAssignableFrom(it.parameterTypes[0])
-        } ?: throw NoSuchMethodException("$name(BluetoothDevice)")
+        } ?: methods.firstOrNull { it.name == name && it.parameterTypes.isEmpty() }
+          ?: throw NoSuchMethodException("$name(BluetoothDevice) or $name()")
         try { method.isAccessible = true } catch (_: Exception) {}
-        return method.invoke(target, d)
+        return if (method.parameterTypes.isEmpty()) method.invoke(target) else method.invoke(target, d)
     }
 
     private fun rootMessage(t: Throwable): String {
@@ -188,6 +212,7 @@ class HfpClientBackend(
     fun stop() {
         closed = true
         main.removeCallbacksAndMessages(null)
+        audioRequested = false
         val a = adapter
         val p = proxy
         if (a != null && p != null) {
