@@ -43,9 +43,9 @@ import java.util.concurrent.Executors
  * Runs on both phones.
  *  - GATEWAY (phone with SIM/internet): listens for the remote over Bluetooth, reports
  *    SIM call state, answers/rejects/dials on request.
- *  - REMOTE (watch-mode phone): connects to the gateway, rings on incoming calls,
- *    sends answer/reject/dial commands.
- * Both sides can open a two-way voice link (mic <-> speaker) over the same socket.
+ *  - REMOTE (companion phone): connects to the gateway, rings on incoming calls,
+ *    sends answer/reject/dial commands, and probes for the optional HFP Hands-Free client role.
+ * The RFCOMM AudioBridge is diagnostic only; it is not a cellular-call audio path.
  */
 class LinkService : Service() {
 
@@ -111,6 +111,9 @@ class LinkService : Service() {
     private var receiverRegistered = false
     private var ringtone: Ringtone? = null
     private var contactBuf: StringBuilder? = null
+    @Volatile var hfpStatus: String = "HFP not checked"
+        private set
+    private var hfpClient: HfpClientBackend? = null
 
     val isActive: Boolean get() = running
     val voiceActive: Boolean get() = audio.isRunning
@@ -163,6 +166,15 @@ class LinkService : Service() {
                     registerPhoneReceiver()
                     registerContactObserver()
                     checkNotificationAccess()
+                    Hub.log("HFP Audio Gateway role is provided by Android Bluetooth/Telecom; VGS does not override system call routing")
+                } else {
+                    // Experimental HF-client role. This may be unavailable on stock OEM firmware.
+                    hfpClient?.stop()
+                    hfpClient = HfpClientBackend(this) { status ->
+                        hfpStatus = status
+                        Hub.log("HFP: $status")
+                        Hub.notifyUi()
+                    }.also { it.start(deviceAddress) }
                 }
                 startWorker()
             }
@@ -347,6 +359,7 @@ class LinkService : Service() {
             connected = false
             audio.stop()
             if (role == ROLE_REMOTE) {
+                hfpClient?.onCellularCallState(CALL_IDLE)
                 stopRinging()
                 callState = CALL_IDLE
                 nm.cancel(ID_INCOMING)
@@ -376,6 +389,9 @@ class LinkService : Service() {
         writer = null
         connected = false
         audio.stop()
+        hfpClient?.stop()
+        hfpClient = null
+        hfpStatus = "HFP stopped"
         stopRinging()
         if (receiverRegistered) {
             try {
@@ -626,6 +642,8 @@ class LinkService : Service() {
     // ---------------------------------------------------------------- remote: ringing
 
     private fun onRemoteCallUpdate() {
+        // HFP audio, if the phone's system stack permits it, is separate from RFCOMM PCM.
+        hfpClient?.onCellularCallState(callState)
         when (callState) {
             CALL_RINGING -> {
                 Hub.log("Incoming call: ${display()}")
