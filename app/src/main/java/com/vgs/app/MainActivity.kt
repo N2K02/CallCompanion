@@ -486,6 +486,17 @@ class MainActivity : ComponentActivity() {
                         modifier = Modifier.fillMaxWidth().height(48.dp)
                     ) { Text("Send test notification to remote") }
                 }
+                SectionCard("Experimental call-audio capture") {
+                    Text(
+                        "On the SIM gateway only. Requires Shizuku to be running and VGS permission granted. The helper attempts protected VOICE_CALL capture; success depends on the phone's Android build. The Huawei remote needs no debugging setup.",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                    Button(
+                        onClick = { VgsCallAudioAccess.requestPermission(this@MainActivity) },
+                        modifier = Modifier.fillMaxWidth().height(48.dp)
+                    ) { Text("Connect / grant Shizuku access") }
+                }
                 LogCard()
                 Spacer(Modifier.height(24.dp))
             }
