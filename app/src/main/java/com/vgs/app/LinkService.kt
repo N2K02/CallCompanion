@@ -18,7 +18,6 @@ import android.content.IntentFilter
 import android.content.pm.PackageManager
 import android.content.pm.ServiceInfo
 import android.graphics.drawable.Icon
-import android.media.AudioManager
 import android.media.MediaRecorder
 import android.media.Ringtone
 import android.media.RingtoneManager
@@ -89,11 +88,6 @@ class LinkService : Service() {
         private set
     @Volatile var callName: String = ""
         private set
-    /** Remote: the call's audio is relayed to this phone (gateway loudspeaker + voice link). */
-    @Volatile var takenHere: Boolean = false
-        private set
-    /** Remote: last loudspeaker setting sent to the gateway. */
-    @Volatile var gatewaySpeakerOn: Boolean = false
     /** False when started from the background: Android then refuses the microphone service type. */
     @Volatile var hasMicType: Boolean = false
         private set
@@ -105,8 +99,6 @@ class LinkService : Service() {
     private var lastCallSent = ""
     private val main = Handler(Looper.getMainLooper())
 
-    // Remote: take the call here automatically once it connects (answered / dialed from here).
-    @Volatile private var autoTake = false
 
     @Volatile private var running = false
     @Volatile private var generation = 0
@@ -195,10 +187,7 @@ class LinkService : Service() {
 
     fun answer() {
         stopRinging()
-        if (role == ROLE_GATEWAY) gatewayAnswer() else {
-            autoTake = true
-            send("ANSWER")
-        }
+        if (role == ROLE_GATEWAY) gatewayAnswer() else send("ANSWER")
     }
 
     fun reject() {
@@ -212,72 +201,9 @@ class LinkService : Service() {
 
     fun dial(number: String) {
         if (role == ROLE_GATEWAY) gatewayDial(number) else {
-            autoTake = true
             Hub.log("Sending call request to gateway: $number")
             send("DIAL", number)
         }
-    }
-
-    fun setGatewaySpeaker(on: Boolean) {
-        gatewaySpeakerOn = on
-        send("SPEAKER", if (on) "1" else "0")
-        Hub.notifyUi()
-    }
-
-    /** Remote: talk on this phone (gateway loudspeaker ON + voice link). */
-    fun takeCallHere() {
-        if (!connected) {
-            Hub.log("Not connected yet")
-            return
-        }
-        takenHere = true
-        setGatewaySpeaker(true)
-        if (!audio.isRunning) toggleVoice()
-        Hub.log("📞 Call moved to this phone (gateway loudspeaker + voice link)")
-        updateStatus()
-    }
-
-    /** Gateway: the remote switched our loudspeaker on; put the call back on the earpiece. */
-    private fun resetGatewaySpeaker() {
-        if (!gatewaySpeakerOn) return
-        gatewaySpeakerOn = false
-        main.removeCallbacks(reassertSpeaker)
-        AudioRoute.setGatewayCallSpeaker(this, false)
-        boostCallVolume(false)
-    }
-
-    private val reassertSpeaker = object : Runnable {
-        override fun run() {
-            if (running && role == ROLE_GATEWAY && gatewaySpeakerOn) {
-                AudioRoute.setGatewayCallSpeaker(this@LinkService, true)
-                main.postDelayed(this, 2000)
-            }
-        }
-    }
-
-    private var savedCallVolume = -1
-
-    /** Raise call volume while the remote is using the gateway loudspeaker, then restore it. */
-    private fun boostCallVolume(on: Boolean) {
-        try {
-            val am = getSystemService(AudioManager::class.java) ?: return
-            if (on) {
-                if (savedCallVolume < 0) savedCallVolume = am.getStreamVolume(AudioManager.STREAM_VOICE_CALL)
-                am.setStreamVolume(AudioManager.STREAM_VOICE_CALL, am.getStreamMaxVolume(AudioManager.STREAM_VOICE_CALL), 0)
-            } else if (savedCallVolume >= 0) {
-                am.setStreamVolume(AudioManager.STREAM_VOICE_CALL, savedCallVolume, 0)
-                savedCallVolume = -1
-            }
-        } catch (_: Exception) {
-        }
-    }
-
-    /** Remote: hand the audio back to the gateway phone. */
-    fun giveCallBack() {
-        takenHere = false
-        if (audio.isRunning) toggleVoice()
-        if (connected) setGatewaySpeaker(false) else gatewaySpeakerOn = false
-        updateStatus()
     }
 
     fun setLocalSpeaker(on: Boolean) {
@@ -420,12 +346,9 @@ class LinkService : Service() {
             if (socket === s) socket = null
             connected = false
             audio.stop()
-            if (role == ROLE_GATEWAY) resetGatewaySpeaker() // link dropped: don't stay on loudspeaker
             if (role == ROLE_REMOTE) {
                 stopRinging()
                 callState = CALL_IDLE
-                takenHere = false
-                autoTake = false
                 nm.cancel(ID_INCOMING)
             }
         }
@@ -468,8 +391,6 @@ class LinkService : Service() {
         callState = CALL_IDLE
         simState = CALL_IDLE
         lastCallSent = ""
-        takenHere = false
-        autoTake = false
         Hub.log("Stopped")
     }
 
@@ -511,15 +432,6 @@ class LinkService : Service() {
             "DIAL" -> {
                 Hub.log("Call request from remote: $arg1")
                 gatewayDial(arg1)
-            }
-            "SPEAKER" -> {
-                gatewaySpeakerOn = arg1 == "1"
-                AudioRoute.setGatewayCallSpeaker(this, gatewaySpeakerOn)
-                boostCallVolume(gatewaySpeakerOn)
-                main.removeCallbacks(reassertSpeaker)
-                // Android's call manager may switch to the earpiece when a call connects.
-                if (gatewaySpeakerOn) main.postDelayed(reassertSpeaker, 2000)
-                Hub.log("Speaker ${if (arg1 == "1") "ON" else "OFF"} (requested by remote)")
             }
             // both directions
             "VOICE_START" -> {
@@ -615,7 +527,6 @@ class LinkService : Service() {
         if (callState == CALL_IDLE) {
             callNumber = ""
             callName = ""
-            if (role == ROLE_GATEWAY) resetGatewaySpeaker()
         }
         val sig = listOf(callState, callNumber, callName).joinToString("|")
         if (sig != lastCallSent) {
@@ -683,7 +594,7 @@ class LinkService : Service() {
             simName = lookupName(n)
             getSystemService(TelecomManager::class.java)!!.placeCall(
                 Uri.fromParts("tel", n, null),
-                Bundle().apply { putBoolean(TelecomManager.EXTRA_START_CALL_WITH_SPEAKERPHONE, true) }
+                Bundle()
             )
             Hub.log("Dialing $n")
         } catch (e: Exception) {
@@ -725,16 +636,10 @@ class LinkService : Service() {
                 stopRinging()
                 nm.cancel(ID_INCOMING)
                 Hub.log("Call in progress on gateway: ${display()}")
-                if (autoTake) {
-                    autoTake = false
-                    if (!takenHere) takeCallHere()
-                }
             }
             else -> {
                 stopRinging()
                 nm.cancel(ID_INCOMING)
-                autoTake = false
-                if (takenHere) giveCallBack()
                 Hub.log("Call ended")
             }
         }
