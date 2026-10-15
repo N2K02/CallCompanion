@@ -271,21 +271,6 @@ class AudioBridge(
 }
 
 object AudioRoute {
-    /**
-     * Routes a Telecom-managed cellular call on the SIM gateway. Android's communication
-     * device API is intended for app-managed communication audio; the gateway's carrier
-     * call should use the phone-call speaker route instead.
-     */
-    @Suppress("DEPRECATION")
-    fun setGatewayCallSpeaker(context: Context, on: Boolean) {
-        try {
-            val am = context.getSystemService(AudioManager::class.java)!!
-            am.isSpeakerphoneOn = on
-        } catch (e: Exception) {
-            Hub.log("Cellular-call speaker switch failed: ${e.message}")
-        }
-    }
-
     fun setSpeaker(context: Context, on: Boolean, log: Boolean = true) {
         val am = context.getSystemService(AudioManager::class.java)!!
         try {
