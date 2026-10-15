@@ -2,61 +2,62 @@
 
 [![Latest release](https://img.shields.io/github/v/release/N2K02/VGS?label=download)](https://github.com/N2K02/VGS/releases/latest) ![Android 8.0+](https://img.shields.io/badge/Android-8.0%2B-3DDC84?logo=android&logoColor=white) ![Kotlin](https://img.shields.io/badge/Kotlin-7F52FF?logo=kotlin&logoColor=white) [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
 
-Use an Android phone **without internet** like a smartwatch for a phone that **has a SIM / internet**, over Bluetooth.
+Use an Android phone without a SIM as a Bluetooth companion for a second phone that has a SIM.
 
-*Bluetooth phone companion app for Android: turn a spare phone into a smartwatch-style remote for SIM calls.*
+VGS lets the remote phone display call notifications and request calls through the gateway phone. It works over Bluetooth and does not require mobile data or internet for the phone-to-phone connection.
 
-**[⬇ Download the latest APK](https://github.com/N2K02/VGS/releases/latest)** · Android 8.0 or newer · Free and open source
+**[Download the latest APK](https://github.com/N2K02/VGS/releases/latest)** · Android 8.0+ · Free and open source
 
-Install the same app on both phones and pick a role:
+Install VGS on both phones and choose a role:
 
-- **Gateway**: the phone with the SIM / internet.
-- **Remote**: the "watch-mode" phone with no internet.
+- **Gateway:** the phone with the SIM. It places calls and reports cellular call state.
+- **Remote:** the phone without a SIM. It shows calls, contacts and notifications and sends call commands to the gateway.
 
-## What works
+## Features
 
-| Feature | How |
+| Feature | Status |
 |---|---|
-| Incoming SIM call rings on the remote (name + number) | Gateway watches call state and forwards it over Bluetooth |
-| Answer / reject / hang up from the remote | Gateway answers / ends the call via Android Telecom |
-| Dial a number from the remote | Gateway places the call |
-| Two-way voice between the phones | Live 8 kHz audio over the Bluetooth link ("Voice link") |
-| Turn gateway loudspeaker on/off from the remote | Remote command |
-| Calls made in the gateway's own phone app show on the remote (with number) | Outgoing-call broadcast + call state |
-| **Take call here**: talk on the remote | Gateway loudspeaker ON + voice link; automatic when you answer or dial from the remote |
-| **Microphone / Bluetooth audio test** | Manually start the two-way microphone stream from the remote without placing a SIM call |
+| Incoming SIM call notification on the remote | Implemented |
+| Answer, reject and hang up from the remote | Implemented |
+| Dial a number from the remote using the gateway's SIM | Implemented |
+| Sync gateway contacts to the remote | Implemented |
+| Mirror gateway notifications to the remote | Implemented |
+| Bluetooth microphone/audio test independent of a SIM call | Implemented for diagnostics |
+| Use the remote microphone as the cellular caller's microphone | **Not implemented — needs further investigation** |
+| Send the other party's cellular-call audio digitally to the remote | **Not implemented — needs further investigation** |
 
-### Known limitation
+## Known limitations — cellular call audio
 
-The Bluetooth voice link can be tested independently of a SIM call using **Microphone / Bluetooth audio test** on the remote. VGS reports microphone input level, received frames, and dropped audio frames to help diagnose the link. This test streams microphone audio between the phones; it does not itself capture the gateway cellular-call audio or inject remote microphone audio into the carrier call. Stock Android normally blocks ordinary apps from accessing the protected digital cellular-call audio path.
+VGS currently has two separate cellular-audio limitations. The call-control features can work, but these limitations mean VGS is **not yet a complete remote-handset solution for talking through the gateway SIM**.
 
-## Install & test
+### 1. Remote voice → cellular caller
 
-1. Download `VGS-<version>.apk` (e.g. `VGS-1.0.apk`) from the latest **Release** of this repo and install it on **both** phones (allow "install unknown apps").
-2. Pair the two phones in Android **Settings → Bluetooth**.
-3. **Gateway phone:** open VGS → choose *Gateway* → **Start** → allow the requested permissions (Phone, Microphone, Nearby devices, Notifications, Contacts, Call logs).
-4. **Remote phone:** open VGS → choose *Remote* → pick the gateway phone from the list → **Start** → allow permissions.
-5. Status should turn green: *Connected to …*.
-6. Call the gateway's number from a third phone. The remote rings with Answer / Reject.
+The remote microphone can be streamed over the Bluetooth voice link, but Android does not provide ordinary third-party apps with a supported way to inject that audio directly into a SIM call's outgoing microphone/uplink. The gateway speaker-and-microphone acoustic workaround has been removed; VGS no longer automatically turns on the gateway loudspeaker to relay remote audio.
 
-Tip: on some phones (Xiaomi, Samsung, Huawei) set VGS battery usage to **Unrestricted** so it keeps running in the background.
+### 2. Cellular caller → remote
+
+Ordinary Android apps cannot freely capture both sides of a cellular call. The `VOICE_CALL` audio source requires the privileged `CAPTURE_AUDIO_OUTPUT` permission, and whether a privileged helper can access the call audio depends on the device's Android build and audio implementation.
+
+Both directions need further investigation on the target gateway phone. The standalone microphone/Bluetooth test only verifies the phone-to-phone audio transport; it does not prove that audio can be injected into or captured from a cellular call.
+
+## Install and test
+
+1. Download the latest APK from [Releases](https://github.com/N2K02/VGS/releases/latest) and install it on both phones.
+2. Pair the phones in Android **Settings → Bluetooth**.
+3. On the gateway, open VGS, choose **Gateway**, press **Start**, and grant the requested permissions.
+4. On the remote, open VGS, choose **Remote**, select the paired gateway, press **Start**, and grant the requested permissions.
+5. Confirm the status says **Connected**.
+6. Test call notifications and remote dialing. For the Bluetooth audio transport only, use **Microphone / Bluetooth audio test** on the remote. This test does not connect its audio to a cellular call.
+
+On some phones, set VGS battery usage to **Unrestricted** so Android is less likely to stop it in the background.
 
 ## Updates
 
-The app updates itself from this repo's Releases:
-
-- When you open it (at most every 12 hours) it checks for a newer release. If there is one, a card shows **what's new** with **Update now**, **Later** or **Skip this version**.
-- **Check for updates** is at the bottom of the main screen, next to the version number.
-- The APK is downloaded inside the app, checked (size, SHA-256 checksum from GitHub, same app, newer version, same signing key) and installed with Android's own installer.
-- The first time, Android asks you to allow installs from this app ("Install unknown apps"); after that you just confirm the update.
-
-## Signing
-
-Releases are signed with a private key that is kept encrypted in `signing/keys.tar.enc` and unlocked during the build with the `SIGNING_PASSPHRASE` repository secret (see [signing/README.md](signing/README.md)). Earlier builds used a public test key; Android's key rotation moves installed apps to the private key on the next update, without reinstalling.
+VGS checks GitHub Releases for updates when opened (at most every 12 hours). If a newer release is available, the app offers the update. Android's package installer asks you to confirm installation.
 
 ## Build
 
-Every push to `main` builds the APK with GitHub Actions and publishes it as a release named "VGS <version>" (1.0, 1.1, 1.2 …, one decimal place) with release notes listing the changes since the previous release. To jump to a new number (e.g. 2.0), run the workflow by hand from the Actions tab and type the version. Locally: `./gradlew assembleRelease` (shrunk APK) (needs JDK 17 + Android SDK).
+Every push to `main` builds the APK with GitHub Actions and publishes a release named "VGS <version>". Locally, run `./gradlew assembleRelease` with JDK 17 and the Android SDK installed.
 
 ## License
 
