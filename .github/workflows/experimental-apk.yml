@@ -1,0 +1,47 @@
+name: Build VGS Experimental APK
+
+on:
+  pull_request:
+    branches: [ main ]
+    types: [ opened, synchronize, reopened ]
+  workflow_dispatch:
+    inputs:
+      ref:
+        description: "Branch or commit to build (defaults to this workflow's ref)"
+        required: false
+        default: "feature/hfp-companion-architecture"
+
+permissions:
+  contents: read
+
+jobs:
+  build-experimental:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out experimental source
+        uses: actions/checkout@v5
+        with:
+          ref: ${{ github.event.pull_request.head.sha || inputs.ref || github.sha }}
+
+      - name: Set up Java
+        uses: actions/setup-java@v5
+        with:
+          distribution: temurin
+          java-version: "17"
+
+      - name: Accept Android SDK licenses
+        run: |
+          yes | "${ANDROID_HOME:-$ANDROID_SDK_ROOT}/cmdline-tools/latest/bin/sdkmanager" --licenses >/dev/null || true
+
+      - name: Build separately installable experimental APK
+        run: |
+          chmod +x gradlew
+          ./gradlew --no-daemon assembleExperimental
+
+      - name: Upload APK
+        uses: actions/upload-artifact@v4
+        with:
+          name: VGS-Experimental
+          path: app/build/outputs/apk/experimental/*.apk
+          if-no-files-found: error
+          retention-days: 14
