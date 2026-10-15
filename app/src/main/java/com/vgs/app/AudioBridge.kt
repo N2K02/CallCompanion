@@ -48,8 +48,8 @@ class AudioBridge(
         queue.clear()
         rxFrames = 0
         val am = context.getSystemService(AudioManager::class.java)!!
-        // A WhatsApp call already uses communication mode: leave it alone so its audio keeps working.
-        restoreNormalMode = am.mode != AudioManager.MODE_IN_COMMUNICATION
+        // Do not override MODE_IN_CALL: changing it during a SIM call can mute the call microphone.
+        restoreNormalMode = am.mode == AudioManager.MODE_NORMAL
         if (restoreNormalMode) am.mode = AudioManager.MODE_IN_COMMUNICATION
         AudioRoute.setSpeaker(context, speakerOn)
         recordThread = Thread({ recordLoop() }, "vgs-record").also { it.start() }
