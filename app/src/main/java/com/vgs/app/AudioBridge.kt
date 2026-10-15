@@ -37,14 +37,19 @@ class AudioBridge(
 
     val isRunning: Boolean get() = running
 
+    @Volatile
+    private var rxFrames = 0
+
     @Synchronized
     fun start() {
         if (running) return
         running = true
         queue.clear()
+        rxFrames = 0
         val am = context.getSystemService(AudioManager::class.java)!!
-        // A WhatsApp call already uses communication mode: leave it alone so its audio keeps working.
-        restoreNormalMode = am.mode != AudioManager.MODE_IN_COMMUNICATION
+        // During a SIM call (in-call mode) or a WhatsApp call (communication mode) the call app owns the
+        // audio mode: changing it can mute the call's own microphone. Only set it when nothing else did.
+        restoreNormalMode = am.mode == AudioManager.MODE_NORMAL
         if (restoreNormalMode) am.mode = AudioManager.MODE_IN_COMMUNICATION
         AudioRoute.setSpeaker(context, speakerOn)
         recordThread = Thread({ recordLoop() }, "vgs-record").also { it.start() }
@@ -74,6 +79,7 @@ class AudioBridge(
 
     fun onAudio(data: ByteArray) {
         if (!running) return
+        rxFrames++
         if (queue.size > 25) queue.clear() // too much lag: drop and catch up
         queue.offer(data)
     }
@@ -104,10 +110,37 @@ class AudioBridge(
         }
         try {
             rec.startRecording()
+            // For the log: how many frames we send, how many arrive, and whether Android silences the mic.
+            var sent = 0
+            var silent = 0
+            var reports = 0
+            var lastReport = System.currentTimeMillis()
             while (running) {
                 val buf = ByteArray(FRAME_BYTES)
                 val n = rec.read(buf, 0, buf.size)
                 if (n > 0) {
+                    var peak = 0
+                    var i = 0
+                    while (i + 1 < n) {
+                        val v = ((buf[i + 1].toInt() shl 8) or (buf[i].toInt() and 0xff)).toShort().toInt()
+                        if (v > peak) peak = v else if (-v > peak) peak = -v
+                        i += 2
+                    }
+                    sent++
+                    if (peak < 8) silent++
+                    val now = System.currentTimeMillis()
+                    if (reports < 6 && now - lastReport >= 3000) {
+                        val pct = silent * 100 / sent
+                        Hub.log("Voice: sent $sent frames ($pct% silent mic), received $rxFrames")
+                        if (pct >= 95) {
+                            Hub.log("⚠️ This phone's microphone is silent: Android blocks it during calls. Turn on 'Call audio helper' (Accessibility) on the gateway")
+                        }
+                        sent = 0
+                        silent = 0
+                        rxFrames = 0
+                        reports++
+                        lastReport = now
+                    }
                     try {
                         sender(buf, n)
                     } catch (e: Exception) {
