@@ -103,9 +103,36 @@ class HfpClientBackend(
                 if (result == true) "HFP connection requested; waiting for Bluetooth stack"
                 else "HFP connect request was rejected by Android/OEM firmware"
             )
+            if (result == true) scheduleConnectionCheck()
         } catch (e: Exception) {
             onStatus("HFP connect unavailable: ${rootMessage(e)}")
         }
+    }
+
+    private fun scheduleConnectionCheck(attempt: Int = 0) {
+        if (closed || attempt >= 10) {
+            if (!closed && pendingCallState == LinkService.CALL_OFFHOOK) {
+                onStatus("HFP did not connect in time for the active call")
+            }
+            return
+        }
+        main.postDelayed({
+            if (closed) return@postDelayed
+            val p = proxy
+            val d = device
+            if (p == null || d == null) return@postDelayed
+            try {
+                val state = invokeDeviceMethod(p, "getConnectionState", d) as? Int
+                if (state == BluetoothProfile.STATE_CONNECTED) {
+                    onStatus("HFP client connected to gateway")
+                    applyCallAudioState()
+                } else {
+                    scheduleConnectionCheck(attempt + 1)
+                }
+            } catch (_: Exception) {
+                scheduleConnectionCheck(attempt + 1)
+            }
+        }, 1000L)
     }
 
     /** Called from the companion's gateway call-state messages. */
@@ -160,6 +187,7 @@ class HfpClientBackend(
 
     fun stop() {
         closed = true
+        main.removeCallbacksAndMessages(null)
         val a = adapter
         val p = proxy
         if (a != null && p != null) {
