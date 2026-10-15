@@ -92,18 +92,6 @@
         </service>
 
         <!-- Keeps the microphone usable during calls on the gateway; reads nothing from the screen -->
-        <service
-            android:name=".CallAudioService"
-            android:exported="true"
-            android:label="VGS call audio"
-            android:permission="android.permission.BIND_ACCESSIBILITY_SERVICE">
-            <intent-filter>
-                <action android:name="android.accessibilityservice.AccessibilityService" />
-            </intent-filter>
-            <meta-data
-                android:name="android.accessibilityservice"
-                android:resource="@xml/call_audio_service" />
-        </service>
 
         <!-- Shares a downloaded update APK with Android's installer (read-only, not exported) -->
         <provider

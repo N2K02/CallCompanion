@@ -285,11 +285,6 @@ class MainActivity : ComponentActivity() {
                 "Mirror notifications to the remote. If it is greyed out: App info → ⋮ → Allow restricted settings.",
                 NotifListener.isEnabled(this), emptyList()
             ) { openSettings(Settings.ACTION_NOTIFICATION_LISTENER_SETTINGS) }
-            l += Req(
-                "Call audio helper",
-                "Recommended: turn on \"VGS call audio\" under Accessibility so the microphone keeps working during calls. It reads nothing from the screen.",
-                a11yEnabled(), emptyList(), required = false
-            ) { openSettings(Settings.ACTION_ACCESSIBILITY_SETTINGS) }
             if (Build.VERSION.SDK_INT >= 31) {
                 l += Req(
                     "Start with the remote",
@@ -311,12 +306,6 @@ class MainActivity : ComponentActivity() {
         } catch (e: Exception) {
             openSettings(Settings.ACTION_IGNORE_BATTERY_OPTIMIZATION_SETTINGS)
         }
-    }
-
-    private fun a11yEnabled(): Boolean {
-        val flat = Settings.Secure.getString(contentResolver, Settings.Secure.ENABLED_ACCESSIBILITY_SERVICES)
-            ?: return false
-        return flat.split(':').any { it.startsWith("$packageName/") && it.endsWith("CallAudioService") }
     }
 
     private val companionLauncher =
@@ -993,7 +982,7 @@ class MainActivity : ComponentActivity() {
         SectionCard("Speaker") {
             SwitchRow("Loudspeaker", loud) { on -> s.setLocalSpeaker(on) }
             Text(
-                "Off: sound plays in this phone's earpiece.",
+                "On: sound plays on this phone's loudspeaker. Off: in the earpiece.",
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant
             )

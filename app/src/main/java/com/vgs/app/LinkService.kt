@@ -19,7 +19,6 @@ import android.content.pm.PackageManager
 import android.content.pm.ServiceInfo
 import android.graphics.drawable.Icon
 import android.media.AudioManager
-import android.media.MediaRecorder
 import android.media.Ringtone
 import android.media.RingtoneManager
 import android.net.Uri
@@ -125,15 +124,7 @@ class LinkService : Service() {
     val speakerOn: Boolean get() = audio.speakerOn
 
     private val audio: AudioBridge by lazy {
-        AudioBridge(this, {
-            // The gateway hears the call through its microphone, which Android may block during calls:
-            // try the echo-cancelled source first, then the others.
-            if (role == ROLE_GATEWAY) listOf(
-                MediaRecorder.AudioSource.VOICE_COMMUNICATION,
-                MediaRecorder.AudioSource.VOICE_RECOGNITION,
-                MediaRecorder.AudioSource.MIC,
-            ) else listOf(MediaRecorder.AudioSource.VOICE_COMMUNICATION)
-        }) { buf, n ->
+        AudioBridge(this) { buf, n ->
             val w = writer ?: throw IOException("not connected")
             w.writeAudio(buf, n)
         }
@@ -163,7 +154,6 @@ class LinkService : Service() {
                 if (running) shutdown()
                 role = intent.getStringExtra(EXTRA_ROLE) ?: ROLE_REMOTE
                 deviceAddress = intent.getStringExtra(EXTRA_DEVICE)
-                if (role == ROLE_REMOTE) audio.setSpeaker(false) // remote: earpiece unless switched on
                 running = true
                 connectionState = "Starting…"
                 Hub.log("Started as ${if (role == ROLE_GATEWAY) "gateway" else "remote"}")
@@ -242,35 +232,7 @@ class LinkService : Service() {
     private fun resetGatewaySpeaker() {
         if (!gatewaySpeakerOn) return
         gatewaySpeakerOn = false
-        main.removeCallbacks(reassertSpeaker)
         AudioRoute.setSpeaker(this, false)
-        boostCallVolume(false)
-    }
-
-    private val reassertSpeaker = object : Runnable {
-        override fun run() {
-            if (running && role == ROLE_GATEWAY && gatewaySpeakerOn) {
-                AudioRoute.setSpeaker(this@LinkService, true, log = false)
-                main.postDelayed(this, 2000)
-            }
-        }
-    }
-
-    private var savedCallVolume = -1
-
-    /** Gateway: while the remote talks through our loudspeaker the call volume goes to maximum, then back. */
-    private fun boostCallVolume(on: Boolean) {
-        try {
-            val am = getSystemService(AudioManager::class.java) ?: return
-            if (on) {
-                if (savedCallVolume < 0) savedCallVolume = am.getStreamVolume(AudioManager.STREAM_VOICE_CALL)
-                am.setStreamVolume(AudioManager.STREAM_VOICE_CALL, am.getStreamMaxVolume(AudioManager.STREAM_VOICE_CALL), 0)
-            } else if (savedCallVolume >= 0) {
-                am.setStreamVolume(AudioManager.STREAM_VOICE_CALL, savedCallVolume, 0)
-                savedCallVolume = -1
-            }
-        } catch (e: Exception) {
-        }
     }
 
     /** Remote: hand the audio back to the gateway phone. */
@@ -516,10 +478,6 @@ class LinkService : Service() {
             "SPEAKER" -> {
                 gatewaySpeakerOn = arg1 == "1"
                 AudioRoute.setSpeaker(this, gatewaySpeakerOn)
-                boostCallVolume(gatewaySpeakerOn)
-                main.removeCallbacks(reassertSpeaker)
-                // Android's call manager can switch back to the earpiece when the call connects: keep asking.
-                if (gatewaySpeakerOn) main.postDelayed(reassertSpeaker, 2000)
                 Hub.log("Speaker ${if (arg1 == "1") "ON" else "OFF"} (requested by remote)")
             }
             // both directions
@@ -676,12 +634,7 @@ class LinkService : Service() {
         try {
             simNumber = n
             simName = lookupName(n)
-            getSystemService(TelecomManager::class.java)!!
-                .placeCall(
-                    Uri.fromParts("tel", n, null),
-                    // The remote talks through our loudspeaker: start the call on speaker.
-                    Bundle().apply { putBoolean(TelecomManager.EXTRA_START_CALL_WITH_SPEAKERPHONE, true) }
-                )
+            getSystemService(TelecomManager::class.java)!!.placeCall(Uri.fromParts("tel", n, null), null)
             Hub.log("Dialing $n")
         } catch (e: Exception) {
             Hub.log("Dial failed: ${e.message}")
