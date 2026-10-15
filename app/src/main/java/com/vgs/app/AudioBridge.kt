@@ -53,6 +53,14 @@ class AudioBridge(
         // audio mode: changing it can mute the call's own microphone. Only set it when nothing else did.
         restoreNormalMode = am.mode == AudioManager.MODE_NORMAL
         if (restoreNormalMode) am.mode = AudioManager.MODE_IN_COMMUNICATION
+        // Earpiece volume on a phone that never made a call can be very low: make sure it is audible.
+        try {
+            val max = am.getStreamMaxVolume(AudioManager.STREAM_VOICE_CALL)
+            if (am.getStreamVolume(AudioManager.STREAM_VOICE_CALL) < max * 3 / 5) {
+                am.setStreamVolume(AudioManager.STREAM_VOICE_CALL, max * 3 / 4, 0)
+            }
+        } catch (e: Exception) {
+        }
         AudioRoute.setSpeaker(context, speakerOn)
         recordThread = Thread({ recordLoop() }, "vgs-record").also { it.start() }
         playThread = Thread({ playLoop() }, "vgs-play").also { it.start() }
@@ -255,7 +263,9 @@ object AudioRoute {
                         .firstOrNull { it.type == AudioDeviceInfo.TYPE_BUILTIN_SPEAKER }
                     if (dev != null) am.setCommunicationDevice(dev)
                 } else {
-                    am.clearCommunicationDevice()
+                    val ear = am.availableCommunicationDevices
+                        .firstOrNull { it.type == AudioDeviceInfo.TYPE_BUILTIN_EARPIECE }
+                    if (ear != null) am.setCommunicationDevice(ear) else am.clearCommunicationDevice()
                 }
             } else {
                 setSpeakerLegacy(am, on)
