@@ -211,10 +211,11 @@ class LinkService : Service() {
         Hub.notifyUi()
     }
 
+    /** Remote-only diagnostic: capture the remote mic and play it on the gateway. */
     fun toggleVoice() {
         if (audio.isRunning) {
             audio.stop()
-            send("VOICE_STOP")
+            send("MIC_TEST_STOP")
         } else {
             if (!connected) {
                 Hub.log("Not connected yet")
@@ -224,8 +225,13 @@ class LinkService : Service() {
                 Hub.log("Microphone permission missing")
                 return
             }
-            audio.start()
-            send("VOICE_START")
+            if (role != ROLE_REMOTE) {
+                Hub.log("Start the microphone test from the remote phone")
+                return
+            }
+            // The remote captures/sends only. The gateway receives/plays only.
+            audio.start(captureMicrophone = true, playIncoming = false)
+            send("MIC_TEST_START")
         }
         updateStatus()
     }
@@ -440,6 +446,15 @@ class LinkService : Service() {
                 updateStatus()
             }
             "VOICE_STOP" -> {
+                audio.stop()
+                updateStatus()
+            }
+            // One-way diagnostics: the remote sends microphone PCM; gateway only plays it.
+            "MIC_TEST_START" -> {
+                if (role == ROLE_GATEWAY) audio.start(captureMicrophone = false, playIncoming = true)
+                updateStatus()
+            }
+            "MIC_TEST_STOP" -> {
                 audio.stop()
                 updateStatus()
             }
