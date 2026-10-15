@@ -22,23 +22,19 @@ Install VGS on both phones and choose a role:
 | Dial a number from the remote using the gateway's SIM | Implemented |
 | Sync gateway contacts to the remote | Implemented |
 | Mirror gateway notifications to the remote | Implemented |
-| Bluetooth microphone/audio test independent of a SIM call | Implemented for diagnostics |
-| Use the remote microphone as the cellular caller's microphone | **Not implemented — needs further investigation** |
-| Send the other party's cellular-call audio digitally to the remote | **Not implemented — needs further investigation** |
+| Bluetooth microphone/audio test independent of a SIM call | Implemented for diagnostics only |
+| Experimental HFP Hands-Free client probe on the remote | Implemented; depends on OEM/system support |
+| Digital two-way cellular-call audio through HFP | **Experimental; not verified on target devices** |
 
-## Known limitations — cellular call audio
+## Experimental HFP cellular-audio architecture
 
-VGS currently has two separate cellular-audio limitations. The call-control features can work, but these limitations mean VGS is **not yet a complete remote-handset solution for talking through the gateway SIM**.
+The remote now probes for Android's hidden/system-level HFP Hands-Free client profile and attempts to connect to the selected gateway. If the profile is exposed and permitted by the OEM firmware, VGS requests the HFP audio connection when the gateway reports an active cellular call. The gateway continues using Android's normal Bluetooth/Telecom Audio Gateway role; the existing RFCOMM link remains responsible for contacts, notifications and companion commands.
 
-### 1. Remote voice → cellular caller
+The HFP client role is not part of the ordinary public Android app API on many Android builds. The probe uses reflection so VGS can compile against the public SDK, but reflection does not grant privileged permissions or add a missing system Bluetooth profile. The Huawei may reject the profile, and a successful profile connection still needs real-call testing in both directions.
 
-The remote microphone can be streamed over the Bluetooth voice link, but Android does not provide ordinary third-party apps with a supported way to inject that audio directly into a SIM call's outgoing microphone/uplink. The gateway speaker-and-microphone acoustic workaround has been removed; VGS no longer automatically turns on the gateway loudspeaker to relay remote audio.
+The existing `AudioBridge` remains a diagnostic microphone/audio transport only. It is not used as a cellular-call audio path, and VGS does not use acoustic speaker-to-microphone relay.
 
-### 2. Cellular caller → remote
-
-Ordinary Android apps cannot freely capture both sides of a cellular call. The `VOICE_CALL` audio source requires the privileged `CAPTURE_AUDIO_OUTPUT` permission, and whether a privileged helper can access the call audio depends on the device's Android build and audio implementation.
-
-Both directions need further investigation on the target gateway phone. The standalone microphone/Bluetooth test only verifies the phone-to-phone audio transport; it does not prove that audio can be injected into or captured from a cellular call.
+VGS is **not yet verified as a complete remote-handset solution**. Test the HFP status shown on the remote and check logs for profile availability, connection and audio-control results. If the OEM blocks the HFP client profile, an ordinary app cannot reliably work around that restriction on stock firmware.
 
 ## Install and test
 
