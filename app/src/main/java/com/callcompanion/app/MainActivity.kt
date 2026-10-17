@@ -29,6 +29,7 @@ import androidx.compose.material.icons.filled.Call
 import androidx.compose.material.icons.filled.CallEnd
 import androidx.compose.material.icons.filled.CheckCircle
 import androidx.compose.material.icons.filled.Close
+import androidx.compose.material.icons.filled.PowerSettingsNew
 import androidx.compose.material.icons.filled.ContentCopy
 import androidx.compose.material.icons.filled.DeleteSweep
 import androidx.compose.material.icons.filled.Download
@@ -238,10 +239,8 @@ class MainActivity : ComponentActivity() {
                         }
                     },
                     actions = {
-                        OutlinedButton(onClick = { quitApp() }, modifier = Modifier.padding(end = 8.dp)) {
-                            Icon(Icons.Default.Close, contentDescription = null)
-                            Spacer(Modifier.width(5.dp))
-                            Text("Quit")
+                        FilledTonalIconButton(onClick = { quitApp() }, modifier = Modifier.padding(end = 8.dp)) {
+                            Icon(Icons.Default.PowerSettingsNew, contentDescription = "Quit")
                         }
                     },
                     colors = TopAppBarDefaults.topAppBarColors(containerColor = MaterialTheme.colorScheme.surface)
