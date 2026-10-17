@@ -1,4 +1,4 @@
-# VGS
+# CallCompanion
 
 Use an Android phone **without internet** like a smartwatch for a phone that **has a SIM / internet**, over Bluetooth.
 
@@ -23,14 +23,14 @@ Android does **not** let a normal app capture or inject the audio of a SIM call.
 
 ## Install & test
 
-1. Download `VGS.apk` from the latest **Release** of this repo and install it on **both** phones (allow "install unknown apps").
+1. Download `CallCompanion.apk` from the latest **Release** of this repo and install it on **both** phones (allow "install unknown apps").
 2. Pair the two phones in Android **Settings → Bluetooth**.
-3. **Gateway phone:** open VGS → choose *Gateway* → **Start** → allow all permissions (Phone, Microphone, Nearby devices, Notifications, Contacts, Call logs).
-4. **Remote phone:** open VGS → choose *Remote* → pick the gateway phone from the list → **Start** → allow permissions.
+3. **Gateway phone:** open CallCompanion → choose *Gateway* → **Start** → allow all permissions (Phone, Microphone, Nearby devices, Notifications, Contacts, Call logs).
+4. **Remote phone:** open CallCompanion → choose *Remote* → pick the gateway phone from the list → **Start** → allow permissions.
 5. Status should turn green: *Connected to …*.
 6. Call the gateway's number from a third phone. The remote rings with Answer / Reject.
 
-Tip: on some phones (Xiaomi, Samsung, Huawei) set VGS battery usage to **Unrestricted** so it keeps running in the background.
+Tip: on some phones (Xiaomi, Samsung, Huawei) set CallCompanion battery usage to **Unrestricted** so it keeps running in the background.
 
 ## Build
 
