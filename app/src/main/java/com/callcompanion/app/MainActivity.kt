@@ -136,6 +136,16 @@ class MainActivity : ComponentActivity() {
 
     private fun startLink() {
         val chosenRole = role
+        if (chosenRole == LinkService.ROLE_REMOTE &&
+            (selectedDevice == null || devices.none { it.second == selectedDevice })) {
+            toast("Select the Gateway phone in Settings → Bluetooth devices before starting")
+            return
+        }
+        val adapter = getSystemService(BluetoothManager::class.java)?.adapter
+        if (adapter == null || !adapter.isEnabled) {
+            toast("Turn on Bluetooth before starting CallCompanion")
+            return
+        }
         val needed = if (chosenRole == LinkService.ROLE_GATEWAY) corePerms() + gatewayPerms() else corePerms()
         val missing = needed.filter { !granted(it) }
         if (missing.isNotEmpty()) {
@@ -183,7 +193,8 @@ class MainActivity : ComponentActivity() {
         ) emptyList() else try {
             (adapter.bondedDevices ?: emptySet()).map { (it.name?.takeIf(String::isNotBlank) ?: "Unnamed Bluetooth device") to it.address }.sortedBy { it.first.lowercase() }
         } catch (_: SecurityException) { emptyList() }
-        if (devices.none { it.second == selectedDevice }) selectedDevice = devices.firstOrNull()?.second
+        // Do not silently choose a Gateway. The Remote user must explicitly select a paired device.
+        // Keep a stale saved address so the UI can clearly require a new selection.
         revision++
     }
 
@@ -220,6 +231,8 @@ class MainActivity : ComponentActivity() {
         val remote = activeRole == LinkService.ROLE_REMOTE
         val connected = running && service?.connected == true
         val callState = service?.callState ?: LinkService.CALL_IDLE
+        val validRemoteDevice = selectedDevice != null && devices.any { it.second == selectedDevice }
+        val canStartLink = !running && (!remote || validRemoteDevice)
         val notificationAccess = NotifListener.isEnabled(this)
         val setupReady = remember(revision, role, roleSelected, notificationAccess) {
             val required = corePerms() + if (role == LinkService.ROLE_GATEWAY) gatewayPerms() else emptyList()
@@ -281,8 +294,15 @@ class MainActivity : ComponentActivity() {
                                 contentDescription = null,
                                 tint = if (connected) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onPrimaryContainer)
                         }
+                        if (remote && !validRemoteDevice) {
+                            Text(
+                                "Select your Gateway phone in Settings → Bluetooth devices before starting.",
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.error
+                            )
+                        }
                         Row(horizontalArrangement = Arrangement.spacedBy(10.dp), modifier = Modifier.fillMaxWidth()) {
-                            Button(onClick = { startLink() }, enabled = !running, modifier = Modifier.weight(1f)) {
+                            Button(onClick = { startLink() }, enabled = canStartLink, modifier = Modifier.weight(1f)) {
                                 Icon(Icons.Default.Call, contentDescription = null)
                                 Spacer(Modifier.width(8.dp)); Text("Start")
                             }
