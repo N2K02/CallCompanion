@@ -47,7 +47,7 @@ The remote-microphone uplink now has an experimental Shizuku-based injection pat
 3. On the gateway, open VGS, choose **Gateway**, press **Start**, and grant the requested permissions.
 4. On the remote, open VGS, choose **Remote**, select the paired gateway, press **Start**, and grant the requested permissions.
 5. Confirm the status says **Connected**.
-6. Test call notifications and remote dialing. For the Bluetooth audio transport only, use **Microphone / Bluetooth audio test** on the remote. This test does not connect its audio to a cellular call.
+6. For the experimental uplink test, start Shizuku on the gateway, grant VGS access in the gateway setup checklist, place or answer a SIM call on the gateway, then use **Cellular uplink audio test** on the remote. Ask the other caller to confirm whether they can hear the remote microphone. This does not yet forward the other caller's voice back to the remote.
 
 On some phones, set VGS battery usage to **Unrestricted** so Android is less likely to stop it in the background.
 
