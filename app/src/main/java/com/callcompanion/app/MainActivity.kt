@@ -2,7 +2,7 @@ package com.callcompanion.app
 
 import android.Manifest
 import android.annotation.SuppressLint
-import android.app.Activity
+import androidx.activity.ComponentActivity
 import android.bluetooth.BluetoothManager
 import android.content.Intent
 import android.content.SharedPreferences
@@ -43,7 +43,7 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 
-class MainActivity : Activity() {
+class MainActivity : ComponentActivity() {
     private lateinit var prefs: SharedPreferences
     private var revision by mutableIntStateOf(0)
     private var role by mutableStateOf(LinkService.ROLE_REMOTE)
