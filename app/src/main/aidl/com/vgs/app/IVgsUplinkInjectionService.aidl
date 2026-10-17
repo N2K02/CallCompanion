@@ -1,8 +1,8 @@
-package com.vgs.app;
+package com.shizucallcompanion.app;
 
 import android.os.ParcelFileDescriptor;
 
-interface IVgsUplinkInjectionService {
+interface IShizuUplinkInjectionService {
     boolean isPstnCallAudioInterceptable();
     ParcelFileDescriptor startUplinkInjection();
     void stopUplinkInjection();
