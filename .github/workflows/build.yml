@@ -1,6 +1,8 @@
 name: Build APK
 
 on:
+  push:
+    branches: [ main ]
   workflow_dispatch:
 
 permissions:
@@ -23,19 +25,19 @@ jobs:
           yes | "${ANDROID_HOME:-$ANDROID_SDK_ROOT}/cmdline-tools/latest/bin/sdkmanager" --licenses >/dev/null || true
           chmod +x gradlew
           ./gradlew --no-daemon assembleDebug
-          cp app/build/outputs/apk/debug/app-debug.apk VGS.apk
+          cp app/build/outputs/apk/debug/app-debug.apk CallCompanion.apk
 
       - name: Upload APK (workflow artifact)
         uses: actions/upload-artifact@v4
         with:
-          name: VGS-apk
-          path: VGS.apk
+          name: CallCompanion-apk
+          path: CallCompanion.apk
 
       - name: Publish APK as a release (easy phone download)
         uses: softprops/action-gh-release@v2
         with:
           tag_name: build-${{ github.run_number }}
-          name: VGS build ${{ github.run_number }}
-          body: Download VGS.apk below and install it on both phones.
-          files: VGS.apk
+          name: CallCompanion build ${{ github.run_number }}
+          body: Download CallCompanion.apk below and install it on both phones.
+          files: CallCompanion.apk
           make_latest: true
