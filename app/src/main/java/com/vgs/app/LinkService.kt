@@ -116,6 +116,8 @@ class LinkService : Service() {
     val voiceActive: Boolean get() = audio.isRunning
     val speakerOn: Boolean get() = audio.speakerOn
 
+    private val uplinkInjection: UplinkInjectionClient by lazy { UplinkInjectionClient(this) }
+
     private val audio: AudioBridge by lazy {
         AudioBridge(this, {
             // Try alternate sources on BOTH phones: some OEMs expose a silent or unusable
@@ -163,6 +165,9 @@ class LinkService : Service() {
                     registerPhoneReceiver()
                     registerContactObserver()
                     checkNotificationAccess()
+                    if (UplinkInjectionClient.isShizukuReadyAndGranted()) {
+                        uplinkInjection.bind()
+                    }
                 }
                 startWorker()
             }
@@ -338,7 +343,23 @@ class LinkService : Service() {
                 input.readFully(data)
                 when (type) {
                     Protocol.TYPE_CMD -> handleCommand(String(data, Charsets.UTF_8))
-                    Protocol.TYPE_AUDIO -> audio.onAudio(data)
+                    Protocol.TYPE_AUDIO -> {
+                        if (role == ROLE_GATEWAY) {
+                            // Never play the remote mic through the gateway handset. When an active
+                            // cellular call and the hidden route are available, inject the PCM into
+                            // the SIM-call uplink; otherwise discard it rather than use acoustics.
+                            if (uplinkInjection.isInjecting) {
+                                try {
+                                    uplinkInjection.writePcm(data)
+                                } catch (e: Exception) {
+                                    Hub.log("Uplink write failed: ${e.message}")
+                                    uplinkInjection.stop()
+                                }
+                            }
+                        } else {
+                            audio.onAudio(data)
+                        }
+                    }
                 }
             }
         } finally {
@@ -346,6 +367,7 @@ class LinkService : Service() {
             if (socket === s) socket = null
             connected = false
             audio.stop()
+            uplinkInjection.stop()
             if (role == ROLE_REMOTE) {
                 stopRinging()
                 callState = CALL_IDLE
@@ -376,6 +398,7 @@ class LinkService : Service() {
         writer = null
         connected = false
         audio.stop()
+        uplinkInjection.unbind()
         stopRinging()
         if (receiverRegistered) {
             try {
@@ -435,12 +458,23 @@ class LinkService : Service() {
             }
             // both directions
             "VOICE_START" -> {
-                if (has(Manifest.permission.RECORD_AUDIO)) audio.start()
-                else Hub.log("Peer started voice link but microphone permission is missing")
+                if (role == ROLE_GATEWAY) {
+                    if (simState != CALL_OFFHOOK) {
+                        Hub.log("Uplink injection needs an active cellular call; no handset-speaker fallback is used")
+                    } else if (!UplinkInjectionClient.isShizukuReadyAndGranted()) {
+                        Hub.log("Grant VGS permission in Shizuku on the gateway to enable uplink injection")
+                    } else if (!uplinkInjection.start()) {
+                        Hub.log("Could not start uplink injection; check Shizuku and device telephony audio support")
+                    }
+                } else if (has(Manifest.permission.RECORD_AUDIO)) {
+                    audio.start()
+                } else {
+                    Hub.log("Peer started voice link but microphone permission is missing")
+                }
                 updateStatus()
             }
             "VOICE_STOP" -> {
-                audio.stop()
+                if (role == ROLE_GATEWAY) uplinkInjection.stop() else audio.stop()
                 updateStatus()
             }
             // contacts: gateway -> remote
@@ -501,6 +535,10 @@ class LinkService : Service() {
                 simName = lookupName(num)
             }
             publishCall()
+            if (simState != CALL_OFFHOOK && uplinkInjection.isInjecting) {
+                uplinkInjection.stop()
+                Hub.log("Cellular call ended; uplink injection stopped")
+            }
             if (simState == CALL_IDLE) {
                 simNumber = ""
                 simName = ""
