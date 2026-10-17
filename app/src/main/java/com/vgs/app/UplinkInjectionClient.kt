@@ -4,6 +4,7 @@ import android.content.ComponentName
 import android.content.Context
 import android.content.ServiceConnection
 import android.content.pm.PackageManager
+import android.os.Build
 import android.os.IBinder
 import android.os.ParcelFileDescriptor
 import rikka.shizuku.Shizuku
@@ -118,16 +119,19 @@ class UplinkInjectionClient(context: Context) {
     }
 
     companion object {
+        fun isPlatformSupported(): Boolean = Build.VERSION.SDK_INT >= 33
+
         fun isShizukuAvailable(): Boolean = runCatching { Shizuku.pingBinder() }.getOrDefault(false)
 
         fun isShizukuReadyAndGranted(): Boolean = try {
-            isShizukuAvailable() && Shizuku.checkSelfPermission() == PackageManager.PERMISSION_GRANTED
+            isPlatformSupported() && isShizukuAvailable() &&
+                Shizuku.checkSelfPermission() == PackageManager.PERMISSION_GRANTED
         } catch (_: Exception) {
             false
         }
 
         fun requestPermission(requestCode: Int = 4207) {
-            if (isShizukuAvailable() && !isShizukuReadyAndGranted()) {
+            if (isPlatformSupported() && isShizukuAvailable() && !isShizukuReadyAndGranted()) {
                 Shizuku.requestPermission(requestCode)
             }
         }
