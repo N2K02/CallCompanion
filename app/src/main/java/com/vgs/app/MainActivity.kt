@@ -1,6 +1,6 @@
 @file:OptIn(ExperimentalMaterial3Api::class, ExperimentalMaterial3ExpressiveApi::class)
 
-package com.vgs.app
+package com.shizucallcompanion.app
 
 import android.Manifest
 import android.annotation.SuppressLint
@@ -108,7 +108,7 @@ import androidx.compose.ui.unit.dp
 
 /** Pixel-style Material 3 Expressive theme: wallpaper colors + system light/dark mode. */
 @Composable
-fun VgsTheme(content: @Composable () -> Unit) {
+fun ShizuCallCompanionTheme(content: @Composable () -> Unit) {
     val dark = isSystemInDarkTheme()
     val ctx = LocalContext.current
     val scheme = when {
@@ -153,7 +153,7 @@ class MainActivity : ComponentActivity() {
         role = savedRole ?: LinkService.ROLE_REMOTE
         selectedDevice = prefs.getString("device", null)
         setContent {
-            VgsTheme {
+            ShizuCallCompanionTheme {
                 BackHandler(enabled = showContacts) { showContacts = false }
                 if (showContacts) ContactsPage()
                 else if (inMain) {
