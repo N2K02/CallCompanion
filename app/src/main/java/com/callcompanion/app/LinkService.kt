@@ -198,6 +198,7 @@ class LinkService : Service() {
     fun toggleVoice() {
         if (audio.isRunning) {
             audio.stop()
+            setForegroundAudioActive(false)
             send("VOICE_STOP")
         } else {
             if (!connected) {
@@ -208,6 +209,7 @@ class LinkService : Service() {
                 Hub.log("Microphone permission missing")
                 return
             }
+            setForegroundAudioActive(true)
             audio.start()
             send("VOICE_START")
         }
@@ -767,6 +769,17 @@ class LinkService : Service() {
             .setContentIntent(openAppPi())
             .addAction(action(android.R.drawable.ic_menu_close_clear_cancel, "Quit", actionPi(ACTION_STOP, 10)))
             .build()
+    }
+
+    private fun setForegroundAudioActive(active: Boolean) {
+        if (!running) return
+        if (Build.VERSION.SDK_INT >= 29) {
+            var type = ServiceInfo.FOREGROUND_SERVICE_TYPE_CONNECTED_DEVICE
+            if (active) type = type or ServiceInfo.FOREGROUND_SERVICE_TYPE_MICROPHONE
+            startForeground(ID_STATUS, statusNotification(), type)
+        } else {
+            updateStatus()
+        }
     }
 
     private fun goForeground() {
