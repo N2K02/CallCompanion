@@ -392,6 +392,48 @@ class MainActivity : ComponentActivity() {
                     }
                 }
 
+                if (screen == MainTab.HOME && setupReady) {
+                    SectionCard(title = "Bluetooth connection", subtitle = if (remote) "This phone connects to the Gateway phone." else "This SIM phone provides call control for the Remote phone.") {
+                        Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                            Icon(Icons.Default.Hub, contentDescription = null, tint = MaterialTheme.colorScheme.primary)
+                            Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                                Text(if (connected) "Connected" else if (running) "Waiting for peer" else "Link stopped",
+                                    style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold)
+                                Text(
+                                    if (remote) {
+                                        val peer = devices.firstOrNull { it.second == selectedDevice }
+                                        if (peer != null) "Gateway: ${peer.first} ( ${peer.second} )" else "No paired Gateway selected. Pair in Android Bluetooth settings."
+                                    } else {
+                                        "Gateway role: this phone manages the SIM call. Pair the Remote phone in Bluetooth settings."
+                                    },
+                                    style = MaterialTheme.typography.bodyMedium,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                                )
+                            }
+                            Icon(if (connected) Icons.Default.CheckCircle else Icons.Default.Sync, contentDescription = null,
+                                tint = if (connected) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant)
+                        }
+                        HorizontalDivider()
+                        Text("Transport: Bluetooth", style = MaterialTheme.typography.bodyMedium)
+                        Text("Peer connection status reflects the active CallCompanion link.", style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    }
+                    SectionCard(title = "Call relay status", subtitle = "Bluetooth call-control and audio-link status.") {
+                        Text(if (!running) "Relay is stopped" else if (connected) "Bluetooth peer connected" else "Bluetooth peer not connected",
+                            style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold)
+                        Text(
+                            when (callState) {
+                                LinkService.CALL_RINGING -> "An incoming call is ringing."
+                                LinkService.CALL_OFFHOOK -> "A phone call is active."
+                                else -> "No active phone call."
+                            },
+                            style = MaterialTheme.typography.bodyMedium
+                        )
+                        Text("Voice link remains available below and can be started independently when the relay is running.",
+                            style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    }
+                }
+
                 if (screen == MainTab.HOME && setupReady) SectionCard(title = "Voice link", subtitle = "Talk between the two phones over Bluetooth.") {
                     Button(onClick = { service?.toggleVoice(); refresh() }, enabled = running, modifier = Modifier.fillMaxWidth()) {
                         Icon(Icons.Default.Mic, null); Spacer(Modifier.width(8.dp))
