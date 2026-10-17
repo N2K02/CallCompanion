@@ -6,5 +6,7 @@ interface IVgsUplinkInjectionService {
     boolean isPstnCallAudioInterceptable();
     ParcelFileDescriptor startUplinkInjection();
     void stopUplinkInjection();
+    ParcelFileDescriptor startDownlinkCapture();
+    void stopDownlinkCapture();
     void destroy();
 }
