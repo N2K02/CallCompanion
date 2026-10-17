@@ -24,7 +24,7 @@ Install VGS on both phones and choose a role:
 | Mirror gateway notifications to the remote | Implemented |
 | Bluetooth microphone/audio test independent of a SIM call | Implemented for diagnostics |
 | Use the remote microphone as the cellular caller's microphone | **Experimental Shizuku prototype; requires device testing** |
-| Send the other party's cellular-call audio digitally to the remote | **Not implemented — needs further investigation** |
+| Send the other party's cellular-call audio digitally to the remote | **Experimental Shizuku downlink capture; requires device testing** |
 
 ## Known limitations — cellular call audio
 
@@ -38,7 +38,7 @@ The remote microphone can be streamed over the Bluetooth voice link, but Android
 
 Ordinary Android apps cannot freely capture both sides of a cellular call. The `VOICE_CALL` audio source requires the privileged `CAPTURE_AUDIO_OUTPUT` permission, and whether a privileged helper can access the call audio depends on the device's Android build and audio implementation.
 
-The remote-microphone uplink now has an experimental Shizuku-based injection path on the gateway. It is only attempted during an active cellular call and only when the device exposes Android's hidden telephony injection route. It is not yet verified on the target Nothing Phone (2a); unsupported devices will reject injection, and VGS deliberately does not fall back to playing the remote microphone through the gateway speaker. The downlink direction (cellular caller → remote) remains unresolved. The standalone microphone/Bluetooth test alone does not prove cellular-call injection works.
+VGS now includes experimental Shizuku-based paths in both directions. The gateway can attempt to inject the remote microphone into the cellular uplink and capture the caller's downlink using Android's hidden call-redirection audio APIs. Capture starts only when the remote user enables the voice link during an active SIM call; it stops when voice is disabled, the Bluetooth link disconnects, or the call ends. The PCM is forwarded over the existing Bluetooth connection and is not saved to disk. Neither direction is verified on the target gateway yet: Android version, OEM audio policy, Shizuku identity/permissions, and carrier implementation can all affect support. VGS deliberately does not fall back to playing the remote microphone through the gateway speaker. The ordinary microphone/Bluetooth test alone does not prove cellular call audio works.
 
 ## Install and test
 
@@ -47,7 +47,7 @@ The remote-microphone uplink now has an experimental Shizuku-based injection pat
 3. On the gateway, open VGS, choose **Gateway**, press **Start**, and grant the requested permissions.
 4. On the remote, open VGS, choose **Remote**, select the paired gateway, press **Start**, and grant the requested permissions.
 5. Confirm the status says **Connected**.
-6. For the experimental uplink test, start Shizuku on the gateway, grant VGS access in the gateway setup checklist, place or answer a SIM call on the gateway, then use **Cellular uplink audio test** on the remote. Ask the other caller to confirm whether they can hear the remote microphone. This does not yet forward the other caller's voice back to the remote.
+6. For the experimental cellular-audio test, start Shizuku on the gateway, grant VGS access in the gateway setup checklist, place or answer a SIM call, then enable the voice link on the remote. Check both directions: ask the other caller whether they hear the remote microphone, and confirm whether the remote hears the caller. Capture/injection failures are recorded in the VGS log. These paths are experimental and may not work on every phone.
 
 On some phones, set VGS battery usage to **Unrestricted** so Android is less likely to stop it in the background.
 

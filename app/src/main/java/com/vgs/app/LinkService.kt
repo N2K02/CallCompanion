@@ -463,8 +463,18 @@ class LinkService : Service() {
                         Hub.log("Uplink injection needs an active cellular call; no handset-speaker fallback is used")
                     } else if (!UplinkInjectionClient.isShizukuReadyAndGranted()) {
                         Hub.log("Grant VGS permission in Shizuku on the gateway to enable uplink injection")
-                    } else if (!uplinkInjection.start()) {
-                        Hub.log("Could not start uplink injection; check Shizuku and device telephony audio support")
+                    } else {
+                        val uplinkStarted = uplinkInjection.start()
+                        if (!uplinkStarted) {
+                            Hub.log("Could not start uplink injection; remote microphone may not reach the caller")
+                        }
+                        val downlinkStarted = uplinkInjection.startDownlinkCapture { frame ->
+                            val w = writer ?: throw IOException("Bluetooth link disconnected")
+                            w.writeAudio(frame, frame.size)
+                        }
+                        if (!downlinkStarted) {
+                            Hub.log("Caller-audio capture unavailable on this gateway; check Android call-audio support")
+                        }
                     }
                 } else if (has(Manifest.permission.RECORD_AUDIO)) {
                     audio.start()
@@ -535,7 +545,7 @@ class LinkService : Service() {
                 simName = lookupName(num)
             }
             publishCall()
-            if (simState != CALL_OFFHOOK && uplinkInjection.isInjecting) {
+            if (simState != CALL_OFFHOOK && (uplinkInjection.isInjecting || uplinkInjection.isCapturingDownlink)) {
                 uplinkInjection.stop()
                 Hub.log("Cellular call ended; uplink injection stopped")
             }
