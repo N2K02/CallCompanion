@@ -462,7 +462,7 @@ class MainActivity : ComponentActivity() {
                     }
                 }
 
-                if (screen == MainTab.HOME && setupReady) SectionCard(title = "Voice link", subtitle = "Talk between the two phones over Bluetooth.") {
+                if (screen == MainTab.HOME && setupReady) SectionCard(title = "Voice link controls", subtitle = "Start or stop the app microphone link and choose this phone’s speaker route.") {
                     Button(onClick = { service?.toggleVoice(); refresh() }, enabled = running, modifier = Modifier.fillMaxWidth()) {
                         Icon(Icons.Default.Mic, null); Spacer(Modifier.width(8.dp))
                         Text(if (service?.voiceActive == true) "End voice link" else "Start voice link")
