@@ -1,4 +1,4 @@
-package com.vgs.app
+package com.shizucallcompanion.app
 
 import android.Manifest
 import android.annotation.SuppressLint
@@ -53,13 +53,13 @@ class LinkService : Service() {
         const val ROLE_GATEWAY = "gateway"
         const val ROLE_REMOTE = "remote"
 
-        const val ACTION_START = "com.vgs.app.START"
-        const val ACTION_STOP = "com.vgs.app.STOP"
-        const val ACTION_UPGRADE = "com.vgs.app.UPGRADE_MIC"
+        const val ACTION_START = "com.shizucallcompanion.app.START"
+        const val ACTION_STOP = "com.shizucallcompanion.app.STOP"
+        const val ACTION_UPGRADE = "com.shizucallcompanion.app.UPGRADE_MIC"
         const val EXTRA_BACKGROUND = "background"
-        const val ACTION_ANSWER = "com.vgs.app.ANSWER"
-        const val ACTION_REJECT = "com.vgs.app.REJECT"
-        const val ACTION_NOTIF_DISMISSED = "com.vgs.app.NOTIF_DISMISSED"
+        const val ACTION_ANSWER = "com.shizucallcompanion.app.ANSWER"
+        const val ACTION_REJECT = "com.shizucallcompanion.app.REJECT"
+        const val ACTION_NOTIF_DISMISSED = "com.shizucallcompanion.app.NOTIF_DISMISSED"
         const val EXTRA_KEY = "key"
         const val EXTRA_ROLE = "role"
         const val EXTRA_DEVICE = "device"
