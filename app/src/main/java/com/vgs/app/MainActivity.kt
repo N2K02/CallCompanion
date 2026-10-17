@@ -218,7 +218,7 @@ class MainActivity : Activity() {
         notifSection.visibility = if (isGateway) View.VISIBLE else View.GONE
         if (isGateway) {
             val on = NotifListener.isEnabled(this)
-            notifStatus.text = if (on) "✅ Notification access is ON" else "⚠️ Notification access is OFF – tap the button below and allow VGS"
+            notifStatus.text = if (on) "✅ Notification access is ON" else "⚠️ Notification access is OFF – tap the button below and allow CallCompanion"
             notifStatus.setTextColor(if (on) Color.rgb(0, 140, 60) else Color.rgb(200, 120, 0))
         }
 
@@ -253,7 +253,7 @@ class MainActivity : Activity() {
             setPadding(dp(16), dp(12), dp(16), dp(24))
         }
 
-        root.addView(label("VGS", 26f, bold = true))
+        root.addView(label("CallCompanion", 26f, bold = true))
         root.addView(label("Use a phone without internet like a smartwatch for a phone that has SIM/internet. Pair both phones in Bluetooth settings first.", 13f, Color.DKGRAY))
 
         root.addView(section("1. What is this phone?"))
@@ -346,7 +346,7 @@ class MainActivity : Activity() {
             try {
                 startActivity(Intent(Settings.ACTION_NOTIFICATION_LISTENER_SETTINGS))
             } catch (e: Exception) {
-                toast("Open Settings → Notifications → Notification access, and allow VGS")
+                toast("Open Settings → Notifications → Notification access, and allow CallCompanion")
             }
         })
         root.addView(notifSection)
