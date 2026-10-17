@@ -286,6 +286,7 @@ class MainActivity : ComponentActivity() {
             l += Req(
                 "Shizuku · cellular uplink injection",
                 when {
+                    Build.VERSION.SDK_INT < 33 -> "Experimental call-audio injection requires Android 13 or newer on the gateway."
                     shizukuReady -> "Granted. VGS can test experimental remote-microphone injection during a SIM call."
                     shizukuAvailable -> "Allow VGS in Shizuku to enable experimental cellular-call uplink injection."
                     else -> "Start the Shizuku server, then return here and grant VGS access. This is only needed for uplink injection."
@@ -298,6 +299,10 @@ class MainActivity : ComponentActivity() {
     }
 
     private fun requestShizukuPermission() {
+        if (!UplinkInjectionClient.isPlatformSupported()) {
+            toast("Cellular uplink injection requires Android 13 or newer")
+            return
+        }
         if (UplinkInjectionClient.isShizukuAvailable()) {
             UplinkInjectionClient.requestPermission()
             return
