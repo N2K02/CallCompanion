@@ -10,11 +10,11 @@ require(Regex("""\d+\.\d""").matches(appVersion)) { "appVersion must look like 1
 val appVersionCode = appVersion.split(".").let { (major, minor) -> major.toInt() * 10 + minor.toInt() }
 
 android {
-    namespace = "com.vgs.app"
+    namespace = "com.shizucallcompanion.app"
     compileSdk = 37
 
     defaultConfig {
-        applicationId = "com.vgs.app"
+        applicationId = "com.shizucallcompanion.app"
         minSdk = 26
         targetSdk = 34
         // One decimal place: 1.0, 1.1 … 1.9, 2.0. versionCode 1.4 -> 14 (always goes up).

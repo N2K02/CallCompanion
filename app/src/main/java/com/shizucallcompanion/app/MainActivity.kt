@@ -1,6 +1,6 @@
 @file:OptIn(ExperimentalMaterial3Api::class, ExperimentalMaterial3ExpressiveApi::class)
 
-package com.vgs.app
+package com.shizucallcompanion.app
 
 import android.Manifest
 import android.annotation.SuppressLint
@@ -108,7 +108,7 @@ import androidx.compose.ui.unit.dp
 
 /** Pixel-style Material 3 Expressive theme: wallpaper colors + system light/dark mode. */
 @Composable
-fun VgsTheme(content: @Composable () -> Unit) {
+fun ShizuCallCompanionTheme(content: @Composable () -> Unit) {
     val dark = isSystemInDarkTheme()
     val ctx = LocalContext.current
     val scheme = when {
@@ -153,7 +153,7 @@ class MainActivity : ComponentActivity() {
         role = savedRole ?: LinkService.ROLE_REMOTE
         selectedDevice = prefs.getString("device", null)
         setContent {
-            VgsTheme {
+            ShizuCallCompanionTheme {
                 BackHandler(enabled = showContacts) { showContacts = false }
                 if (showContacts) ContactsPage()
                 else if (inMain) {
@@ -953,7 +953,7 @@ class MainActivity : ComponentActivity() {
             }
             Text(
                 if (active) "Microphone streaming is active. Ask the other caller whether they can hear you."
-                else "This is experimental and requires a compatible gateway audio route. If injection is unavailable, check the gateway's VGS log.",
+                else "This is experimental and requires a compatible gateway audio route. If injection is unavailable, check the gateway's ShizuCallCompanion log.",
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant
             )
@@ -1084,7 +1084,7 @@ class MainActivity : ComponentActivity() {
                 val all = Hub.logCopyText()
                 if (all.isEmpty()) toast("Nothing to copy yet") else {
                     getSystemService(ClipboardManager::class.java)
-                        ?.setPrimaryClip(ClipData.newPlainText("VGS log", all))
+                        ?.setPrimaryClip(ClipData.newPlainText("ShizuCallCompanion log", all))
                     toast("Log copied")
                 }
             }) {

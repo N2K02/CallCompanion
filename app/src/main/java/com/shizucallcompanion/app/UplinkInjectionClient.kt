@@ -1,4 +1,4 @@
-package com.vgs.app
+package com.shizucallcompanion.app
 
 import android.content.ComponentName
 import android.content.Context
@@ -18,7 +18,7 @@ import java.io.IOException
  */
 class UplinkInjectionClient(context: Context) {
     private val appContext = context.applicationContext
-    @Volatile private var remote: IVgsUplinkInjectionService? = null
+    @Volatile private var remote: IShizuUplinkInjectionService? = null
     @Volatile private var connection: ServiceConnection? = null
     @Volatile private var writerFd: ParcelFileDescriptor? = null
     @Volatile private var output: FileOutputStream? = null
@@ -35,13 +35,13 @@ class UplinkInjectionClient(context: Context) {
         val args = Shizuku.UserServiceArgs(
             ComponentName(appContext.packageName, UplinkInjectionService::class.java.name)
         ).daemon(false)
-            .processNameSuffix("VgsUplinkInjection")
+            .processNameSuffix("ShizuCallCompanionUplink")
             .debuggable(false)
             .version(1)
 
         val conn = object : ServiceConnection {
             override fun onServiceConnected(name: ComponentName, binder: IBinder?) {
-                remote = binder?.let { IVgsUplinkInjectionService.Stub.asInterface(it) }
+                remote = binder?.let { IShizuUplinkInjectionService.Stub.asInterface(it) }
                 Hub.log(if (remote != null) "Shizuku uplink service connected" else "Shizuku returned an empty uplink service")
             }
 
@@ -132,7 +132,7 @@ class UplinkInjectionClient(context: Context) {
                         }
                     }
                 }
-            }, "vgs-downlink-reader").apply { isDaemon = true; start() }
+            }, "shizu-downlink-reader").apply { isDaemon = true; start() }
             Hub.log("Experimental cellular caller-audio capture started")
             true
         } catch (e: Exception) {
@@ -165,7 +165,7 @@ class UplinkInjectionClient(context: Context) {
         val args = Shizuku.UserServiceArgs(
             ComponentName(appContext.packageName, UplinkInjectionService::class.java.name)
         ).daemon(false)
-            .processNameSuffix("VgsUplinkInjection")
+            .processNameSuffix("ShizuCallCompanionUplink")
             .debuggable(false)
             .version(1)
         runCatching { Shizuku.unbindUserService(args, conn, true) }
