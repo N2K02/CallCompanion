@@ -24,6 +24,7 @@ import androidx.compose.material.icons.filled.Call
 import androidx.compose.material.icons.filled.CallEnd
 import androidx.compose.material.icons.filled.CheckCircle
 import androidx.compose.material.icons.filled.Close
+import androidx.compose.material.icons.filled.Download
 import androidx.compose.material.icons.filled.Mic
 import androidx.compose.material.icons.filled.PhoneAndroid
 import androidx.compose.material.icons.filled.Refresh
@@ -59,6 +60,8 @@ class MainActivity : Activity() {
         prefs = getSharedPreferences("callcompanion", MODE_PRIVATE)
         role = prefs.getString("role", LinkService.ROLE_REMOTE) ?: LinkService.ROLE_REMOTE
         selectedDevice = prefs.getString("device", null)
+        CallLogger.init(this)
+        AppUpdater.init(this, "N2K02/CallCompanion", "CallCompanion")
         setContent { CallCompanionTheme { AppScreen() } }
         requestPermissions(allPerms().toTypedArray(), 1)
         loadDevices()
@@ -68,6 +71,7 @@ class MainActivity : Activity() {
     override fun onResume() {
         super.onResume()
         Hub.listener = { refresh() }
+        AppUpdater.onResume(this)
         refresh()
     }
 
@@ -194,6 +198,9 @@ class MainActivity : Activity() {
                         }
                     },
                     actions = {
+                        IconButton(onClick = { AppUpdater.check(manual = true) }) {
+                            Icon(Icons.Default.Download, contentDescription = "Check for updates")
+                        }
                         IconButton(onClick = { loadDevices(); refresh() }) {
                             Icon(Icons.Default.Refresh, contentDescription = "Refresh devices")
                         }
@@ -419,6 +426,7 @@ class MainActivity : Activity() {
                             .padding(14.dp)
                     )
                 }
+                UpdateCard(modifier = Modifier.fillMaxWidth())
                 Text("CallCompanion • Material 3 Expressive", style = MaterialTheme.typography.labelSmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.align(Alignment.CenterHorizontally))
             }

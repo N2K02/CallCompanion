@@ -726,7 +726,7 @@ class LinkService : Service() {
             .setContentText(text)
             .setOngoing(true)
             .setContentIntent(openAppPi())
-            .addAction(action(android.R.drawable.ic_menu_close_clear_cancel, "Stop", actionPi(ACTION_STOP, 10)))
+            .addAction(action(android.R.drawable.ic_menu_close_clear_cancel, "Quit", actionPi(ACTION_STOP, 10)))
             .build()
     }
 
