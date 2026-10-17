@@ -61,7 +61,8 @@ class UplinkInjectionClient(context: Context) {
     fun start(): Boolean {
         if (isInjecting) return true
         val service = remote ?: run {
-            Hub.log("Shizuku uplink service is still starting; stop and start VGS again if it does not connect")
+            bind()
+            Hub.log("Shizuku uplink service is connecting; stop and start the uplink test again in a moment")
             return false
         }
         return try {
