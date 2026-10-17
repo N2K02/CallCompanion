@@ -28,6 +28,9 @@ import androidx.compose.material.icons.filled.Download
 import androidx.compose.material.icons.filled.Hub
 import androidx.compose.material.icons.filled.Mic
 import androidx.compose.material.icons.filled.PhoneAndroid
+import androidx.compose.material.icons.filled.Radio
+import androidx.compose.material.icons.filled.Wifi
+import androidx.compose.material.icons.filled.Info
 import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material.icons.filled.Smartphone
@@ -51,6 +54,7 @@ class MainActivity : ComponentActivity() {
     private lateinit var prefs: SharedPreferences
     private var revision by mutableIntStateOf(0)
     private var role by mutableStateOf(LinkService.ROLE_REMOTE)
+    private var roleSelected by mutableStateOf(false)
     private var devices by mutableStateOf<List<Pair<String, String>>>(emptyList())
     private var selectedDevice by mutableStateOf<String?>(null)
     private var contacts by mutableStateOf<List<Contact>>(emptyList())
@@ -63,6 +67,7 @@ class MainActivity : ComponentActivity() {
         super.onCreate(savedInstanceState)
         prefs = getSharedPreferences("callcompanion", MODE_PRIVATE)
         role = prefs.getString("role", LinkService.ROLE_REMOTE) ?: LinkService.ROLE_REMOTE
+        roleSelected = prefs.contains("role")
         selectedDevice = prefs.getString("device", null)
         Hub.clearLog()
         CallLogger.init(this)
@@ -203,19 +208,19 @@ class MainActivity : ComponentActivity() {
         val connected = running && service?.connected == true
         val callState = service?.callState ?: LinkService.CALL_IDLE
         val notificationAccess = NotifListener.isEnabled(this)
-        val setupReady = remember(revision, role, notificationAccess) {
+        val setupReady = remember(revision, role, roleSelected, notificationAccess) {
             val required = corePerms() + if (role == LinkService.ROLE_GATEWAY) gatewayPerms() else emptyList()
-            required.distinct().all { granted(it) } && (role != LinkService.ROLE_GATEWAY || notificationAccess)
+            roleSelected && required.distinct().all { granted(it) } && (role != LinkService.ROLE_GATEWAY || notificationAccess)
         }
         var screen by remember { mutableStateOf(if (setupReady) MainTab.HOME else MainTab.SETTINGS) }
 
         Scaffold(
             topBar = {
-                CenterAlignedTopAppBar(
+                TopAppBar(
                     title = {
-                        Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                        Column {
                             Text("CallCompanion", fontWeight = FontWeight.Bold)
-                            Text("Your phone, connected", style = MaterialTheme.typography.labelMedium,
+                            Text("Bluetooth Call Relay", style = MaterialTheme.typography.labelMedium,
                                 color = MaterialTheme.colorScheme.onSurfaceVariant)
                         }
                     },
@@ -225,7 +230,8 @@ class MainActivity : ComponentActivity() {
                             Spacer(Modifier.width(5.dp))
                             Text("Quit")
                         }
-                    }
+                    },
+                    colors = TopAppBarDefaults.topAppBarColors(containerColor = MaterialTheme.colorScheme.surface)
                 )
             },
             bottomBar = {
@@ -238,15 +244,15 @@ class MainActivity : ComponentActivity() {
         ) { insets ->
             Column(
                 Modifier.fillMaxSize().padding(insets).verticalScroll(rememberScrollState())
-                    .padding(horizontal = 18.dp).padding(bottom = 28.dp),
+                    .padding(horizontal = 18.dp, vertical = 12.dp),
                 verticalArrangement = Arrangement.spacedBy(14.dp)
             ) {
+                if (screen == MainTab.HOME && setupReady) Text("Your relay workspace", style = MaterialTheme.typography.headlineMedium, fontWeight = FontWeight.Bold)
                 if (screen == MainTab.HOME && setupReady) Card(
                     colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.primaryContainer),
-                    shape = RoundedCornerShape(30.dp),
                     modifier = Modifier.fillMaxWidth()
                 ) {
-                    Column(Modifier.padding(22.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                    Column(Modifier.padding(18.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
                         Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(10.dp)) {
                             Surface(shape = CircleShape, color = MaterialTheme.colorScheme.primary, modifier = Modifier.size(44.dp)) {
                                 Icon(Icons.Default.PhoneAndroid, contentDescription = null,
