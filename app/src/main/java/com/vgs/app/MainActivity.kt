@@ -925,15 +925,14 @@ class MainActivity : ComponentActivity() {
         }
     }
 
-    /** Standalone prototype to test remote-mic streaming without needing an active SIM call. */
+    /** Starts the remote microphone stream; the gateway attempts cellular uplink injection. */
     @Composable
     private fun AudioTestCard(s: LinkService) {
         tick // re-read voice state whenever the service reports a change
         val active = s.voiceActive
-        SectionCard("Microphone / Bluetooth audio test") {
+        SectionCard("Cellular uplink audio test") {
             Text(
-                "Test the remote phone microphone over the existing Bluetooth voice link. " +
-                    "Starting this opens two-way audio on both phones; no SIM call is required.",
+                "Place or answer a SIM call on the gateway first. Then start this test to send the remote phone's microphone into the caller's audio uplink. Shizuku permission must be granted on the gateway.",
                 style = MaterialTheme.typography.bodyMedium,
                 color = MaterialTheme.colorScheme.onSurfaceVariant
             )
@@ -942,16 +941,11 @@ class MainActivity : ComponentActivity() {
                 enabled = s.connected,
                 modifier = Modifier.fillMaxWidth().height(48.dp)
             ) {
-                Text(if (active) "Stop audio test" else "Start microphone test")
+                Text(if (active) "Stop uplink test" else "Start uplink test")
             }
             Text(
-                if (active) "Audio link is active. Speak near the remote phone and listen on the gateway."
-                else "For the first test, keep volume low and place the phones apart to reduce acoustic feedback.",
-                style = MaterialTheme.typography.bodySmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant
-            )
-            Text(
-                "Prototype limitation: this sends microphone audio between phones; it does not inject the remote microphone into the gateway's cellular-call uplink.",
+                if (active) "Microphone streaming is active. Ask the other caller whether they can hear you."
+                else "This is experimental and requires a compatible gateway audio route. If injection is unavailable, check the gateway's VGS log.",
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant
             )
