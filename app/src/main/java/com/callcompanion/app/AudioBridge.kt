@@ -131,19 +131,26 @@ class AudioBridge(
         try {
             rec.startRecording()
             workerReady()
-            while (running) {
-                val buf = ByteArray(FRAME_BYTES)
-                val n = rec.read(buf, 0, buf.size)
+            val frame = ByteArray(FRAME_BYTES)
+            var offset = 0
+            while (running && state != "FAILED") {
+                val n = rec.read(frame, offset, frame.size - offset)
                 if (n > 0) {
-                    try {
-                        sender(buf, n)
-                    } catch (e: Exception) {
-                        fail("Audio transport failed: ${e.message ?: "Bluetooth write failed"}")
-                        break
+                    offset += n
+                    if (offset == frame.size) {
+                        try {
+                            sender(frame.copyOf(), FRAME_BYTES)
+                        } catch (e: Exception) {
+                            fail("Audio transport failed: ${e.message ?: "Bluetooth write failed"}")
+                            break
+                        }
+                        offset = 0
                     }
                 } else if (n < 0) {
                     fail("Microphone read error $n")
                     break
+                } else {
+                    Thread.yield()
                 }
             }
         } catch (e: Exception) {
@@ -188,17 +195,21 @@ class AudioBridge(
         try {
             track.play()
             workerReady()
-            while (running) {
+            while (running && state != "FAILED") {
                 val data: ByteArray? = try {
                     queue.poll(200, TimeUnit.MILLISECONDS)
                 } catch (e: InterruptedException) {
                     null
                 }
                 if (data != null) {
-                    val written = track.write(data, 0, data.size)
-                    if (written < 0) {
-                        fail("Audio playback write failed: $written")
-                        break
+                    var offset = 0
+                    while (offset < data.size && running && state != "FAILED") {
+                        val written = track.write(data, offset, data.size - offset)
+                        if (written <= 0) {
+                            fail("Audio playback write failed: $written")
+                            break
+                        }
+                        offset += written
                     }
                 }
             }
