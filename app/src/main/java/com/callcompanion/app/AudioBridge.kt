@@ -26,6 +26,13 @@ class AudioBridge(
 
     @Volatile
     private var running = false
+
+    @Volatile
+    var state: String = "STOPPED"
+        private set
+
+    @Volatile
+    private var readyWorkers = 0
     private var recordThread: Thread? = null
     private var playThread: Thread? = null
     private val queue = LinkedBlockingQueue<ByteArray>()
@@ -40,6 +47,8 @@ class AudioBridge(
     fun start() {
         if (running) return
         running = true
+        state = "STARTING"
+        readyWorkers = 0
         queue.clear()
         val am = context.getSystemService(AudioManager::class.java)!!
         am.mode = AudioManager.MODE_IN_COMMUNICATION
@@ -53,6 +62,8 @@ class AudioBridge(
     fun stop() {
         if (!running) return
         running = false
+        state = "STOPPED"
+        readyWorkers = 0
         recordThread?.interrupt()
         playThread?.interrupt()
         recordThread = null
@@ -61,6 +72,22 @@ class AudioBridge(
         AudioRoute.clear(context)
         context.getSystemService(AudioManager::class.java)!!.mode = AudioManager.MODE_NORMAL
         Hub.log("Voice link OFF")
+    }
+
+    @Synchronized
+    private fun workerReady() {
+        if (!running || state == "FAILED") return
+        readyWorkers++
+        if (readyWorkers >= 2) {
+            state = "RUNNING"
+            Hub.log("Voice link audio capture and playback ready")
+        }
+    }
+
+    @Synchronized
+    private fun fail(message: String) {
+        if (state != "STOPPED") state = "FAILED"
+        Hub.log(message)
     }
 
     fun setSpeaker(on: Boolean) {
@@ -90,16 +117,17 @@ class AudioBridge(
                 maxOf(min, FRAME_BYTES * 4)
             )
         } catch (e: Exception) {
-            Hub.log("Microphone error: ${e.message}")
+            fail("Microphone error: ${e.message}")
             return
         }
         if (rec.state != AudioRecord.STATE_INITIALIZED) {
-            Hub.log("Microphone not available")
+            fail("Microphone not available")
             rec.release()
             return
         }
         try {
             rec.startRecording()
+            workerReady()
             while (running) {
                 val buf = ByteArray(FRAME_BYTES)
                 val n = rec.read(buf, 0, buf.size)
@@ -110,12 +138,12 @@ class AudioBridge(
                         break
                     }
                 } else if (n < 0) {
-                    Hub.log("Microphone read error $n")
+                    fail("Microphone read error $n")
                     break
                 }
             }
         } catch (e: Exception) {
-            Hub.log("Microphone error: ${e.message}")
+            fail("Microphone error: ${e.message}")
         } finally {
             try {
                 rec.stop()
@@ -150,11 +178,12 @@ class AudioBridge(
                 .setTransferMode(AudioTrack.MODE_STREAM)
                 .build()
         } catch (e: Exception) {
-            Hub.log("Speaker error: ${e.message}")
+            fail("Speaker error: ${e.message}")
             return
         }
         try {
             track.play()
+            workerReady()
             while (running) {
                 val data: ByteArray? = try {
                     queue.poll(200, TimeUnit.MILLISECONDS)
@@ -164,7 +193,7 @@ class AudioBridge(
                 if (data != null) track.write(data, 0, data.size)
             }
         } catch (e: Exception) {
-            Hub.log("Playback error: ${e.message}")
+            fail("Playback error: ${e.message}")
         } finally {
             try {
                 track.stop()
