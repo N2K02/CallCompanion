@@ -4,11 +4,11 @@ plugins {
 }
 
 android {
-    namespace = "com.vgs.app"
+    namespace = "com.callcompanion.app"
     compileSdk = 34
 
     defaultConfig {
-        applicationId = "com.vgs.app"
+        applicationId = "com.callcompanion.app"
         minSdk = 26
         targetSdk = 34
         versionCode = 1

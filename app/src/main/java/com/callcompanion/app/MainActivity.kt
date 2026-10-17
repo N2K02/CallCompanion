@@ -1,4 +1,4 @@
-package com.vgs.app
+package com.callcompanion.app
 
 import android.Manifest
 import android.annotation.SuppressLint
@@ -64,7 +64,7 @@ class MainActivity : Activity() {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
-        prefs = getSharedPreferences("vgs", MODE_PRIVATE)
+        prefs = getSharedPreferences("callcompanion", MODE_PRIVATE)
         setContentView(buildUi())
         requestPermissions(allPerms().toTypedArray(), 1)
         loadDevices()

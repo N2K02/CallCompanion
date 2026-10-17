@@ -1,4 +1,4 @@
-package com.vgs.app
+package com.callcompanion.app
 
 import android.app.Notification
 import android.content.ComponentName

@@ -1,4 +1,4 @@
-package com.vgs.app
+package com.callcompanion.app
 
 import android.annotation.SuppressLint
 import android.content.Context
@@ -44,8 +44,8 @@ class AudioBridge(
         val am = context.getSystemService(AudioManager::class.java)!!
         am.mode = AudioManager.MODE_IN_COMMUNICATION
         AudioRoute.setSpeaker(context, speakerOn)
-        recordThread = Thread({ recordLoop() }, "vgs-record").also { it.start() }
-        playThread = Thread({ playLoop() }, "vgs-play").also { it.start() }
+        recordThread = Thread({ recordLoop() }, "callcompanion-record").also { it.start() }
+        playThread = Thread({ playLoop() }, "callcompanion-play").also { it.start() }
         Hub.log("Voice link ON")
     }
 

@@ -1,4 +1,4 @@
-package com.vgs.app
+package com.callcompanion.app
 
 import android.Manifest
 import android.content.Context
