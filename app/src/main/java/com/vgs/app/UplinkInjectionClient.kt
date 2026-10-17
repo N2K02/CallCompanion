@@ -1,4 +1,4 @@
-package com.vgs.app
+package com.shizucallcompanion.app
 
 import android.content.ComponentName
 import android.content.Context
@@ -18,7 +18,7 @@ import java.io.IOException
  */
 class UplinkInjectionClient(context: Context) {
     private val appContext = context.applicationContext
-    @Volatile private var remote: IVgsUplinkInjectionService? = null
+    @Volatile private var remote: IShizuUplinkInjectionService? = null
     @Volatile private var connection: ServiceConnection? = null
     @Volatile private var writerFd: ParcelFileDescriptor? = null
     @Volatile private var output: FileOutputStream? = null
@@ -41,7 +41,7 @@ class UplinkInjectionClient(context: Context) {
 
         val conn = object : ServiceConnection {
             override fun onServiceConnected(name: ComponentName, binder: IBinder?) {
-                remote = binder?.let { IVgsUplinkInjectionService.Stub.asInterface(it) }
+                remote = binder?.let { IShizuUplinkInjectionService.Stub.asInterface(it) }
                 Hub.log(if (remote != null) "Shizuku uplink service connected" else "Shizuku returned an empty uplink service")
             }
 
