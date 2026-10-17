@@ -447,23 +447,39 @@ class MainActivity : ComponentActivity() {
                 }
                 if (screen == MainTab.SETTINGS) {
                     Text("Setup & settings", style = MaterialTheme.typography.headlineMedium, fontWeight = FontWeight.Bold)
-                    SectionCard(title = "Permissions", subtitle = "Required access depends on the role selected above.") {
-                        Button(onClick = { requestMissingPermissions() }, modifier = Modifier.fillMaxWidth()) { Text("Grant missing permissions") }
-                        PermissionStatusRow("Microphone", granted(Manifest.permission.RECORD_AUDIO))
-                        if (Build.VERSION.SDK_INT >= 31) PermissionStatusRow("Bluetooth connection", granted(Manifest.permission.BLUETOOTH_CONNECT))
-                        if (Build.VERSION.SDK_INT >= 33) PermissionStatusRow("Notifications", granted(Manifest.permission.POST_NOTIFICATIONS))
-                        if (activeRole == LinkService.ROLE_GATEWAY) {
-                            PermissionStatusRow("Phone state", granted(Manifest.permission.READ_PHONE_STATE))
-                            PermissionStatusRow("Answer calls", granted(Manifest.permission.ANSWER_PHONE_CALLS))
-                            PermissionStatusRow("Place calls", granted(Manifest.permission.CALL_PHONE))
-                            PermissionStatusRow("Notification access", notificationAccess)
-                            OutlinedButton(onClick = {
-                                runCatching { startActivity(Intent(Settings.ACTION_NOTIFICATION_LISTENER_SETTINGS)) }
-                                    .onFailure { toast("Open Android Settings → Notifications → Notification access") }
-                            }, modifier = Modifier.fillMaxWidth()) { Text("Open notification access settings") }
+                    SectionCard(title = "Permissions", subtitle = if (roleSelected) "Required access for the selected phone role." else "Select a role above to see its setup checklist.") {
+                        if (roleSelected && role == LinkService.ROLE_GATEWAY) {
+                            if (Build.VERSION.SDK_INT >= 33) PermissionSetupRow("Notifications", "Show the ongoing CallCompanion status", granted(Manifest.permission.POST_NOTIFICATIONS)) { requestPermissions(arrayOf(Manifest.permission.POST_NOTIFICATIONS), 1) }
+                            PermissionSetupRow("Phone state", "Detect incoming and active SIM calls", granted(Manifest.permission.READ_PHONE_STATE)) { requestPermissions(arrayOf(Manifest.permission.READ_PHONE_STATE), 1) }
+                            PermissionSetupRow("Answer calls", "Allow call answering requests", granted(Manifest.permission.ANSWER_PHONE_CALLS)) { requestPermissions(arrayOf(Manifest.permission.ANSWER_PHONE_CALLS), 1) }
+                            PermissionSetupRow("Place calls", "Place calls through the gateway SIM", granted(Manifest.permission.CALL_PHONE)) { requestPermissions(arrayOf(Manifest.permission.CALL_PHONE), 1) }
+                            PermissionSetupRow("Notification access", "Read call notifications for the relay", notificationAccess) { runCatching { startActivity(Intent(Settings.ACTION_NOTIFICATION_LISTENER_SETTINGS)) }.onFailure { toast("Open Android Settings → Notifications → Notification access") } }
+                            PermissionSetupRow("Microphone", "Required for the voice-link feature", granted(Manifest.permission.RECORD_AUDIO)) { requestPermissions(arrayOf(Manifest.permission.RECORD_AUDIO), 1) }
+                            if (Build.VERSION.SDK_INT >= 31) PermissionSetupRow("Bluetooth connection", "Connect to the paired remote phone", granted(Manifest.permission.BLUETOOTH_CONNECT)) { requestPermissions(arrayOf(Manifest.permission.BLUETOOTH_CONNECT), 1) }
+                            PermissionSetupRow("Hotspot", "Open Android settings to enable the gateway hotspot if needed", false, "Open settings") { runCatching { startActivity(Intent(Settings.ACTION_WIRELESS_SETTINGS)) } }
+                        } else if (roleSelected) {
+                            PermissionSetupRow("Microphone", "Required for the voice-link feature", granted(Manifest.permission.RECORD_AUDIO)) { requestPermissions(arrayOf(Manifest.permission.RECORD_AUDIO), 1) }
+                            if (Build.VERSION.SDK_INT >= 31) PermissionSetupRow("Bluetooth connection", "Find and connect to the paired gateway phone", granted(Manifest.permission.BLUETOOTH_CONNECT)) { requestPermissions(arrayOf(Manifest.permission.BLUETOOTH_CONNECT), 1) }
+                            if (Build.VERSION.SDK_INT >= 33) PermissionSetupRow("Notifications", "Show the ongoing CallCompanion status", granted(Manifest.permission.POST_NOTIFICATIONS)) { requestPermissions(arrayOf(Manifest.permission.POST_NOTIFICATIONS), 1) }
+                            PermissionSetupRow("Local Wi-Fi", "Open Wi-Fi settings to check the local connection", false, "Open settings") { runCatching { startActivity(Intent(Settings.ACTION_WIFI_SETTINGS)) } }
+                        } else {
+                            Text("Choose Gateway or Remote above to load the matching permission checklist.")
                         }
-                        Text("Grant permissions in Android Settings if a required permission is missing. The Bluetooth link remains unchanged when switching screens.", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                     }
+                    if (roleSelected) {
+                        Card(colors = CardDefaults.cardColors(containerColor = if (setupReady) MaterialTheme.colorScheme.primaryContainer else MaterialTheme.colorScheme.errorContainer)) {
+                            Column(Modifier.fillMaxWidth().padding(16.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                                Text(if (setupReady) "Setup complete" else "Setup incomplete", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold)
+                                Text(if (setupReady) "All required permissions are granted. Home is enabled." else "Use Set up beside each item that needs attention. Home remains disabled until required permissions are ready.", style = MaterialTheme.typography.bodyMedium)
+                                if (setupReady) Button(onClick = { screen = MainTab.HOME }, modifier = Modifier.fillMaxWidth()) { Text("Open Home") }
+                            }
+                        }
+                        HorizontalDivider()
+                        Text("Privacy", style = MaterialTheme.typography.titleMedium)
+                        Text("CallCompanion uses permissions for the selected phone role. Grant only the access needed for the features you want to use.", style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                        OutlinedButton(onClick = { roleSelected = false; prefs.edit().remove("role").apply(); screen = MainTab.SETTINGS; refresh() }, modifier = Modifier.fillMaxWidth()) { Text("Reset device role") }
+                    }
+                    
                     if (remote) SectionCard(title = "Bluetooth devices", subtitle = "Choose the paired gateway phone by its device name. The address is shown underneath to distinguish similarly named devices.") {
                         Row(verticalAlignment = Alignment.CenterVertically) {
                             Text("Paired devices: ${devices.size}", modifier = Modifier.weight(1f), style = MaterialTheme.typography.titleMedium)
@@ -501,15 +517,29 @@ class MainActivity : ComponentActivity() {
 }
 
 @Composable
-private fun PermissionStatusRow(title: String, ready: Boolean) {
-    Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
-        Column(Modifier.weight(1f)) {
-            Text(title, style = MaterialTheme.typography.bodyLarge)
-            Text(if (ready) "Granted" else "Needs setup", style = MaterialTheme.typography.bodySmall,
-                color = if (ready) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.error)
+private fun RoleChoiceCard(title: String, description: String, icon: androidx.compose.ui.graphics.vector.ImageVector, selected: Boolean, modifier: Modifier = Modifier, onClick: () -> Unit) {
+    Card(onClick = onClick, modifier = modifier, colors = CardDefaults.cardColors(containerColor = if (selected) MaterialTheme.colorScheme.secondaryContainer else MaterialTheme.colorScheme.surfaceContainer)) {
+        Column(Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+            Icon(icon, null, tint = MaterialTheme.colorScheme.primary)
+            Text(title, style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold)
+            Text(description, style = MaterialTheme.typography.bodySmall)
+            if (selected) Text("Selected", style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.primary)
         }
-        Icon(if (ready) Icons.Default.CheckCircle else Icons.Default.Settings, contentDescription = null,
-            tint = if (ready) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.error)
+    }
+}
+
+@Composable
+private fun PermissionSetupRow(title: String, description: String, ready: Boolean, actionLabel: String? = null, action: () -> Unit) {
+    Card {
+        Row(Modifier.fillMaxWidth().padding(14.dp), verticalAlignment = Alignment.CenterVertically) {
+            Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                Text(title, style = MaterialTheme.typography.titleMedium)
+                Text(description, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                Text(if (ready) "Ready" else "Needs setup", style = MaterialTheme.typography.labelMedium, color = if (ready) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.error)
+            }
+            Spacer(Modifier.width(8.dp))
+            Button(onClick = action) { Text(actionLabel ?: if (ready) "Review" else "Set up") }
+        }
     }
 }
 
