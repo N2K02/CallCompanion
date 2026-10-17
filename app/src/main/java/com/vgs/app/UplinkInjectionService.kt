@@ -158,7 +158,11 @@ class UplinkInjectionService : IVgsUplinkInjectionService.Stub {
 
     private fun shellAudioManager(): AudioManager {
         val context = shellContext ?: throw IllegalStateException("Shizuku did not provide a shell Context")
-        return AudioManager(context)
+        // AudioManager(Context) is hidden on the public SDK, so instantiate it reflectively
+        // with the shell-attributed Context instead of reusing the app-attributed manager.
+        return AudioManager::class.java.getDeclaredConstructor(Context::class.java)
+            .apply { isAccessible = true }
+            .newInstance(context) as AudioManager
     }
 
     private fun enableHiddenApiAccess() {
