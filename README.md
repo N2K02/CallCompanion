@@ -23,7 +23,7 @@ Install VGS on both phones and choose a role:
 | Sync gateway contacts to the remote | Implemented |
 | Mirror gateway notifications to the remote | Implemented |
 | Bluetooth microphone/audio test independent of a SIM call | Implemented for diagnostics |
-| Use the remote microphone as the cellular caller's microphone | **Not implemented — needs further investigation** |
+| Use the remote microphone as the cellular caller's microphone | **Experimental Shizuku prototype; requires device testing** |
 | Send the other party's cellular-call audio digitally to the remote | **Not implemented — needs further investigation** |
 
 ## Known limitations — cellular call audio
@@ -38,7 +38,7 @@ The remote microphone can be streamed over the Bluetooth voice link, but Android
 
 Ordinary Android apps cannot freely capture both sides of a cellular call. The `VOICE_CALL` audio source requires the privileged `CAPTURE_AUDIO_OUTPUT` permission, and whether a privileged helper can access the call audio depends on the device's Android build and audio implementation.
 
-Both directions need further investigation on the target gateway phone. The standalone microphone/Bluetooth test only verifies the phone-to-phone audio transport; it does not prove that audio can be injected into or captured from a cellular call.
+The remote-microphone uplink now has an experimental Shizuku-based injection path on the gateway. It is only attempted during an active cellular call and only when the device exposes Android's hidden telephony injection route. It is not yet verified on the target Nothing Phone (2a); unsupported devices will reject injection, and VGS deliberately does not fall back to playing the remote microphone through the gateway speaker. The downlink direction (cellular caller → remote) remains unresolved. The standalone microphone/Bluetooth test alone does not prove cellular-call injection works.
 
 ## Install and test
 
@@ -47,7 +47,7 @@ Both directions need further investigation on the target gateway phone. The stan
 3. On the gateway, open VGS, choose **Gateway**, press **Start**, and grant the requested permissions.
 4. On the remote, open VGS, choose **Remote**, select the paired gateway, press **Start**, and grant the requested permissions.
 5. Confirm the status says **Connected**.
-6. Test call notifications and remote dialing. For the Bluetooth audio transport only, use **Microphone / Bluetooth audio test** on the remote. This test does not connect its audio to a cellular call.
+6. For the experimental uplink test, start Shizuku on the gateway, grant VGS access in the gateway setup checklist, place or answer a SIM call on the gateway, then use **Cellular uplink audio test** on the remote. Ask the other caller to confirm whether they can hear the remote microphone. This does not yet forward the other caller's voice back to the remote.
 
 On some phones, set VGS battery usage to **Unrestricted** so Android is less likely to stop it in the background.
 

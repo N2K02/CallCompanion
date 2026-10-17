@@ -35,6 +35,7 @@
 
     <!-- Lets the gateway show app names for mirrored notifications -->
     <queries>
+        <package android:name="moe.shizuku.privileged.api" />
         <intent>
             <action android:name="android.intent.action.MAIN" />
             <category android:name="android.intent.category.LAUNCHER" />
@@ -79,6 +80,19 @@
                 <action android:name="android.service.notification.NotificationListenerService" />
             </intent-filter>
         </service>
+
+        <!-- Shizuku provider: enables the gateway-only shell permission request. -->
+        <provider
+            android:name="rikka.shizuku.ShizukuProvider"
+            android:authorities="${applicationId}.shizuku"
+            android:enabled="true"
+            android:exported="true"
+            android:multiprocess="false"
+            android:permission="android.permission.INTERACT_ACROSS_USERS_FULL">
+            <intent-filter>
+                <action android:name="rikka.shizuku.intent.action.REQUEST_PERMISSION" />
+            </intent-filter>
+        </provider>
 
         <!-- Shares a downloaded update APK with Android's installer (read-only, not exported) -->
         <provider

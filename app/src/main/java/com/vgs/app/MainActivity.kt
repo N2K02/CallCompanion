@@ -184,7 +184,7 @@ class MainActivity : ComponentActivity() {
         if (role == LinkService.ROLE_GATEWAY) NotifListener.rebind(this)
         // Started in the background (no microphone service type)? We are in front now: upgrade it.
         Hub.service?.let { svc ->
-            if (svc.isActive && !svc.hasMicType && granted(Manifest.permission.RECORD_AUDIO)) {
+            if (role == LinkService.ROLE_REMOTE && svc.isActive && !svc.hasMicType && granted(Manifest.permission.RECORD_AUDIO)) {
                 try {
                     startForegroundService(Intent(this, LinkService::class.java).setAction(LinkService.ACTION_UPGRADE))
                 } catch (e: Exception) {
@@ -208,8 +208,9 @@ class MainActivity : ComponentActivity() {
 
     // ---------------------------------------------------------------- permissions
 
-    private fun corePerms(): List<String> {
-        val l = mutableListOf(Manifest.permission.RECORD_AUDIO)
+    private fun corePerms(r: String): List<String> {
+        val l = mutableListOf<String>()
+        if (r == LinkService.ROLE_REMOTE) l.add(Manifest.permission.RECORD_AUDIO)
         if (Build.VERSION.SDK_INT >= 31) l.add(Manifest.permission.BLUETOOTH_CONNECT)
         if (Build.VERSION.SDK_INT >= 33) l.add(Manifest.permission.POST_NOTIFICATIONS)
         return l
@@ -254,7 +255,9 @@ class MainActivity : ComponentActivity() {
     @Suppress("DEPRECATION")
     private fun requirements(r: String): List<Req> {
         val l = mutableListOf<Req>()
-        l += runtimeReq("Microphone", "Voice link between the two phones", listOf(Manifest.permission.RECORD_AUDIO))
+        if (r == LinkService.ROLE_REMOTE) {
+            l += runtimeReq("Microphone", "Capture the remote phone's voice for the gateway's cellular uplink", listOf(Manifest.permission.RECORD_AUDIO))
+        }
         if (Build.VERSION.SDK_INT >= 31) {
             l += runtimeReq("Bluetooth", "Connect to the other phone", listOf(Manifest.permission.BLUETOOTH_CONNECT))
         }
@@ -280,8 +283,41 @@ class MainActivity : ComponentActivity() {
                 NotifListener.isEnabled(this), emptyList()
             ) { openSettings(Settings.ACTION_NOTIFICATION_LISTENER_SETTINGS) }
 
+            // Optional: ordinary call control still works without Shizuku; only uplink injection needs it.
+            val shizukuReady = UplinkInjectionClient.isShizukuReadyAndGranted()
+            val shizukuAvailable = UplinkInjectionClient.isShizukuAvailable()
+            l += Req(
+                "Shizuku · cellular uplink injection",
+                when {
+                    Build.VERSION.SDK_INT < 33 -> "Experimental call-audio injection requires Android 13 or newer on the gateway."
+                    shizukuReady -> "Granted. VGS can test experimental remote-microphone injection during a SIM call."
+                    shizukuAvailable -> "Allow VGS in Shizuku to enable experimental cellular-call uplink injection."
+                    else -> "Start the Shizuku server, then return here and grant VGS access. This is only needed for uplink injection."
+                },
+                shizukuReady, emptyList(), required = false
+            ) { requestShizukuPermission() }
+
         }
         return l
+    }
+
+    private fun requestShizukuPermission() {
+        if (!UplinkInjectionClient.isPlatformSupported()) {
+            toast("Cellular uplink injection requires Android 13 or newer")
+            return
+        }
+        if (UplinkInjectionClient.isShizukuAvailable()) {
+            UplinkInjectionClient.requestPermission()
+            return
+        }
+        // Shizuku permissions are managed by the Shizuku app, not Android's runtime permission dialog.
+        val launch = packageManager.getLaunchIntentForPackage("moe.shizuku.privileged.api")
+        if (launch != null) {
+            startActivity(launch)
+            toast("Start the Shizuku server, then return to VGS and tap Allow")
+        } else {
+            startActivity(Intent(Intent.ACTION_VIEW, Uri.parse("https://shizuku.rikka.app/")))
+        }
     }
 
     @SuppressLint("BatteryLife")
@@ -301,7 +337,7 @@ class MainActivity : ComponentActivity() {
     // ---------------------------------------------------------------- actions
 
     private fun startLink() {
-        val needed = if (role == LinkService.ROLE_GATEWAY) corePerms() + gatewayPerms() else corePerms()
+        val needed = if (role == LinkService.ROLE_GATEWAY) corePerms(role) + gatewayPerms() else corePerms(role)
         val missing = needed.filter { !granted(it) }
         if (missing.isNotEmpty()) {
             requestPermissions(
@@ -897,15 +933,14 @@ class MainActivity : ComponentActivity() {
         }
     }
 
-    /** Standalone prototype to test remote-mic streaming without needing an active SIM call. */
+    /** Starts the remote microphone stream; the gateway attempts cellular uplink injection. */
     @Composable
     private fun AudioTestCard(s: LinkService) {
         tick // re-read voice state whenever the service reports a change
         val active = s.voiceActive
-        SectionCard("Microphone / Bluetooth audio test") {
+        SectionCard("Cellular uplink audio test") {
             Text(
-                "Test the remote phone microphone over the existing Bluetooth voice link. " +
-                    "Starting this opens two-way audio on both phones; no SIM call is required.",
+                "Place or answer a SIM call on the gateway first. Then start this test to send the remote phone's microphone into the caller's audio uplink. Shizuku permission must be granted on the gateway.",
                 style = MaterialTheme.typography.bodyMedium,
                 color = MaterialTheme.colorScheme.onSurfaceVariant
             )
@@ -914,16 +949,11 @@ class MainActivity : ComponentActivity() {
                 enabled = s.connected,
                 modifier = Modifier.fillMaxWidth().height(48.dp)
             ) {
-                Text(if (active) "Stop audio test" else "Start microphone test")
+                Text(if (active) "Stop uplink test" else "Start uplink test")
             }
             Text(
-                if (active) "Audio link is active. Speak near the remote phone and listen on the gateway."
-                else "For the first test, keep volume low and place the phones apart to reduce acoustic feedback.",
-                style = MaterialTheme.typography.bodySmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant
-            )
-            Text(
-                "Prototype limitation: this sends microphone audio between phones; it does not inject the remote microphone into the gateway's cellular-call uplink.",
+                if (active) "Microphone streaming is active. Ask the other caller whether they can hear you."
+                else "This is experimental and requires a compatible gateway audio route. If injection is unavailable, check the gateway's VGS log.",
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant
             )
