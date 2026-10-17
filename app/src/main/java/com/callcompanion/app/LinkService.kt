@@ -327,6 +327,7 @@ class LinkService : Service() {
             connected = false
             audio.stop()
             if (role == ROLE_REMOTE) {
+                if (callControlError?.startsWith("PENDING:") == true) callControlError = "FAILED: Connection lost before Gateway confirmation"
                 stopRinging()
                 callState = CALL_IDLE
                 nm.cancel(ID_INCOMING)
@@ -399,6 +400,7 @@ class LinkService : Service() {
             // gateway -> remote
             "CALL" -> {
                 callState = arg1.ifEmpty { CALL_IDLE }
+                if (role == ROLE_REMOTE && callState == CALL_RINGING) callControlError = null
                 callNumber = p.getOrElse(2) { "" }
                 callName = p.getOrElse(3) { "" }
                 if (role == ROLE_REMOTE) onRemoteCallUpdate()
@@ -480,6 +482,7 @@ class LinkService : Service() {
                 callName = lookupName(num)
             }
             val changed = newState != callState
+            if (changed && newState == CALL_RINGING) callControlError = null
             callState = newState
             if (changed || gotNumber) {
                 Hub.log("Phone call: $newState ${display()}")
