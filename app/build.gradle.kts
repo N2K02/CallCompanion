@@ -44,6 +44,9 @@ android {
 }
 
 dependencies {
+    // Shizuku: run the experimental telephony uplink injector as the shell user.
+    implementation("dev.rikka.shizuku:api:13.1.5")
+    implementation("dev.rikka.shizuku:provider:13.1.5")
     // Material 3 Expressive (Pixel style) lives in the 1.5 line.
     implementation("androidx.compose.material3:material3:1.5.0-beta01")
     implementation("androidx.compose.material:material-icons-core:1.7.8")
