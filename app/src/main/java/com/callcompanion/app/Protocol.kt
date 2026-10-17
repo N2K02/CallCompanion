@@ -70,6 +70,11 @@ object Hub {
 
     fun logText(): String = synchronized(lines) { lines.reversed().joinToString("\n") }
 
+    fun clearLog() {
+        synchronized(lines) { lines.clear() }
+        notifyUi()
+    }
+
     fun notifyUi() {
         main.post { listener?.invoke() }
     }
