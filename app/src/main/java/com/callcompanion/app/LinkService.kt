@@ -333,6 +333,7 @@ class LinkService : Service() {
             if (socket === s) socket = null
             connected = false
             audio.stop()
+            setForegroundAudioActive(false)
             if (role == ROLE_REMOTE) {
                 if (callControlError?.startsWith("PENDING:") == true) callControlError = "FAILED: Connection lost before Gateway confirmation"
                 stopRinging()
