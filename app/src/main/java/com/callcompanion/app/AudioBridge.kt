@@ -135,6 +135,7 @@ class AudioBridge(
                     try {
                         sender(buf, n)
                     } catch (e: Exception) {
+                        fail("Audio transport failed: ${e.message ?: "Bluetooth write failed"}")
                         break
                     }
                 } else if (n < 0) {
@@ -190,7 +191,13 @@ class AudioBridge(
                 } catch (e: InterruptedException) {
                     null
                 }
-                if (data != null) track.write(data, 0, data.size)
+                if (data != null) {
+                    val written = track.write(data, 0, data.size)
+                    if (written < 0) {
+                        fail("Audio playback write failed: $written")
+                        break
+                    }
+                }
             }
         } catch (e: Exception) {
             fail("Playback error: ${e.message}")
