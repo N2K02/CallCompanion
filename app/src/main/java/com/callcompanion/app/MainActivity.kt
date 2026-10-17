@@ -544,10 +544,7 @@ private fun PermissionSetupRow(title: String, description: String, ready: Boolea
 
 @Composable
 private fun SectionCard(title: String, subtitle: String, content: @Composable ColumnScope.() -> Unit) {
-    Card(
-        modifier = Modifier.fillMaxWidth(),
-        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceContainer)
-    ) {
+    Card(modifier = Modifier.fillMaxWidth()) {
         Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
             Column(verticalArrangement = Arrangement.spacedBy(3.dp)) {
                 Text(title, style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold)
@@ -558,7 +555,6 @@ private fun SectionCard(title: String, subtitle: String, content: @Composable Co
     }
 }
 
-@OptIn(ExperimentalMaterial3ExpressiveApi::class)
 @Composable
 private fun CallCompanionTheme(content: @Composable () -> Unit) {
     val context = LocalContext.current
@@ -569,5 +565,5 @@ private fun CallCompanionTheme(content: @Composable () -> Unit) {
         dark -> darkColorScheme()
         else -> lightColorScheme()
     }
-    MaterialExpressiveTheme(colorScheme = scheme, motionScheme = MotionScheme.expressive(), content = content)
+    MaterialTheme(colorScheme = scheme, content = content)
 }
