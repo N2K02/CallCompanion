@@ -221,7 +221,7 @@ object AppUpdater {
             c.connectTimeout = 10_000
             c.readTimeout = 15_000
             c.setRequestProperty("Accept", "application/vnd.github+json")
-            c.setRequestProperty("X-GitHub-Api-Version", "2022-11-28")
+            c.setRequestProperty("X-GitHub-Api-Version", "2026-03-10")
             c.setRequestProperty("User-Agent", "$appName-updater (Android)")
             if (c.responseCode == 404) return@withContext null
             if (c.responseCode != 200) throw httpError(c, c.responseCode)
