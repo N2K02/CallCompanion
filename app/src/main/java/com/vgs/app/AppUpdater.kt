@@ -1,4 +1,4 @@
-package com.vgs.app
+package com.shizucallcompanion.app
 
 import android.annotation.SuppressLint
 import android.app.Activity
