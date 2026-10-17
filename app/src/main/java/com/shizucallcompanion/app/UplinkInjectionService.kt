@@ -85,7 +85,7 @@ class UplinkInjectionService : IShizuUplinkInjectionService.Stub {
             readEnd = pipe[0]
             writeEnd = pipe[1]
             val reader = pipe[0]
-            audioThread = Thread({ pumpPcm(reader, track) }, "vgs-uplink-pcm").apply {
+            audioThread = Thread({ pumpPcm(reader, track) }, "shizu-uplink-pcm").apply {
                 isDaemon = true
                 start()
             }
