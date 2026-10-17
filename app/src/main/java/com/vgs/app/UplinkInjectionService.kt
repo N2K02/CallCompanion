@@ -4,14 +4,18 @@ import android.annotation.SuppressLint
 import android.content.ComponentName
 import android.content.Context
 import android.content.ContextWrapper
+import android.media.AudioAttributes
 import android.media.AudioFormat
+import android.media.AudioRecord
 import android.media.AudioManager
 import android.media.AudioTrack
+import android.media.MediaRecorder
 import android.os.Build
 import android.os.ParcelFileDescriptor
 import android.util.Log
 import androidx.annotation.Keep
 import java.io.FileInputStream
+import java.io.FileOutputStream
 import java.io.IOException
 import kotlin.system.exitProcess
 
@@ -29,6 +33,10 @@ class UplinkInjectionService : IVgsUplinkInjectionService.Stub {
     private var readEnd: ParcelFileDescriptor? = null
     private var writeEnd: ParcelFileDescriptor? = null
     private var audioThread: Thread? = null
+    private var downlinkRecord: AudioRecord? = null
+    private var downlinkWriteEnd: ParcelFileDescriptor? = null
+    private var downlinkThread: Thread? = null
+    @Volatile private var downlinkRunning = false
 
     @Keep
     constructor() : this(null)
@@ -93,6 +101,114 @@ class UplinkInjectionService : IVgsUplinkInjectionService.Stub {
             readEnd = null
             throw t
         }
+    }
+
+    override fun startDownlinkCapture(): ParcelFileDescriptor? = synchronized(lock) {
+        stopDownlinkLocked()
+        check(Build.VERSION.SDK_INT >= 33) { "Call downlink capture requires Android 13 or later" }
+        enableHiddenApiAccess()
+        val am = shellAudioManager()
+        check(am.mode == AudioManager.MODE_IN_CALL) { "Start a cellular call before capturing downlink audio" }
+        check(isPstnCallAudioInterceptable()) { "This device does not expose telephony audio interception" }
+
+        val format = AudioFormat.Builder()
+            .setSampleRate(SAMPLE_RATE)
+            .setChannelMask(AudioFormat.CHANNEL_IN_MONO)
+            .setEncoding(AudioFormat.ENCODING_PCM_16BIT)
+            .build()
+        val intType = Int::class.javaPrimitiveType
+        val captureAttributes = AudioAttributes.Builder()
+            .also {
+                AudioAttributes.Builder::class.java
+                    .getDeclaredMethod("setInternalCapturePreset", intType)
+                    .apply { isAccessible = true }
+                    .invoke(it, MediaRecorder.AudioSource.VOICE_DOWNLINK)
+            }
+            .build()
+        val builder = AudioRecord.Builder()
+            .setAudioFormat(format)
+            .setBufferSizeInBytes(FRAME_BYTES * 10)
+        runCatching {
+            AudioRecord.Builder::class.java.getMethod("setContext", Context::class.java)
+                .invoke(builder, shellContext)
+        }
+        AudioRecord.Builder::class.java.getMethod("setAudioAttributes", AudioAttributes::class.java)
+            .invoke(builder, captureAttributes)
+        val pstnMode = AudioManager::class.java.getDeclaredField("CALL_REDIRECT_PSTN")
+            .apply { isAccessible = true }.getInt(null)
+        AudioRecord.Builder::class.java.getDeclaredMethod("setCallRedirectionMode", intType)
+            .apply { isAccessible = true }.invoke(builder, pstnMode)
+        val record = builder.build()
+        check(record.state == AudioRecord.STATE_INITIALIZED) {
+            "Android rejected the telephony downlink AudioRecord"
+        }
+        val pipe = ParcelFileDescriptor.createPipe()
+        try {
+            record.startRecording()
+            check(record.recordingState == AudioRecord.RECORDSTATE_RECORDING) {
+                "Telephony downlink recording did not start"
+            }
+            downlinkRecord = record
+            downlinkWriteEnd = pipe[1]
+            downlinkRunning = true
+            val writerFd = pipe[1]
+            downlinkThread = Thread({ pumpDownlink(record, writerFd) }, "vgs-downlink-pcm").apply {
+                isDaemon = true
+                start()
+            }
+            // The app receives the read end; the shell service streams PCM into the write end.
+            pipe[0]
+        } catch (t: Throwable) {
+            runCatching { pipe[0].close() }
+            runCatching { pipe[1].close() }
+            runCatching { record.stop() }
+            record.release()
+            downlinkRecord = null
+            downlinkWriteEnd = null
+            downlinkRunning = false
+            throw t
+        }
+    }
+
+    override fun stopDownlinkCapture() {
+        synchronized(lock) { stopDownlinkLocked() }
+    }
+
+    private fun pumpDownlink(record: AudioRecord, fd: ParcelFileDescriptor) {
+        try {
+            FileOutputStream(fd.fileDescriptor).use { output ->
+                val frame = ByteArray(FRAME_BYTES)
+                while (downlinkRunning) {
+                    var offset = 0
+                    while (offset < frame.size && downlinkRunning) {
+                        val count = record.read(frame, offset, frame.size - offset, AudioRecord.READ_BLOCKING)
+                        if (count < 0) throw IOException("AudioRecord.read failed: $count")
+                        if (count == 0) continue
+                        offset += count
+                    }
+                    if (offset == frame.size && downlinkRunning) output.write(frame)
+                }
+            }
+        } catch (e: Exception) {
+            if (downlinkRunning) Log.w(TAG, "Downlink capture stopped: ${e.message}")
+        } finally {
+            synchronized(lock) {
+                if (downlinkWriteEnd === fd) stopDownlinkLocked()
+            }
+        }
+    }
+
+    private fun stopDownlinkLocked() {
+        downlinkRunning = false
+        downlinkThread?.interrupt()
+        downlinkThread = null
+        downlinkRecord?.let {
+            runCatching { if (it.recordingState == AudioRecord.RECORDSTATE_RECORDING) it.stop() }
+            it.release()
+        }
+        downlinkRecord = null
+        downlinkWriteEnd?.let { runCatching { it.close() } }
+        downlinkWriteEnd = null
     }
 
     override fun stopUplinkInjection() {
@@ -172,13 +288,14 @@ class UplinkInjectionService : IVgsUplinkInjectionService.Stub {
             val runtimeClass = Class.forName("dalvik.system.VMRuntime")
             val runtime = runtimeClass.getDeclaredMethod("getRuntime").invoke(null)
             runtimeClass.getDeclaredMethod("setHiddenApiExemptions", Array<String>::class.java)
-                .invoke(runtime, arrayOf("Landroid/media/AudioManager;") as Any)
+                .invoke(runtime, arrayOf("Landroid/media/") as Any)
         }
     }
 
     @Keep
     override fun destroy() {
         stopUplinkInjection()
+        stopDownlinkCapture()
         exitProcess(0)
     }
 
