@@ -20,7 +20,7 @@ import java.io.IOException
 import kotlin.system.exitProcess
 
 /**
- * Runs inside Shizuku's shell process. This intentionally exposes only a PCM uplink writer:
+ * Runs inside Shizuku's shell process. Exposes PCM uplink injection and opt-in downlink capture;
  * the normal VGS app and Bluetooth transport remain unprivileged.
  *
  * Experimental: relies on hidden telephony audio APIs and device-specific audio policy.
@@ -63,7 +63,7 @@ class UplinkInjectionService : IVgsUplinkInjectionService.Stub {
         check(Build.VERSION.SDK_INT >= 33) { "Call uplink injection requires Android 13 or later" }
         enableHiddenApiAccess()
         val am = shellAudioManager()
-        check(am.mode == AudioManager.MODE_IN_CALL) { "Start a cellular call before enabling uplink injection" }
+        check(isCellularMode(am.mode)) { "Start a cellular call before enabling uplink injection" }
         check(isPstnCallAudioInterceptable()) { "This device does not expose telephony audio injection routes" }
 
         val format = AudioFormat.Builder()
@@ -108,7 +108,7 @@ class UplinkInjectionService : IVgsUplinkInjectionService.Stub {
         check(Build.VERSION.SDK_INT >= 33) { "Call downlink capture requires Android 13 or later" }
         enableHiddenApiAccess()
         val am = shellAudioManager()
-        check(am.mode == AudioManager.MODE_IN_CALL) { "Start a cellular call before capturing downlink audio" }
+        check(isCellularMode(am.mode)) { "Start a cellular call before capturing downlink audio" }
         check(isPstnCallAudioInterceptable()) { "This device does not expose telephony audio interception" }
 
         val format = AudioFormat.Builder()
@@ -271,6 +271,9 @@ class UplinkInjectionService : IVgsUplinkInjectionService.Stub {
         }
         audioTrack = null
     }
+
+    private fun isCellularMode(mode: Int): Boolean = mode == AudioManager.MODE_IN_CALL ||
+        (Build.VERSION.SDK_INT >= 33 && mode == 5)
 
     private fun shellAudioManager(): AudioManager {
         val context = shellContext ?: throw IllegalStateException("Shizuku did not provide a shell Context")
