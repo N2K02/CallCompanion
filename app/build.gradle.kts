@@ -3,7 +3,6 @@ plugins {
     id("org.jetbrains.kotlin.android")
 }
 
-// One-decimal release version, supplied by CI (for example -PappVersion=5.7).
 val appVersion = (findProperty("appVersion") as String?) ?: "5.6"
 require(Regex("""\d+\.\d""").matches(appVersion)) {
     "appVersion must look like 5.7, got $appVersion"
@@ -24,8 +23,15 @@ android {
         versionName = appVersion
     }
 
+    buildFeatures {
+        compose = true
+    }
+
+    composeOptions {
+        kotlinCompilerExtensionVersion = "1.5.14"
+    }
+
     signingConfigs {
-        // Fixed test key retained so CI builds remain installable without extra secrets.
         getByName("debug") {
             storeFile = file("debug.keystore")
             storePassword = "android"
@@ -51,4 +57,16 @@ android {
     kotlinOptions {
         jvmTarget = "17"
     }
+}
+
+dependencies {
+    val composeBom = platform("androidx.compose:compose-bom:2024.09.00")
+    implementation(composeBom)
+    androidTestImplementation(composeBom)
+    implementation("androidx.activity:activity-compose:1.9.2")
+    implementation("androidx.compose.ui:ui")
+    implementation("androidx.compose.ui:ui-tooling-preview")
+    implementation("androidx.compose.material3:material3:1.3.0")
+    implementation("androidx.compose.material:material-icons-extended")
+    debugImplementation("androidx.compose.ui:ui-tooling")
 }
