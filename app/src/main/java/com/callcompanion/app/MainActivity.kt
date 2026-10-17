@@ -547,20 +547,19 @@ private fun PermissionSetupRow(title: String, description: String, ready: Boolea
 private fun SectionCard(title: String, subtitle: String, content: @Composable ColumnScope.() -> Unit) {
     Card(
         modifier = Modifier.fillMaxWidth(),
-        shape = RoundedCornerShape(28.dp),
-        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceContainer),
-        elevation = CardDefaults.cardElevation(defaultElevation = 1.dp)
+        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceContainer)
     ) {
-        Column(Modifier.padding(18.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+        Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
             Column(verticalArrangement = Arrangement.spacedBy(3.dp)) {
-                Text(title, style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold)
-                Text(subtitle, style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                Text(title, style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold)
+                Text(subtitle, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
             }
             content()
         }
     }
 }
 
+@OptIn(ExperimentalMaterial3ExpressiveApi::class)
 @Composable
 private fun CallCompanionTheme(content: @Composable () -> Unit) {
     val context = LocalContext.current
@@ -568,22 +567,8 @@ private fun CallCompanionTheme(content: @Composable () -> Unit) {
     val scheme = when {
         Build.VERSION.SDK_INT >= Build.VERSION_CODES.S && dark -> dynamicDarkColorScheme(context)
         Build.VERSION.SDK_INT >= Build.VERSION_CODES.S -> dynamicLightColorScheme(context)
-        dark -> darkColorScheme(primary = Color(0xFFB8C7FF), secondary = Color(0xFFBFC6E5))
-        else -> lightColorScheme(primary = Color(0xFF4355B9), secondary = Color(0xFF5A5D72))
+        dark -> darkColorScheme()
+        else -> lightColorScheme()
     }
-    MaterialTheme(
-        colorScheme = scheme,
-        shapes = Shapes(
-            extraSmall = RoundedCornerShape(10.dp),
-            small = RoundedCornerShape(16.dp),
-            medium = RoundedCornerShape(22.dp),
-            large = RoundedCornerShape(28.dp),
-            extraLarge = RoundedCornerShape(36.dp)
-        ),
-        typography = Typography(
-            headlineLarge = androidx.compose.ui.text.TextStyle(fontSize = 32.sp, fontWeight = FontWeight.Bold),
-            titleLarge = androidx.compose.ui.text.TextStyle(fontSize = 21.sp, fontWeight = FontWeight.SemiBold)
-        ),
-        content = content
-    )
+    MaterialExpressiveTheme(colorScheme = scheme, motionScheme = MotionScheme.expressive(), content = content)
 }
