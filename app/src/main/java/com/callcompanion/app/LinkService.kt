@@ -423,12 +423,22 @@ class LinkService : Service() {
             }
             // both directions
             "VOICE_START" -> {
-                if (has(Manifest.permission.RECORD_AUDIO)) audio.start()
-                else Hub.log("Peer started voice link but microphone permission is missing")
+                if (has(Manifest.permission.RECORD_AUDIO)) {
+                    try {
+                        setForegroundAudioActive(true)
+                        audio.start()
+                    } catch (e: Exception) {
+                        Hub.log("Could not start received voice link request: ${e.message}")
+                        runCatching { setForegroundAudioActive(false) }
+                    }
+                } else {
+                    Hub.log("Peer started voice link but microphone permission is missing")
+                }
                 updateStatus()
             }
             "VOICE_STOP" -> {
                 audio.stop()
+                setForegroundAudioActive(false)
                 updateStatus()
             }
             // contacts: gateway -> remote
