@@ -158,20 +158,32 @@ class LinkService : Service() {
 
     fun answer() {
         stopRinging()
-        if (role == ROLE_GATEWAY) gatewayAnswer() else { callControlError = "PENDING: Waiting for Gateway confirmation"; send("ANSWER") }
+        if (role == ROLE_GATEWAY) gatewayAnswer() else requestGateway("ANSWER")
     }
 
     fun reject() {
         stopRinging()
-        if (role == ROLE_GATEWAY) gatewayEnd() else { callControlError = "PENDING: Waiting for Gateway confirmation"; send("REJECT") }
+        if (role == ROLE_GATEWAY) gatewayEnd() else requestGateway("REJECT")
     }
 
     fun hangUp() {
-        if (role == ROLE_GATEWAY) gatewayEnd() else { callControlError = "PENDING: Waiting for Gateway confirmation"; send("HANGUP") }
+        if (role == ROLE_GATEWAY) gatewayEnd() else requestGateway("HANGUP")
     }
 
     fun dial(number: String) {
-        if (role == ROLE_GATEWAY) gatewayDial(number) else { callControlError = "PENDING: Waiting for Gateway confirmation"; send("DIAL", number) }
+        if (role == ROLE_GATEWAY) gatewayDial(number) else requestGateway("DIAL", number)
+    }
+
+    private fun requestGateway(command: String, argument: String = "") {
+        if (!connected) {
+            callControlError = "FAILED: Bluetooth is disconnected"
+            Hub.log("Call control failed: Bluetooth is disconnected")
+            Hub.notifyUi()
+            return
+        }
+        callControlError = "PENDING: Waiting for Gateway confirmation"
+        if (command == "DIAL") send(command, argument) else send(command)
+        Hub.notifyUi()
     }
 
     fun setGatewaySpeaker(on: Boolean) {
@@ -515,6 +527,7 @@ class LinkService : Service() {
     @Suppress("DEPRECATION")
     private fun gatewayEnd() {
         if (Build.VERSION.SDK_INT < 28) {
+            callControlError = "FAILED: Ending calls needs Android 9 or newer on Gateway"
             Hub.log("Ending calls needs Android 9+ on the gateway")
             return
         }
