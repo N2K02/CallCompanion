@@ -11,7 +11,7 @@ import android.media.AudioTrack
 import android.media.MediaRecorder
 import android.os.Build
 import android.os.Process
-import java.util.concurrent.LinkedBlockingQueue
+import java.util.concurrent.ArrayBlockingQueue
 import java.util.concurrent.TimeUnit
 
 /** Streams microphone audio to the other phone and plays what comes back. */
@@ -35,7 +35,7 @@ class AudioBridge(
     private var readyWorkers = 0
     private var recordThread: Thread? = null
     private var playThread: Thread? = null
-    private val queue = LinkedBlockingQueue<ByteArray>()
+    private val queue = ArrayBlockingQueue<ByteArray>(10) // 200 ms at 20 ms per frame
 
     @Volatile
     var speakerOn = true
@@ -97,8 +97,11 @@ class AudioBridge(
 
     fun onAudio(data: ByteArray) {
         if (!running) return
-        if (queue.size > 25) queue.clear() // too much lag: drop and catch up
-        queue.offer(data)
+        if (data.size != FRAME_BYTES) return
+        if (!queue.offer(data)) {
+            queue.poll()
+            queue.offer(data) // discard oldest audio to keep latency bounded
+        }
     }
 
     @SuppressLint("MissingPermission")
