@@ -772,13 +772,8 @@ class LinkService : Service() {
     private fun goForeground() {
         val n = statusNotification()
         when {
-            Build.VERSION.SDK_INT >= 30 -> {
-                var type = ServiceInfo.FOREGROUND_SERVICE_TYPE_CONNECTED_DEVICE
-                if (has(Manifest.permission.RECORD_AUDIO)) {
-                    type = type or ServiceInfo.FOREGROUND_SERVICE_TYPE_MICROPHONE
-                }
-                startForeground(ID_STATUS, n, type)
-            }
+            Build.VERSION.SDK_INT >= 30 ->
+                startForeground(ID_STATUS, n, ServiceInfo.FOREGROUND_SERVICE_TYPE_CONNECTED_DEVICE)
             Build.VERSION.SDK_INT >= 29 ->
                 startForeground(ID_STATUS, n, ServiceInfo.FOREGROUND_SERVICE_TYPE_CONNECTED_DEVICE)
             else -> startForeground(ID_STATUS, n)
