@@ -25,10 +25,12 @@ import androidx.compose.material.icons.filled.CallEnd
 import androidx.compose.material.icons.filled.CheckCircle
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.Download
+import androidx.compose.material.icons.filled.Hub
 import androidx.compose.material.icons.filled.Mic
 import androidx.compose.material.icons.filled.PhoneAndroid
 import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.filled.Settings
+import androidx.compose.material.icons.filled.Smartphone
 import androidx.compose.material.icons.filled.Stop
 import androidx.compose.material.icons.filled.Sync
 import androidx.compose.material.icons.filled.VolumeUp
@@ -42,6 +44,8 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+
+private enum class AppScreen { HOME, UPDATE, SETTINGS }
 
 class MainActivity : ComponentActivity() {
     private lateinit var prefs: SharedPreferences
@@ -140,13 +144,20 @@ class MainActivity : ComponentActivity() {
         refresh()
     }
 
+    private fun quitApp() {
+        stopService(Intent(this, LinkService::class.java))
+        Hub.clearLog()
+        CallLogger.clear()
+        finishAndRemoveTask()
+    }
+
     @SuppressLint("MissingPermission")
     private fun loadDevices() {
         val adapter = getSystemService(BluetoothManager::class.java)?.adapter
         devices = if (adapter == null ||
             (Build.VERSION.SDK_INT >= 31 && !granted(Manifest.permission.BLUETOOTH_CONNECT))
         ) emptyList() else try {
-            (adapter.bondedDevices ?: emptySet()).map { (it.name ?: it.address) to it.address }
+            (adapter.bondedDevices ?: emptySet()).map { (it.name?.takeIf(String::isNotBlank) ?: "Unnamed Bluetooth device") to it.address }.sortedBy { it.first.lowercase() }
         } catch (_: SecurityException) { emptyList() }
         if (devices.none { it.second == selectedDevice }) selectedDevice = devices.firstOrNull()?.second
         revision++
@@ -186,6 +197,7 @@ class MainActivity : ComponentActivity() {
         val connected = running && service?.connected == true
         val callState = service?.callState ?: LinkService.CALL_IDLE
         val notificationAccess = NotifListener.isEnabled(this)
+        var screen by remember { mutableStateOf(AppScreen.HOME) }
 
         Scaffold(
             topBar = {
@@ -198,14 +210,20 @@ class MainActivity : ComponentActivity() {
                         }
                     },
                     actions = {
-                        IconButton(onClick = { AppUpdater.check(manual = true) }) {
-                            Icon(Icons.Default.Download, contentDescription = "Check for updates")
-                        }
-                        IconButton(onClick = { loadDevices(); refresh() }) {
-                            Icon(Icons.Default.Refresh, contentDescription = "Refresh devices")
+                        OutlinedButton(onClick = { quitApp() }, modifier = Modifier.padding(end = 8.dp)) {
+                            Icon(Icons.Default.Close, contentDescription = null)
+                            Spacer(Modifier.width(5.dp))
+                            Text("Quit")
                         }
                     }
                 )
+            },
+            bottomBar = {
+                NavigationBar {
+                    NavigationBarItem(selected = screen == AppScreen.HOME, onClick = { screen = AppScreen.HOME }, icon = { Icon(Icons.Default.Hub, null) }, label = { Text("Home") })
+                    NavigationBarItem(selected = screen == AppScreen.UPDATE, onClick = { screen = AppScreen.UPDATE; AppUpdater.check(manual = true) }, icon = { Icon(Icons.Default.Download, null) }, label = { Text("Update") })
+                    NavigationBarItem(selected = screen == AppScreen.SETTINGS, onClick = { screen = AppScreen.SETTINGS }, icon = { Icon(Icons.Default.Settings, null) }, label = { Text("Settings") })
+                }
             }
         ) { insets ->
             Column(
@@ -213,7 +231,7 @@ class MainActivity : ComponentActivity() {
                     .padding(horizontal = 18.dp).padding(bottom = 28.dp),
                 verticalArrangement = Arrangement.spacedBy(14.dp)
             ) {
-                Card(
+                if (screen == AppScreen.HOME) Card(
                     colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.primaryContainer),
                     shape = RoundedCornerShape(30.dp),
                     modifier = Modifier.fillMaxWidth()
@@ -247,7 +265,7 @@ class MainActivity : ComponentActivity() {
                     }
                 }
 
-                SectionCard(title = "Choose this phone's role", subtitle = "Use the same app on both phones.") {
+                if (screen == AppScreen.SETTINGS) SectionCard(title = "Choose this phone's role", subtitle = "Use the same app on both phones.") {
                     Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.fillMaxWidth()) {
                         FilterChip(
                             selected = role == LinkService.ROLE_GATEWAY,
@@ -272,7 +290,7 @@ class MainActivity : ComponentActivity() {
                         val chosen = devices.firstOrNull { it.second == selectedDevice }
                         ExposedDropdownMenuBox(expanded = expanded, onExpandedChange = { expanded = it }) {
                             OutlinedTextField(
-                                value = chosen?.let { "\${it.first} (\${it.second})" } ?: "No paired phones found",
+                                value = chosen?.first ?: "No paired phones found",
                                 onValueChange = {},
                                 readOnly = true,
                                 label = { Text("Bluetooth device") },
@@ -282,7 +300,12 @@ class MainActivity : ComponentActivity() {
                             ExposedDropdownMenu(expanded = expanded, onDismissRequest = { expanded = false }) {
                                 devices.forEach { device ->
                                     DropdownMenuItem(
-                                        text = { Text("\${device.first} (\${device.second})") },
+                                        text = {
+                                            Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
+                                                Text(device.first, fontWeight = FontWeight.SemiBold)
+                                                Text(device.second, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                                            }
+                                        },
                                         onClick = { selectedDevice = device.second; expanded = false }
                                     )
                                 }
@@ -292,7 +315,7 @@ class MainActivity : ComponentActivity() {
                     }
                 }
 
-                if (running) {
+                if (screen == AppScreen.HOME && running) {
                     SectionCard(title = "Phone call", subtitle = "Call controls are available while the link is running.") {
                         Text(
                             when (callState) {
@@ -328,7 +351,7 @@ class MainActivity : ComponentActivity() {
                     }
                 }
 
-                if (running && remote) {
+                if (screen == AppScreen.HOME && running && remote) {
                     SectionCard(title = "Make a call", subtitle = "Type a number or search synced contacts.") {
                         var suggestionsExpanded by remember { mutableStateOf(false) }
                         OutlinedTextField(
@@ -376,7 +399,7 @@ class MainActivity : ComponentActivity() {
                     }
                 }
 
-                if (activeRole == LinkService.ROLE_GATEWAY) {
+                if (screen == AppScreen.SETTINGS && activeRole == LinkService.ROLE_GATEWAY) {
                     SectionCard(title = "Notification sync", subtitle = "Mirror notifications to the remote phone.") {
                         Row(verticalAlignment = Alignment.CenterVertically) {
                             Column(Modifier.weight(1f)) {
@@ -404,7 +427,7 @@ class MainActivity : ComponentActivity() {
                     }
                 }
 
-                SectionCard(title = "Voice link", subtitle = "Talk between the two phones over Bluetooth.") {
+                if (screen == AppScreen.HOME) SectionCard(title = "Voice link", subtitle = "Talk between the two phones over Bluetooth.") {
                     Button(onClick = { service?.toggleVoice(); refresh() }, enabled = running, modifier = Modifier.fillMaxWidth()) {
                         Icon(Icons.Default.Mic, null); Spacer(Modifier.width(8.dp))
                         Text(if (service?.voiceActive == true) "End voice link" else "Start voice link")
@@ -417,7 +440,7 @@ class MainActivity : ComponentActivity() {
                     }
                 }
 
-                SectionCard(title = "Activity log", subtitle = "Recent connection and service events.") {
+                if (screen == AppScreen.HOME) SectionCard(title = "Activity log", subtitle = "Recent connection and service events.") {
                     Text(Hub.logText().ifBlank { "No events yet. Start the link to see connection status here." },
                         style = MaterialTheme.typography.bodySmall,
                         fontFamily = androidx.compose.ui.text.font.FontFamily.Monospace,
@@ -426,11 +449,81 @@ class MainActivity : ComponentActivity() {
                             .padding(14.dp)
                     )
                 }
-                UpdateCard(modifier = Modifier.fillMaxWidth())
-                Text("CallCompanion • Material 3 Expressive", style = MaterialTheme.typography.labelSmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.align(Alignment.CenterHorizontally))
+                if (screen == AppScreen.UPDATE) {
+                    Text("App updates", style = MaterialTheme.typography.headlineMedium, fontWeight = FontWeight.Bold)
+                    SectionCard(title = "CallCompanion", subtitle = "Keep the app updated from the latest GitHub release.") {
+                        Text("Installed version: ${AppUpdater.installedVersionName}")
+                        Text("Updates are checked against the latest GitHub release. APK verification and Android installation are handled by the updater.")
+                        Button(onClick = { AppUpdater.check(manual = true) }, modifier = Modifier.fillMaxWidth()) {
+                            Icon(Icons.Default.Download, null); Spacer(Modifier.width(8.dp)); Text("Check for updates")
+                        }
+                    }
+                    UpdateCard(modifier = Modifier.fillMaxWidth())
+                }
+                if (screen == AppScreen.SETTINGS) {
+                    Text("Setup & settings", style = MaterialTheme.typography.headlineMedium, fontWeight = FontWeight.Bold)
+                    SectionCard(title = "Permissions", subtitle = "Required access depends on the role selected above.") {
+                        PermissionStatusRow("Microphone", granted(Manifest.permission.RECORD_AUDIO))
+                        if (Build.VERSION.SDK_INT >= 31) PermissionStatusRow("Bluetooth connection", granted(Manifest.permission.BLUETOOTH_CONNECT))
+                        if (Build.VERSION.SDK_INT >= 33) PermissionStatusRow("Notifications", granted(Manifest.permission.POST_NOTIFICATIONS))
+                        if (activeRole == LinkService.ROLE_GATEWAY) {
+                            PermissionStatusRow("Phone state", granted(Manifest.permission.READ_PHONE_STATE))
+                            PermissionStatusRow("Answer calls", granted(Manifest.permission.ANSWER_PHONE_CALLS))
+                            PermissionStatusRow("Place calls", granted(Manifest.permission.CALL_PHONE))
+                            PermissionStatusRow("Notification access", notificationAccess)
+                            OutlinedButton(onClick = {
+                                runCatching { startActivity(Intent(Settings.ACTION_NOTIFICATION_LISTENER_SETTINGS)) }
+                                    .onFailure { toast("Open Android Settings → Notifications → Notification access") }
+                            }, modifier = Modifier.fillMaxWidth()) { Text("Open notification access settings") }
+                        }
+                        Text("Grant permissions in Android Settings if a required permission is missing. The Bluetooth link remains unchanged when switching screens.", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    }
+                    SectionCard(title = "Bluetooth devices", subtitle = "Choose the paired gateway phone by its device name. The address is shown underneath to distinguish similarly named devices.") {
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            Text("Paired devices: ${devices.size}", modifier = Modifier.weight(1f), style = MaterialTheme.typography.titleMedium)
+                            OutlinedButton(onClick = { loadDevices(); refresh() }) {
+                                Icon(Icons.Default.Refresh, null); Spacer(Modifier.width(5.dp)); Text("Refresh")
+                            }
+                        }
+                        if (devices.isEmpty()) {
+                            Text("No paired Bluetooth devices found. Pair the two phones in Android Bluetooth settings, then refresh.", color = MaterialTheme.colorScheme.onSurfaceVariant)
+                            OutlinedButton(onClick = { runCatching { startActivity(Intent(Settings.ACTION_BLUETOOTH_SETTINGS)) } }, modifier = Modifier.fillMaxWidth()) { Text("Open Bluetooth settings") }
+                        } else {
+                            devices.forEach { device ->
+                                Card(
+                                    onClick = { if (!running) { selectedDevice = device.second; prefs.edit().putString("device", device.second).apply(); refresh() } },
+                                    colors = CardDefaults.cardColors(containerColor = if (device.second == selectedDevice) MaterialTheme.colorScheme.secondaryContainer else MaterialTheme.colorScheme.surfaceContainerLow)
+                                ) {
+                                    Row(Modifier.fillMaxWidth().padding(14.dp), verticalAlignment = Alignment.CenterVertically) {
+                                        Icon(Icons.Default.Smartphone, null, tint = MaterialTheme.colorScheme.primary)
+                                        Spacer(Modifier.width(12.dp))
+                                        Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(3.dp)) {
+                                            Text(device.first, fontWeight = FontWeight.SemiBold)
+                                            Text(device.second, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                                        }
+                                        if (device.second == selectedDevice) Icon(Icons.Default.CheckCircle, null, tint = MaterialTheme.colorScheme.primary)
+                                    }
+                                }
+                            }
+                        }
+                    }
+                    Text("CallCompanion • Material 3 Expressive", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.align(Alignment.CenterHorizontally))
+                }
             }
         }
+    }
+}
+
+@Composable
+private fun PermissionStatusRow(title: String, ready: Boolean) {
+    Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+        Column(Modifier.weight(1f)) {
+            Text(title, style = MaterialTheme.typography.bodyLarge)
+            Text(if (ready) "Granted" else "Needs setup", style = MaterialTheme.typography.bodySmall,
+                color = if (ready) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.error)
+        }
+        Icon(if (ready) Icons.Default.CheckCircle else Icons.Default.Settings, contentDescription = null,
+            tint = if (ready) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.error)
     }
 }
 
