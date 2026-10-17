@@ -14,5 +14,5 @@ dependencyResolutionManagement {
     }
 }
 
-rootProject.name = "VGS"
+rootProject.name = "ShizuCallCompanion"
 include(":app")

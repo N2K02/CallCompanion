@@ -21,7 +21,7 @@ import kotlin.system.exitProcess
 
 /**
  * Runs inside Shizuku's shell process. Exposes PCM uplink injection and opt-in downlink capture;
- * the normal VGS app and Bluetooth transport remain unprivileged.
+ * the normal ShizuCallCompanion app and Bluetooth transport remain unprivileged.
  *
  * Experimental: relies on hidden telephony audio APIs and device-specific audio policy.
  */
@@ -316,7 +316,7 @@ class UplinkInjectionService : IVgsUplinkInjectionService.Stub {
     }
 
     companion object {
-        private const val TAG = "VGS-Uplink"
+        private const val TAG = "ShizuCallCompanion-Uplink"
         private const val SAMPLE_RATE = 8000
         private const val FRAME_BYTES = 320 // 20 ms, mono PCM16 at 8 kHz
     }

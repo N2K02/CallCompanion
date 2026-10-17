@@ -50,8 +50,8 @@
     <application
         android:allowBackup="false"
         android:icon="@android:drawable/sym_action_call"
-        android:label="VGS"
-        android:theme="@style/Theme.VGS">
+        android:label="ShizuCallCompanion"
+        android:theme="@style/Theme.ShizuCallCompanion">
 
         <activity
             android:name=".MainActivity"
@@ -74,7 +74,7 @@
         <service
             android:name=".NotifListener"
             android:exported="true"
-            android:label="VGS notification sync"
+            android:label="ShizuCallCompanion notification sync"
             android:permission="android.permission.BIND_NOTIFICATION_LISTENER_SERVICE">
             <intent-filter>
                 <action android:name="android.service.notification.NotificationListenerService" />

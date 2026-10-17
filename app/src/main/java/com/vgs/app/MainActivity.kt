@@ -146,7 +146,7 @@ class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         enableEdgeToEdge()
         super.onCreate(savedInstanceState)
-        AppUpdater.init(this, "N2K02/VGS", "VGS")
+        AppUpdater.init(this, "N2K02/ShizuCallCompanion", "ShizuCallCompanion")
         prefs = getSharedPreferences("vgs", MODE_PRIVATE)
         val savedRole = prefs.getString("role", null)
         roleChosen = savedRole != null
