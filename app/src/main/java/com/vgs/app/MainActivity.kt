@@ -184,7 +184,7 @@ class MainActivity : ComponentActivity() {
         if (role == LinkService.ROLE_GATEWAY) NotifListener.rebind(this)
         // Started in the background (no microphone service type)? We are in front now: upgrade it.
         Hub.service?.let { svc ->
-            if (svc.isActive && !svc.hasMicType && granted(Manifest.permission.RECORD_AUDIO)) {
+            if (role == LinkService.ROLE_REMOTE && svc.isActive && !svc.hasMicType && granted(Manifest.permission.RECORD_AUDIO)) {
                 try {
                     startForegroundService(Intent(this, LinkService::class.java).setAction(LinkService.ACTION_UPGRADE))
                 } catch (e: Exception) {
@@ -208,8 +208,9 @@ class MainActivity : ComponentActivity() {
 
     // ---------------------------------------------------------------- permissions
 
-    private fun corePerms(): List<String> {
-        val l = mutableListOf(Manifest.permission.RECORD_AUDIO)
+    private fun corePerms(r: String): List<String> {
+        val l = mutableListOf<String>()
+        if (r == LinkService.ROLE_REMOTE) l.add(Manifest.permission.RECORD_AUDIO)
         if (Build.VERSION.SDK_INT >= 31) l.add(Manifest.permission.BLUETOOTH_CONNECT)
         if (Build.VERSION.SDK_INT >= 33) l.add(Manifest.permission.POST_NOTIFICATIONS)
         return l
@@ -254,7 +255,9 @@ class MainActivity : ComponentActivity() {
     @Suppress("DEPRECATION")
     private fun requirements(r: String): List<Req> {
         val l = mutableListOf<Req>()
-        l += runtimeReq("Microphone", "Voice link between the two phones", listOf(Manifest.permission.RECORD_AUDIO))
+        if (r == LinkService.ROLE_REMOTE) {
+            l += runtimeReq("Microphone", "Capture the remote phone's voice for the gateway's cellular uplink", listOf(Manifest.permission.RECORD_AUDIO))
+        }
         if (Build.VERSION.SDK_INT >= 31) {
             l += runtimeReq("Bluetooth", "Connect to the other phone", listOf(Manifest.permission.BLUETOOTH_CONNECT))
         }
@@ -334,7 +337,7 @@ class MainActivity : ComponentActivity() {
     // ---------------------------------------------------------------- actions
 
     private fun startLink() {
-        val needed = if (role == LinkService.ROLE_GATEWAY) corePerms() + gatewayPerms() else corePerms()
+        val needed = if (role == LinkService.ROLE_GATEWAY) corePerms(role) + gatewayPerms() else corePerms(role)
         val missing = needed.filter { !granted(it) }
         if (missing.isNotEmpty()) {
             requestPermissions(
