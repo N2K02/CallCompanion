@@ -110,6 +110,10 @@ class AudioBridge(
         val min = AudioRecord.getMinBufferSize(
             RATE, AudioFormat.CHANNEL_IN_MONO, AudioFormat.ENCODING_PCM_16BIT
         )
+        if (min <= 0) {
+            fail("Microphone unavailable: minimum buffer size error $min")
+            return
+        }
         val rec: AudioRecord
         try {
             rec = AudioRecord(
