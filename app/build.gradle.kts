@@ -3,6 +3,15 @@ plugins {
     id("org.jetbrains.kotlin.android")
 }
 
+// One-decimal release version, supplied by CI (for example -PappVersion=5.7).
+val appVersion = (findProperty("appVersion") as String?) ?: "5.6"
+require(Regex("""\d+\.\d""").matches(appVersion)) {
+    "appVersion must look like 5.7, got $appVersion"
+}
+val appVersionCode = appVersion.split(".").let { (major, minor) ->
+    major.toInt() * 10 + minor.toInt()
+}
+
 android {
     namespace = "com.callcompanion.app"
     compileSdk = 34
@@ -11,13 +20,12 @@ android {
         applicationId = "com.callcompanion.app"
         minSdk = 26
         targetSdk = 34
-        versionCode = 1
-        versionName = "0.1"
+        versionCode = appVersionCode
+        versionName = appVersion
     }
 
     signingConfigs {
-        // Fixed key committed to the repo so every CI build can be installed
-        // over the previous one without uninstalling. For testing only.
+        // Fixed test key retained so CI builds remain installable without extra secrets.
         getByName("debug") {
             storeFile = file("debug.keystore")
             storePassword = "android"
