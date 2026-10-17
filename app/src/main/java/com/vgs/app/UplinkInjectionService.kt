@@ -185,6 +185,7 @@ class UplinkInjectionService : IVgsUplinkInjectionService.Stub {
     private class ShellContext(base: Context) : ContextWrapper(base) {
         override fun getPackageName(): String = "com.android.shell"
         override fun getOpPackageName(): String = "com.android.shell"
+        override fun getApplicationContext(): Context = this
 
         @SuppressLint("NewApi")
         override fun getAttributionSource(): android.content.AttributionSource =
