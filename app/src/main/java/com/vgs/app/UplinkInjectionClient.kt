@@ -8,6 +8,7 @@ import android.os.Build
 import android.os.IBinder
 import android.os.ParcelFileDescriptor
 import rikka.shizuku.Shizuku
+import java.io.FileInputStream
 import java.io.FileOutputStream
 import java.io.IOException
 
@@ -21,8 +22,11 @@ class UplinkInjectionClient(context: Context) {
     @Volatile private var connection: ServiceConnection? = null
     @Volatile private var writerFd: ParcelFileDescriptor? = null
     @Volatile private var output: FileOutputStream? = null
+    @Volatile private var downlinkReadFd: ParcelFileDescriptor? = null
+    @Volatile private var downlinkThread: Thread? = null
 
     val isInjecting: Boolean get() = output != null
+    val isCapturingDownlink: Boolean get() = downlinkReadFd != null
 
     fun bind(): Boolean {
         if (!isShizukuReadyAndGranted()) return false
@@ -90,8 +94,67 @@ class UplinkInjectionClient(context: Context) {
         stream.write(data)
     }
 
+    fun startDownlinkCapture(onFrame: (ByteArray) -> Unit): Boolean {
+        if (isCapturingDownlink) return true
+        val service = remote ?: run {
+            bind()
+            Hub.log("Shizuku audio service is connecting; retry caller-audio capture in a moment")
+            return false
+        }
+        return try {
+            val fd = service.startDownlinkCapture()
+                ?: throw IOException("Android did not create a downlink audio pipe")
+            downlinkReadFd = fd
+            downlinkThread = Thread({
+                try {
+                    FileInputStream(fd.fileDescriptor).use { input ->
+                        val frame = ByteArray(320)
+                        while (downlinkReadFd === fd) {
+                            var offset = 0
+                            while (offset < frame.size) {
+                                val count = input.read(frame, offset, frame.size - offset)
+                                if (count < 0) return@Thread
+                                if (count == 0) continue
+                                offset += count
+                            }
+                            onFrame(frame.copyOf())
+                        }
+                    }
+                } catch (e: Exception) {
+                    if (downlinkReadFd === fd) Hub.log("Caller-audio capture stopped: ${e.message}")
+                } finally {
+                    synchronized(this) {
+                        if (downlinkReadFd === fd) {
+                            downlinkReadFd = null
+                            downlinkThread = null
+                            runCatching { fd.close() }
+                            runCatching { remote?.stopDownlinkCapture() }
+                        }
+                    }
+                }
+            }, "vgs-downlink-reader").apply { isDaemon = true; start() }
+            Hub.log("Experimental cellular caller-audio capture started")
+            true
+        } catch (e: Exception) {
+            stopDownlinkCapture()
+            Hub.log("Caller-audio capture unavailable: ${e.message}")
+            false
+        }
+    }
+
+    @Synchronized
+    fun stopDownlinkCapture() {
+        val fd = downlinkReadFd
+        downlinkReadFd = null
+        downlinkThread?.interrupt()
+        downlinkThread = null
+        runCatching { fd?.close() }
+        runCatching { remote?.stopDownlinkCapture() }
+    }
+
     @Synchronized
     fun stop() {
+        stopDownlinkCapture()
         closePipe()
         runCatching { remote?.stopUplinkInjection() }
     }
