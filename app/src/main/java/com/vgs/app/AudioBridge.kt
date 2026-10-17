@@ -58,8 +58,8 @@ class AudioBridge(
         restoreNormalMode = !isGateway() && am.mode == AudioManager.MODE_NORMAL
         if (restoreNormalMode) am.mode = AudioManager.MODE_IN_COMMUNICATION
         applySpeakerRoute(speakerOn)
-        recordThread = Thread({ recordLoop() }, "vgs-record").also { it.start() }
-        playThread = Thread({ playLoop() }, "vgs-play").also { it.start() }
+        recordThread = Thread({ recordLoop() }, "shizucall-record").also { it.start() }
+        playThread = Thread({ playLoop() }, "shizucall-play").also { it.start() }
         Hub.log("Voice link ON")
     }
 
