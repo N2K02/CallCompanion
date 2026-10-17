@@ -86,7 +86,14 @@ class AudioBridge(
 
     @Synchronized
     private fun fail(message: String) {
-        if (state != "STOPPED") state = "FAILED"
+        if (state == "STOPPED" || state == "FAILED") return
+        state = "FAILED"
+        running = false
+        recordThread?.takeIf { it !== Thread.currentThread() }?.interrupt()
+        playThread?.takeIf { it !== Thread.currentThread() }?.interrupt()
+        queue.clear()
+        AudioRoute.clear(context)
+        runCatching { context.getSystemService(AudioManager::class.java)?.mode = AudioManager.MODE_NORMAL }
         Hub.log(message)
     }
 
