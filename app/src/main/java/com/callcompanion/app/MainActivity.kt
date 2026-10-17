@@ -45,7 +45,7 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 
-private enum class AppScreen { HOME, UPDATE, SETTINGS }
+private enum class MainTab { HOME, UPDATE, SETTINGS }
 
 class MainActivity : ComponentActivity() {
     private lateinit var prefs: SharedPreferences
@@ -64,6 +64,7 @@ class MainActivity : ComponentActivity() {
         prefs = getSharedPreferences("callcompanion", MODE_PRIVATE)
         role = prefs.getString("role", LinkService.ROLE_REMOTE) ?: LinkService.ROLE_REMOTE
         selectedDevice = prefs.getString("device", null)
+        Hub.clearLog()
         CallLogger.init(this)
         AppUpdater.init(this, "N2K02/CallCompanion", "CallCompanion")
         setContent { CallCompanionTheme { AppScreen() } }
@@ -197,7 +198,7 @@ class MainActivity : ComponentActivity() {
         val connected = running && service?.connected == true
         val callState = service?.callState ?: LinkService.CALL_IDLE
         val notificationAccess = NotifListener.isEnabled(this)
-        var screen by remember { mutableStateOf(AppScreen.HOME) }
+        var screen by remember { mutableStateOf(MainTab.HOME) }
 
         Scaffold(
             topBar = {
@@ -220,9 +221,9 @@ class MainActivity : ComponentActivity() {
             },
             bottomBar = {
                 NavigationBar {
-                    NavigationBarItem(selected = screen == AppScreen.HOME, onClick = { screen = AppScreen.HOME }, icon = { Icon(Icons.Default.Hub, null) }, label = { Text("Home") })
-                    NavigationBarItem(selected = screen == AppScreen.UPDATE, onClick = { screen = AppScreen.UPDATE; AppUpdater.check(manual = true) }, icon = { Icon(Icons.Default.Download, null) }, label = { Text("Update") })
-                    NavigationBarItem(selected = screen == AppScreen.SETTINGS, onClick = { screen = AppScreen.SETTINGS }, icon = { Icon(Icons.Default.Settings, null) }, label = { Text("Settings") })
+                    NavigationBarItem(selected = screen == MainTab.HOME, onClick = { screen = AppScreen.HOME }, icon = { Icon(Icons.Default.Hub, null) }, label = { Text("Home") })
+                    NavigationBarItem(selected = screen == MainTab.UPDATE, onClick = { screen = AppScreen.UPDATE; AppUpdater.check(manual = true) }, icon = { Icon(Icons.Default.Download, null) }, label = { Text("Update") })
+                    NavigationBarItem(selected = screen == MainTab.SETTINGS, onClick = { screen = AppScreen.SETTINGS }, icon = { Icon(Icons.Default.Settings, null) }, label = { Text("Settings") })
                 }
             }
         ) { insets ->
@@ -284,35 +285,7 @@ class MainActivity : ComponentActivity() {
                             modifier = Modifier.weight(1f)
                         )
                     }
-                    if (remote && !running) {
-                        Text("Paired gateway phone", style = MaterialTheme.typography.titleSmall)
-                        var expanded by remember { mutableStateOf(false) }
-                        val chosen = devices.firstOrNull { it.second == selectedDevice }
-                        ExposedDropdownMenuBox(expanded = expanded, onExpandedChange = { expanded = it }) {
-                            OutlinedTextField(
-                                value = chosen?.first ?: "No paired phones found",
-                                onValueChange = {},
-                                readOnly = true,
-                                label = { Text("Bluetooth device") },
-                                trailingIcon = { ExposedDropdownMenuDefaults.TrailingIcon(expanded) },
-                                modifier = Modifier.fillMaxWidth().menuAnchor()
-                            )
-                            ExposedDropdownMenu(expanded = expanded, onDismissRequest = { expanded = false }) {
-                                devices.forEach { device ->
-                                    DropdownMenuItem(
-                                        text = {
-                                            Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
-                                                Text(device.first, fontWeight = FontWeight.SemiBold)
-                                                Text(device.second, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                                            }
-                                        },
-                                        onClick = { selectedDevice = device.second; expanded = false }
-                                    )
-                                }
-                            }
-                        }
-                        TextButton(onClick = { loadDevices() }) { Icon(Icons.Default.Refresh, null); Text("Refresh paired phones") }
-                    }
+
                 }
 
                 if (screen == AppScreen.HOME && running) {
@@ -478,7 +451,7 @@ class MainActivity : ComponentActivity() {
                         }
                         Text("Grant permissions in Android Settings if a required permission is missing. The Bluetooth link remains unchanged when switching screens.", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                     }
-                    SectionCard(title = "Bluetooth devices", subtitle = "Choose the paired gateway phone by its device name. The address is shown underneath to distinguish similarly named devices.") {
+                    if (remote) SectionCard(title = "Bluetooth devices", subtitle = "Choose the paired gateway phone by its device name. The address is shown underneath to distinguish similarly named devices.") {
                         Row(verticalAlignment = Alignment.CenterVertically) {
                             Text("Paired devices: ${devices.size}", modifier = Modifier.weight(1f), style = MaterialTheme.typography.titleMedium)
                             OutlinedButton(onClick = { loadDevices(); refresh() }) {
