@@ -280,8 +280,36 @@ class MainActivity : ComponentActivity() {
                 NotifListener.isEnabled(this), emptyList()
             ) { openSettings(Settings.ACTION_NOTIFICATION_LISTENER_SETTINGS) }
 
+            // Optional: ordinary call control still works without Shizuku; only uplink injection needs it.
+            val shizukuReady = UplinkInjectionClient.isShizukuReadyAndGranted()
+            val shizukuAvailable = UplinkInjectionClient.isShizukuAvailable()
+            l += Req(
+                "Shizuku · cellular uplink injection",
+                when {
+                    shizukuReady -> "Granted. VGS can test experimental remote-microphone injection during a SIM call."
+                    shizukuAvailable -> "Allow VGS in Shizuku to enable experimental cellular-call uplink injection."
+                    else -> "Start the Shizuku server, then return here and grant VGS access. This is only needed for uplink injection."
+                },
+                shizukuReady, emptyList(), required = false
+            ) { requestShizukuPermission() }
+
         }
         return l
+    }
+
+    private fun requestShizukuPermission() {
+        if (UplinkInjectionClient.isShizukuAvailable()) {
+            UplinkInjectionClient.requestPermission()
+            return
+        }
+        // Shizuku permissions are managed by the Shizuku app, not Android's runtime permission dialog.
+        val launch = packageManager.getLaunchIntentForPackage("moe.shizuku.privileged.api")
+        if (launch != null) {
+            startActivity(launch)
+            toast("Start the Shizuku server, then return to VGS and tap Allow")
+        } else {
+            startActivity(Intent(Intent.ACTION_VIEW, Uri.parse("https://shizuku.rikka.app/")))
+        }
     }
 
     @SuppressLint("BatteryLife")
