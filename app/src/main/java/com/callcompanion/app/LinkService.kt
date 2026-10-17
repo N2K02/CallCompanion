@@ -272,7 +272,7 @@ class LinkService : Service() {
         try {
             s.connect()
         } catch (e: IOException) {
-            throw IOException("Can't reach gateway (is VGS started there?)")
+            throw IOException("Can't reach gateway (is CallCompanion started there?)")
         }
         return s
     }
@@ -639,7 +639,7 @@ class LinkService : Service() {
 
     fun shouldMirror(): Boolean =
         running && connected && role == ROLE_GATEWAY &&
-            getSharedPreferences("vgs", MODE_PRIVATE).getBoolean("mirror", true)
+            getSharedPreferences("callcompanion", MODE_PRIVATE).getBoolean("mirror", true)
 
     private fun encodeKey(k: String): String =
         Base64.encodeToString(k.toByteArray(Charsets.UTF_8), Base64.NO_WRAP or Base64.URL_SAFE)
@@ -722,7 +722,7 @@ class LinkService : Service() {
         val text = if (audio.isRunning) "$connectionState · voice link ON" else connectionState
         return Notification.Builder(this, CH_STATUS)
             .setSmallIcon(android.R.drawable.sym_action_call)
-            .setContentTitle(if (role == ROLE_GATEWAY) "VGS gateway" else "VGS remote")
+            .setContentTitle(if (role == ROLE_GATEWAY) "CallCompanion · Gateway" else "CallCompanion · Remote")
             .setContentText(text)
             .setOngoing(true)
             .setContentIntent(openAppPi())
