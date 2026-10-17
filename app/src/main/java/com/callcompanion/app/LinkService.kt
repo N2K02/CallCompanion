@@ -97,6 +97,7 @@ class LinkService : Service() {
 
     val isActive: Boolean get() = running
     val voiceActive: Boolean get() = audio.isRunning
+    val voiceState: String get() = audio.state
     val speakerOn: Boolean get() = audio.speakerOn
 
     private val audio: AudioBridge by lazy {
