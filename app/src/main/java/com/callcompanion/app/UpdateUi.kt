@@ -34,6 +34,7 @@ import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -82,6 +83,7 @@ object FooterScroll {
 fun UpdateCard(modifier: Modifier = Modifier) {
     val state by AppUpdater.state.collectAsState()
     var diagnosticsVisible by remember { mutableStateOf(false) }
+    LaunchedEffect(state) { if (state !is AppUpdater.State.Failed) diagnosticsVisible = false }
     val activity = LocalContext.current.activity()
     val visible = state is AppUpdater.State.Checking || state is AppUpdater.State.Available || state is AppUpdater.State.Downloading ||
         state is AppUpdater.State.NeedsPermission || state is AppUpdater.State.Ready ||
