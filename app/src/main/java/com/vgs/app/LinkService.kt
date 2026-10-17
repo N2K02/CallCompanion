@@ -160,7 +160,7 @@ class LinkService : Service() {
                 running = true
                 connectionState = "Starting…"
                 Hub.log("Started as ${if (role == ROLE_GATEWAY) "gateway" else "remote"}")
-                goForeground(!intent.getBooleanExtra(EXTRA_BACKGROUND, false))
+                goForeground(!intent.getBooleanExtra(EXTRA_BACKGROUND, false) && role == ROLE_REMOTE)
                 if (role == ROLE_GATEWAY) {
                     registerPhoneReceiver()
                     registerContactObserver()
@@ -176,7 +176,7 @@ class LinkService : Service() {
                 stopSelf()
             }
             // The app is open now: allow the microphone type that a background start could not get.
-            ACTION_UPGRADE -> if (running) goForeground(true) else stopSelf()
+            ACTION_UPGRADE -> if (running && role == ROLE_REMOTE) goForeground(true) else stopSelf()
             ACTION_ANSWER -> if (running) answer() else stopSelf()
             ACTION_REJECT -> if (running) reject() else stopSelf()
             ACTION_NOTIF_DISMISSED -> {
