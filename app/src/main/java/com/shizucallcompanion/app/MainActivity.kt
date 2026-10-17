@@ -953,7 +953,7 @@ class MainActivity : ComponentActivity() {
             }
             Text(
                 if (active) "Microphone streaming is active. Ask the other caller whether they can hear you."
-                else "This is experimental and requires a compatible gateway audio route. If injection is unavailable, check the gateway's VGS log.",
+                else "This is experimental and requires a compatible gateway audio route. If injection is unavailable, check the gateway's ShizuCallCompanion log.",
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant
             )
@@ -1084,7 +1084,7 @@ class MainActivity : ComponentActivity() {
                 val all = Hub.logCopyText()
                 if (all.isEmpty()) toast("Nothing to copy yet") else {
                     getSystemService(ClipboardManager::class.java)
-                        ?.setPrimaryClip(ClipData.newPlainText("VGS log", all))
+                        ?.setPrimaryClip(ClipData.newPlainText("ShizuCallCompanion log", all))
                     toast("Log copied")
                 }
             }) {
