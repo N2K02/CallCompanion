@@ -378,34 +378,6 @@ class MainActivity : ComponentActivity() {
                     }
                 }
 
-                if (screen == MainTab.SETTINGS && activeRole == LinkService.ROLE_GATEWAY) {
-                    SectionCard(title = "Notification sync", subtitle = "Mirror notifications to the remote phone.") {
-                        Row(verticalAlignment = Alignment.CenterVertically) {
-                            Column(Modifier.weight(1f)) {
-                                Text("Notification access")
-                                Text(if (notificationAccess) "Enabled" else "Not enabled",
-                                    style = MaterialTheme.typography.bodySmall,
-                                    color = if (notificationAccess) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.error)
-                            }
-                            Icon(if (notificationAccess) Icons.Default.CheckCircle else Icons.Default.Settings,
-                                contentDescription = null,
-                                tint = if (notificationAccess) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.error)
-                        }
-                        OutlinedButton(onClick = {
-                            try { startActivity(Intent(Settings.ACTION_NOTIFICATION_LISTENER_SETTINGS)) }
-                            catch (_: Exception) { toast("Open Settings → Notifications → Notification access, and allow CallCompanion") }
-                        }, modifier = Modifier.fillMaxWidth()) { Text("Open notification access settings") }
-                        var mirror by remember { mutableStateOf(prefs.getBoolean("mirror", true)) }
-                        Row(verticalAlignment = Alignment.CenterVertically) {
-                            Text("Send notifications to remote", Modifier.weight(1f))
-                            Switch(checked = mirror, onCheckedChange = {
-                                mirror = it
-                                prefs.edit().putBoolean("mirror", it).apply()
-                            })
-                        }
-                    }
-                }
-
                 if (screen == MainTab.HOME && setupReady) SectionCard(title = "Voice link", subtitle = "Talk between the two phones over Bluetooth.") {
                     Button(onClick = { service?.toggleVoice(); refresh() }, enabled = running, modifier = Modifier.fillMaxWidth()) {
                         Icon(Icons.Default.Mic, null); Spacer(Modifier.width(8.dp))
@@ -446,7 +418,6 @@ class MainActivity : ComponentActivity() {
                     UpdateCard(modifier = Modifier.fillMaxWidth())
                 }
                 if (screen == MainTab.SETTINGS) {
-                    Text("Setup & settings", style = MaterialTheme.typography.headlineMedium, fontWeight = FontWeight.Bold)
                     SectionCard(title = "Permissions", subtitle = if (roleSelected) "Required access for the selected phone role." else "Select a role above to see its setup checklist.") {
                         if (roleSelected && role == LinkService.ROLE_GATEWAY) {
                             if (Build.VERSION.SDK_INT >= 33) PermissionSetupRow("Notifications", "Show the ongoing CallCompanion status", granted(Manifest.permission.POST_NOTIFICATIONS)) { requestPermissions(arrayOf(Manifest.permission.POST_NOTIFICATIONS), 1) }
@@ -480,6 +451,34 @@ class MainActivity : ComponentActivity() {
                         OutlinedButton(onClick = { roleSelected = false; prefs.edit().remove("role").apply(); screen = MainTab.SETTINGS; refresh() }, modifier = Modifier.fillMaxWidth()) { Text("Reset device role") }
                     }
                     
+                if (roleSelected && role == LinkService.ROLE_GATEWAY) {
+                    SectionCard(title = "Notification sync", subtitle = "Mirror notifications to the remote phone.") {
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            Column(Modifier.weight(1f)) {
+                                Text("Notification access")
+                                Text(if (notificationAccess) "Enabled" else "Not enabled",
+                                    style = MaterialTheme.typography.bodySmall,
+                                    color = if (notificationAccess) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.error)
+                            }
+                            Icon(if (notificationAccess) Icons.Default.CheckCircle else Icons.Default.Settings,
+                                contentDescription = null,
+                                tint = if (notificationAccess) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.error)
+                        }
+                        OutlinedButton(onClick = {
+                            try { startActivity(Intent(Settings.ACTION_NOTIFICATION_LISTENER_SETTINGS)) }
+                            catch (_: Exception) { toast("Open Settings → Notifications → Notification access, and allow CallCompanion") }
+                        }, modifier = Modifier.fillMaxWidth()) { Text("Open notification access settings") }
+                        var mirror by remember { mutableStateOf(prefs.getBoolean("mirror", true)) }
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            Text("Send notifications to remote", Modifier.weight(1f))
+                            Switch(checked = mirror, onCheckedChange = {
+                                mirror = it
+                                prefs.edit().putBoolean("mirror", it).apply()
+                            })
+                        }
+                    }
+                }
+
                     if (remote) SectionCard(title = "Bluetooth devices", subtitle = "Choose the paired gateway phone by its device name. The address is shown underneath to distinguish similarly named devices.") {
                         Row(verticalAlignment = Alignment.CenterVertically) {
                             Text("Paired devices: ${devices.size}", modifier = Modifier.weight(1f), style = MaterialTheme.typography.titleMedium)
