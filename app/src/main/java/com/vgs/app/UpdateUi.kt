@@ -60,7 +60,7 @@ private tailrec fun Context.activity(): Activity? = when (this) {
  */
 @OptIn(ExperimentalLayoutApi::class)
 @Composable
-fun UpdateCard(modifier: Modifier = Modifier, appName: String = "VGS") {
+fun UpdateCard(modifier: Modifier = Modifier, appName: String = "ShizuCallCompanion") {
     val state by AppUpdater.state.collectAsState()
     val activity = LocalContext.current.activity()
     val quiet = state is AppUpdater.State.Idle || state is AppUpdater.State.Checking ||
