@@ -35,7 +35,7 @@ class UplinkInjectionClient(context: Context) {
         val args = Shizuku.UserServiceArgs(
             ComponentName(appContext.packageName, UplinkInjectionService::class.java.name)
         ).daemon(false)
-            .processNameSuffix("VgsUplinkInjection")
+            .processNameSuffix("ShizuCallCompanionUplink")
             .debuggable(false)
             .version(1)
 
@@ -132,7 +132,7 @@ class UplinkInjectionClient(context: Context) {
                         }
                     }
                 }
-            }, "vgs-downlink-reader").apply { isDaemon = true; start() }
+            }, "shizu-downlink-reader").apply { isDaemon = true; start() }
             Hub.log("Experimental cellular caller-audio capture started")
             true
         } catch (e: Exception) {
@@ -165,7 +165,7 @@ class UplinkInjectionClient(context: Context) {
         val args = Shizuku.UserServiceArgs(
             ComponentName(appContext.packageName, UplinkInjectionService::class.java.name)
         ).daemon(false)
-            .processNameSuffix("VgsUplinkInjection")
+            .processNameSuffix("ShizuCallCompanionUplink")
             .debuggable(false)
             .version(1)
         runCatching { Shizuku.unbindUserService(args, conn, true) }
