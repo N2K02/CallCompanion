@@ -139,8 +139,9 @@ class UplinkInjectionService : IVgsUplinkInjectionService.Stub {
         AudioRecord.Builder::class.java.getDeclaredMethod("setCallRedirectionMode", intType)
             .apply { isAccessible = true }.invoke(builder, pstnMode)
         val record = builder.build()
-        check(record.state == AudioRecord.STATE_INITIALIZED) {
-            "Android rejected the telephony downlink AudioRecord"
+        if (record.state != AudioRecord.STATE_INITIALIZED) {
+            record.release()
+            throw IllegalStateException("Android rejected the telephony downlink AudioRecord")
         }
         val pipe = ParcelFileDescriptor.createPipe()
         try {
