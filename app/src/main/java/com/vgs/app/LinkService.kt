@@ -239,7 +239,7 @@ class LinkService : Service() {
 
     private fun startWorker() {
         val gen = ++generation
-        worker = Thread({ workerLoop(gen) }, "vgs-link").also { it.start() }
+        worker = Thread({ workerLoop(gen) }, "shizucall-link").also { it.start() }
     }
 
     private fun alive(gen: Int) = running && gen == generation
@@ -308,7 +308,7 @@ class LinkService : Service() {
         try {
             s.connect()
         } catch (e: IOException) {
-            throw IOException("Can't reach gateway (is VGS started there?)")
+            throw IOException("Can't reach gateway (is ShizuCallCompanion started there?)")
         }
         return s
     }
@@ -462,7 +462,7 @@ class LinkService : Service() {
                     if (simState != CALL_OFFHOOK) {
                         Hub.log("Uplink injection needs an active cellular call; no handset-speaker fallback is used")
                     } else if (!UplinkInjectionClient.isShizukuReadyAndGranted()) {
-                        Hub.log("Grant VGS permission in Shizuku on the gateway to enable uplink injection")
+                        Hub.log("Grant ShizuCallCompanion permission in Shizuku on the gateway to enable uplink injection")
                     } else {
                         val uplinkStarted = uplinkInjection.start()
                         if (!uplinkStarted) {
@@ -731,7 +731,7 @@ class LinkService : Service() {
     private fun checkNotificationAccess() {
         when {
             !NotifListener.isEnabled(this) ->
-                Hub.log("⚠️ Notification sync: access is OFF – allow VGS in Notification access settings")
+                Hub.log("⚠️ Notification sync: access is OFF – allow ShizuCallCompanion in Notification access settings")
             NotifListener.instance == null -> {
                 Hub.log("Notification sync: access ON, waiting for listener to connect…")
                 NotifListener.rebind(this)
@@ -823,7 +823,7 @@ class LinkService : Service() {
 
     /** null = OK to forward; otherwise the reason it can't be sent (shown in the log). */
     fun mirrorBlockReason(): String? = when {
-        !running -> "VGS is stopped (press Start)"
+        !running -> "ShizuCallCompanion is stopped (press Start)"
         role != ROLE_GATEWAY -> "this phone is not set as Gateway"
         !connected -> "remote phone not connected"
         else -> null
@@ -836,7 +836,7 @@ class LinkService : Service() {
             return
         }
         val stamp = java.text.SimpleDateFormat("HH:mm:ss", java.util.Locale.US).format(java.util.Date())
-        mirrorPosted("vgs-test-$stamp", "VGS", "Test notification", "Sent from the gateway at $stamp")
+        mirrorPosted("vgs-test-$stamp", "ShizuCallCompanion", "Test notification", "Sent from the gateway at $stamp")
     }
 
     private fun encodeKey(k: String): String =
@@ -863,7 +863,7 @@ class LinkService : Service() {
     private fun showMirrored(encKey: String, app: String, title: String, text: String) {
         Hub.log("🔔 from gateway: $app · ${title.take(40)}${if (text.isNotEmpty()) " – " + text.take(60) else ""}")
         if (!nm.areNotificationsEnabled()) {
-            Hub.log("⚠️ Can't show it: notifications are blocked for VGS on this phone (allow them in App info)")
+            Hub.log("⚠️ Can't show it: notifications are blocked for ShizuCallCompanion on this phone (allow them in App info)")
         }
         val id = encKey.hashCode()
         val deletePi = PendingIntent.getService(
@@ -933,7 +933,7 @@ class LinkService : Service() {
         }
         val b = Notification.Builder(this, CH_STATUS)
             .setSmallIcon(android.R.drawable.sym_action_call)
-            .setContentTitle(if (role == ROLE_GATEWAY) "VGS gateway" else "VGS remote")
+            .setContentTitle(if (role == ROLE_GATEWAY) "ShizuCallCompanion gateway" else "ShizuCallCompanion remote")
             .setContentText(text)
             .setOngoing(true)
             .setContentIntent(openAppPi()) // tapping it opens the app on its main page
