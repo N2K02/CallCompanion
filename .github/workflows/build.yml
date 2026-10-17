@@ -19,7 +19,7 @@ concurrency:
   cancel-in-progress: false
 
 env:
-  APP: VGS
+  APP: ShizuCallCompanion
 
 jobs:
   build:
