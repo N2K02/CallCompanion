@@ -61,6 +61,7 @@ object Hub {
 
     fun log(msg: String) {
         android.util.Log.i("CallCompanion", msg)
+        CallLogger.log(msg)
         synchronized(lines) {
             lines.addLast(fmt.format(Date()) + "  " + msg)
             while (lines.size > 60) lines.removeFirst()
