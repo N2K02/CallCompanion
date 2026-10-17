@@ -68,7 +68,6 @@ class MainActivity : ComponentActivity() {
         CallLogger.init(this)
         AppUpdater.init(this, "N2K02/CallCompanion", "CallCompanion")
         setContent { CallCompanionTheme { AppScreen() } }
-        requestPermissions(allPerms().toTypedArray(), 1)
         loadDevices()
         refresh()
     }
@@ -108,6 +107,12 @@ class MainActivity : ComponentActivity() {
         corePerms() + gatewayPerms() + listOf(Manifest.permission.READ_CALL_LOG, Manifest.permission.READ_CONTACTS)
 
     private fun granted(p: String) = checkSelfPermission(p) == PackageManager.PERMISSION_GRANTED
+
+    private fun requestMissingPermissions() {
+        val needed = corePerms() + if (role == LinkService.ROLE_GATEWAY) gatewayPerms() else emptyList()
+        val missing = needed.distinct().filterNot { granted(it) }
+        if (missing.isNotEmpty()) requestPermissions(missing.toTypedArray(), 1) else refresh()
+    }
 
     private fun currentRole(): String = Hub.service?.takeIf { it.isActive }?.role ?: role
 
@@ -198,7 +203,11 @@ class MainActivity : ComponentActivity() {
         val connected = running && service?.connected == true
         val callState = service?.callState ?: LinkService.CALL_IDLE
         val notificationAccess = NotifListener.isEnabled(this)
-        var screen by remember { mutableStateOf(MainTab.HOME) }
+        val setupReady = remember(revision, role, notificationAccess) {
+            val required = corePerms() + if (role == LinkService.ROLE_GATEWAY) gatewayPerms() else emptyList()
+            required.distinct().all { granted(it) } && (role != LinkService.ROLE_GATEWAY || notificationAccess)
+        }
+        var screen by remember { mutableStateOf(if (setupReady) MainTab.HOME else MainTab.SETTINGS) }
 
         Scaffold(
             topBar = {
@@ -221,9 +230,9 @@ class MainActivity : ComponentActivity() {
             },
             bottomBar = {
                 NavigationBar {
-                    NavigationBarItem(selected = screen == MainTab.HOME, onClick = { screen = AppScreen.HOME }, icon = { Icon(Icons.Default.Hub, null) }, label = { Text("Home") })
-                    NavigationBarItem(selected = screen == MainTab.UPDATE, onClick = { screen = AppScreen.UPDATE; AppUpdater.check(manual = true) }, icon = { Icon(Icons.Default.Download, null) }, label = { Text("Update") })
-                    NavigationBarItem(selected = screen == MainTab.SETTINGS, onClick = { screen = AppScreen.SETTINGS }, icon = { Icon(Icons.Default.Settings, null) }, label = { Text("Settings") })
+                    NavigationBarItem(selected = screen == MainTab.HOME, enabled = setupReady, onClick = { if (setupReady) screen = MainTab.HOME }, icon = { Icon(Icons.Default.Hub, null) }, label = { Text("Home") })
+                    NavigationBarItem(selected = screen == MainTab.UPDATE, onClick = { screen = MainTab.UPDATE; AppUpdater.check(manual = true) }, icon = { Icon(Icons.Default.Download, null) }, label = { Text("Update") })
+                    NavigationBarItem(selected = screen == MainTab.SETTINGS, onClick = { screen = MainTab.SETTINGS }, icon = { Icon(Icons.Default.Settings, null) }, label = { Text("Settings") })
                 }
             }
         ) { insets ->
@@ -232,7 +241,7 @@ class MainActivity : ComponentActivity() {
                     .padding(horizontal = 18.dp).padding(bottom = 28.dp),
                 verticalArrangement = Arrangement.spacedBy(14.dp)
             ) {
-                if (screen == AppScreen.HOME) Card(
+                if (screen == MainTab.HOME && setupReady) Card(
                     colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.primaryContainer),
                     shape = RoundedCornerShape(30.dp),
                     modifier = Modifier.fillMaxWidth()
@@ -266,11 +275,11 @@ class MainActivity : ComponentActivity() {
                     }
                 }
 
-                if (screen == AppScreen.SETTINGS) SectionCard(title = "Choose this phone's role", subtitle = "Use the same app on both phones.") {
+                if (screen == MainTab.SETTINGS) SectionCard(title = "Choose this phone's role", subtitle = "Use the same app on both phones.") {
                     Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.fillMaxWidth()) {
                         FilterChip(
                             selected = role == LinkService.ROLE_GATEWAY,
-                            onClick = { if (!running) role = LinkService.ROLE_GATEWAY },
+                            onClick = { if (!running) { role = LinkService.ROLE_GATEWAY; prefs.edit().putString("role", role).apply(); refresh() } },
                             enabled = !running,
                             label = { Text("Gateway · SIM phone") },
                             leadingIcon = if (role == LinkService.ROLE_GATEWAY) ({ Icon(Icons.Default.CheckCircle, null) }) else null,
@@ -278,7 +287,7 @@ class MainActivity : ComponentActivity() {
                         )
                         FilterChip(
                             selected = role == LinkService.ROLE_REMOTE,
-                            onClick = { if (!running) role = LinkService.ROLE_REMOTE },
+                            onClick = { if (!running) { role = LinkService.ROLE_REMOTE; prefs.edit().putString("role", role).apply(); refresh() } },
                             enabled = !running,
                             label = { Text("Remote · watch mode") },
                             leadingIcon = if (role == LinkService.ROLE_REMOTE) ({ Icon(Icons.Default.CheckCircle, null) }) else null,
@@ -288,7 +297,7 @@ class MainActivity : ComponentActivity() {
 
                 }
 
-                if (screen == AppScreen.HOME && running) {
+                if (screen == MainTab.HOME && setupReady && running) {
                     SectionCard(title = "Phone call", subtitle = "Call controls are available while the link is running.") {
                         Text(
                             when (callState) {
@@ -324,7 +333,7 @@ class MainActivity : ComponentActivity() {
                     }
                 }
 
-                if (screen == AppScreen.HOME && running && remote) {
+                if (screen == MainTab.HOME && setupReady && running && remote) {
                     SectionCard(title = "Make a call", subtitle = "Type a number or search synced contacts.") {
                         var suggestionsExpanded by remember { mutableStateOf(false) }
                         OutlinedTextField(
@@ -372,7 +381,7 @@ class MainActivity : ComponentActivity() {
                     }
                 }
 
-                if (screen == AppScreen.SETTINGS && activeRole == LinkService.ROLE_GATEWAY) {
+                if (screen == MainTab.SETTINGS && activeRole == LinkService.ROLE_GATEWAY) {
                     SectionCard(title = "Notification sync", subtitle = "Mirror notifications to the remote phone.") {
                         Row(verticalAlignment = Alignment.CenterVertically) {
                             Column(Modifier.weight(1f)) {
@@ -400,7 +409,7 @@ class MainActivity : ComponentActivity() {
                     }
                 }
 
-                if (screen == AppScreen.HOME) SectionCard(title = "Voice link", subtitle = "Talk between the two phones over Bluetooth.") {
+                if (screen == MainTab.HOME && setupReady) SectionCard(title = "Voice link", subtitle = "Talk between the two phones over Bluetooth.") {
                     Button(onClick = { service?.toggleVoice(); refresh() }, enabled = running, modifier = Modifier.fillMaxWidth()) {
                         Icon(Icons.Default.Mic, null); Spacer(Modifier.width(8.dp))
                         Text(if (service?.voiceActive == true) "End voice link" else "Start voice link")
@@ -413,7 +422,7 @@ class MainActivity : ComponentActivity() {
                     }
                 }
 
-                if (screen == AppScreen.HOME) SectionCard(title = "Activity log", subtitle = "Recent connection and service events.") {
+                if (screen == MainTab.HOME && setupReady) SectionCard(title = "Activity log", subtitle = "Recent connection and service events.") {
                     Text(Hub.logText().ifBlank { "No events yet. Start the link to see connection status here." },
                         style = MaterialTheme.typography.bodySmall,
                         fontFamily = androidx.compose.ui.text.font.FontFamily.Monospace,
@@ -422,7 +431,13 @@ class MainActivity : ComponentActivity() {
                             .padding(14.dp)
                     )
                 }
-                if (screen == AppScreen.UPDATE) {
+                if (screen == MainTab.HOME && !setupReady) {
+                    Text("Complete setup first", style = MaterialTheme.typography.headlineMedium, fontWeight = FontWeight.Bold)
+                    SectionCard(title = "Home locked", subtitle = "Grant the required permissions in Settings to enable the connection controls.") {
+                        Button(onClick = { screen = MainTab.SETTINGS }, modifier = Modifier.fillMaxWidth()) { Text("Open Settings") }
+                    }
+                }
+                if (screen == MainTab.UPDATE) {
                     Text("App updates", style = MaterialTheme.typography.headlineMedium, fontWeight = FontWeight.Bold)
                     SectionCard(title = "CallCompanion", subtitle = "Keep the app updated from the latest GitHub release.") {
                         Text("Installed version: ${AppUpdater.installedVersionName}")
@@ -433,9 +448,10 @@ class MainActivity : ComponentActivity() {
                     }
                     UpdateCard(modifier = Modifier.fillMaxWidth())
                 }
-                if (screen == AppScreen.SETTINGS) {
+                if (screen == MainTab.SETTINGS) {
                     Text("Setup & settings", style = MaterialTheme.typography.headlineMedium, fontWeight = FontWeight.Bold)
                     SectionCard(title = "Permissions", subtitle = "Required access depends on the role selected above.") {
+                        Button(onClick = { requestMissingPermissions() }, modifier = Modifier.fillMaxWidth()) { Text("Grant missing permissions") }
                         PermissionStatusRow("Microphone", granted(Manifest.permission.RECORD_AUDIO))
                         if (Build.VERSION.SDK_INT >= 31) PermissionStatusRow("Bluetooth connection", granted(Manifest.permission.BLUETOOTH_CONNECT))
                         if (Build.VERSION.SDK_INT >= 33) PermissionStatusRow("Notifications", granted(Manifest.permission.POST_NOTIFICATIONS))
