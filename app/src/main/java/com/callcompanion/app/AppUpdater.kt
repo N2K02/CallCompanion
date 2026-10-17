@@ -160,7 +160,7 @@ object AppUpdater {
                     download(release, file)
                     verify(file, release)?.let { problem ->
                         file.delete()
-                        _state.value = State.Failed(problem, release)
+                        _state.value = State.Failed(problem, release, diagnostic(IllegalStateException(problem), release))
                         return@launch
                     }
                 }
@@ -210,7 +210,7 @@ object AppUpdater {
             .setDataAndType(UpdateFileProvider.uriFor(app, file), "application/vnd.android.package-archive")
             .addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
         runCatching { activity.startActivity(intent) }
-            .onFailure { _state.value = State.Failed("Couldn't open Android's installer.", release) }
+            .onFailure { error -> _state.value = State.Failed("Could not open Android installer. Check the details for more information.", release, diagnostic(error, release)) }
     }
 
     // ---------------------------------------------------------------- GitHub
