@@ -1,4 +1,4 @@
-package com.vgs.app
+package com.shizucallcompanion.app
 
 import android.annotation.SuppressLint
 import android.content.ComponentName
@@ -26,7 +26,7 @@ import kotlin.system.exitProcess
  * Experimental: relies on hidden telephony audio APIs and device-specific audio policy.
  */
 @Keep
-class UplinkInjectionService : IVgsUplinkInjectionService.Stub {
+class UplinkInjectionService : IShizuUplinkInjectionService.Stub {
     private val lock = Any()
     private var shellContext: Context? = null
     private var audioTrack: AudioTrack? = null
