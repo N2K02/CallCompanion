@@ -82,6 +82,8 @@ class LinkService : Service() {
         private set
     @Volatile var callName: String = ""
         private set
+    @Volatile var callControlError: String? = null
+        private set
 
     @Volatile private var running = false
     @Volatile private var generation = 0
@@ -156,20 +158,20 @@ class LinkService : Service() {
 
     fun answer() {
         stopRinging()
-        if (role == ROLE_GATEWAY) gatewayAnswer() else send("ANSWER")
+        if (role == ROLE_GATEWAY) gatewayAnswer() else { callControlError = "PENDING: Waiting for Gateway confirmation"; send("ANSWER") }
     }
 
     fun reject() {
         stopRinging()
-        if (role == ROLE_GATEWAY) gatewayEnd() else send("REJECT")
+        if (role == ROLE_GATEWAY) gatewayEnd() else { callControlError = "PENDING: Waiting for Gateway confirmation"; send("REJECT") }
     }
 
     fun hangUp() {
-        if (role == ROLE_GATEWAY) gatewayEnd() else send("HANGUP")
+        if (role == ROLE_GATEWAY) gatewayEnd() else { callControlError = "PENDING: Waiting for Gateway confirmation"; send("HANGUP") }
     }
 
     fun dial(number: String) {
-        if (role == ROLE_GATEWAY) gatewayDial(number) else send("DIAL", number)
+        if (role == ROLE_GATEWAY) gatewayDial(number) else { callControlError = "PENDING: Waiting for Gateway confirmation"; send("DIAL", number) }
     }
 
     fun setGatewaySpeaker(on: Boolean) {
@@ -390,9 +392,15 @@ class LinkService : Service() {
                 if (role == ROLE_REMOTE) onRemoteCallUpdate()
             }
             // remote -> gateway
-            "ANSWER" -> gatewayAnswer()
-            "REJECT", "HANGUP" -> gatewayEnd()
-            "DIAL" -> gatewayDial(arg1)
+            "ANSWER" -> { gatewayAnswer(); sendCallResult() }
+            "REJECT", "HANGUP" -> { gatewayEnd(); sendCallResult() }
+            "DIAL" -> { gatewayDial(arg1); sendCallResult() }
+            "CALL_RESULT" -> {
+                val result = arg1
+                val detail = p.drop(2).joinToString("|")
+                callControlError = if (result == "FAILED") "FAILED: $detail" else null
+                Hub.log(if (result == "FAILED") "Gateway call control failed: $detail" else "Gateway accepted call-control request")
+            }
             "SPEAKER" -> {
                 AudioRoute.setSpeaker(this, arg1 == "1")
                 Hub.log("Speaker ${if (arg1 == "1") "ON" else "OFF"} (requested by remote)")
@@ -428,6 +436,11 @@ class LinkService : Service() {
             else -> Hub.log("Unknown command: ${p[0]}")
         }
         Hub.notifyUi()
+    }
+
+    private fun sendCallResult() {
+        val error = callControlError
+        send("CALL_RESULT", if (error == null) "OK" else "FAILED", error?.removePrefix("FAILED: ") ?: "Android accepted the request")
     }
 
     private fun setConn(isConnected: Boolean, text: String) {
@@ -484,13 +497,16 @@ class LinkService : Service() {
     @Suppress("DEPRECATION")
     private fun gatewayAnswer() {
         if (!has(Manifest.permission.ANSWER_PHONE_CALLS)) {
+            callControlError = "FAILED: Phone permission missing on Gateway"
             Hub.log("Answer failed: 'Phone' permission missing on gateway")
             return
         }
         try {
             getSystemService(TelecomManager::class.java)!!.acceptRingingCall()
+            callControlError = null
             Hub.log("Answered the call on this phone")
         } catch (e: Exception) {
+            callControlError = "FAILED: ${e.message ?: "Android rejected the answer request"}"
             Hub.log("Answer failed: ${e.message}")
         }
     }
@@ -503,13 +519,16 @@ class LinkService : Service() {
             return
         }
         if (!has(Manifest.permission.ANSWER_PHONE_CALLS)) {
+            callControlError = "FAILED: Phone permission missing on Gateway"
             Hub.log("End call failed: 'Phone' permission missing on gateway")
             return
         }
         try {
             val ok = getSystemService(TelecomManager::class.java)!!.endCall()
+            callControlError = if (ok) null else "FAILED: Android did not end the call"
             Hub.log(if (ok) "Call ended" else "No call to end")
         } catch (e: Exception) {
+            callControlError = "FAILED: ${e.message ?: "Android rejected the end-call request"}"
             Hub.log("End call failed: ${e.message}")
         }
     }
@@ -517,8 +536,9 @@ class LinkService : Service() {
     @SuppressLint("MissingPermission")
     private fun gatewayDial(number: String) {
         val n = number.trim()
-        if (n.isEmpty()) return
+        if (n.isEmpty()) { callControlError = "FAILED: Empty phone number"; return }
         if (!has(Manifest.permission.CALL_PHONE)) {
+            callControlError = "FAILED: Phone permission missing on Gateway"
             Hub.log("Dial failed: 'Phone' permission missing on gateway")
             return
         }
@@ -527,8 +547,10 @@ class LinkService : Service() {
             callName = lookupName(n)
             getSystemService(TelecomManager::class.java)!!
                 .placeCall(Uri.fromParts("tel", n, null), Bundle())
+            callControlError = null
             Hub.log("Dialing $n")
         } catch (e: Exception) {
+            callControlError = "FAILED: ${e.message ?: "Android rejected the dial request"}"
             Hub.log("Dial failed: ${e.message}")
         }
     }
