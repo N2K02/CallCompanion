@@ -209,9 +209,14 @@ class LinkService : Service() {
                 Hub.log("Microphone permission missing")
                 return
             }
-            setForegroundAudioActive(true)
-            audio.start()
-            send("VOICE_START")
+            try {
+                setForegroundAudioActive(true)
+                audio.start()
+                if (audio.state == "STARTING") send("VOICE_START")
+            } catch (e: Exception) {
+                Hub.log("Could not start voice link: ${e.message ?: e.javaClass.simpleName}")
+                runCatching { setForegroundAudioActive(false) }
+            }
         }
         updateStatus()
     }
