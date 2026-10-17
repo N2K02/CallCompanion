@@ -24,6 +24,14 @@ android {
 
 
     buildTypes {
+        // Separate debug-signed APK for pull-request testing; it can coexist with the stable app.
+        create("experimental") {
+            initWith(getByName("debug"))
+            applicationIdSuffix = ".experimental"
+            versionNameSuffix = "-experimental"
+            isMinifyEnabled = false
+            isShrinkResources = false
+        }
         getByName("release") {
             // R8 removes unused code (most of Compose) and resources: tens of MB -> a few MB.
             isMinifyEnabled = true
