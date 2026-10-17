@@ -1,4 +1,4 @@
-package com.vgs.app
+package com.shizucallcompanion.app
 
 import android.app.Activity
 import android.content.Context
