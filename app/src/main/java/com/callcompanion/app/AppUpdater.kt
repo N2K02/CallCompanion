@@ -360,22 +360,24 @@ object AppUpdater {
     private fun canInstall() = app.packageManager.canRequestPackageInstalls()
 
     
+    /** Captures enough context to diagnose update failures without sending anything automatically. */
     private fun diagnostic(error: Throwable?, release: Release?): String = buildString {
-        appendLine("App: $appName")
-        appendLine("Repository: $repo")
-        appendLine("Installed version: $installedVersionName")
-        appendLine("Target version: \${release?.versionName ?: "unknown"}")
-        appendLine("Release API URL: https://api.github.com/repos/$repo/releases/latest")
-        appendLine("APK URL: \${release?.apkUrl ?: "not available"}")
-        appendLine("Exception: \${error?.javaClass?.name ?: "unknown"}")
-        appendLine("Message: \${error?.message ?: "No exception message"}")
+        appendLine("App: " + appName)
+        appendLine("Repository: " + repo)
+        appendLine("Installed version: " + installedVersionName)
+        appendLine("Target version: " + (release?.versionName ?: "unknown"))
+        appendLine("Release API URL: https://api.github.com/repos/" + repo + "/releases/latest")
+        appendLine("APK URL: " + (release?.apkUrl ?: "not available"))
+        appendLine("Exception: " + (error?.javaClass?.name ?: "unknown"))
+        appendLine("Message: " + (error?.message ?: "No exception message"))
     }.trim()
 
     private fun httpError(connection: HttpURLConnection, code: Int): IOException {
         val body = runCatching {
             (connection.errorStream ?: return@runCatching "").bufferedReader().use { it.readText() }
         }.getOrDefault("")
-        return IOException("HTTP $code at \${connection.url}" + if (body.isBlank()) "" else "\nResponse body: \${body.take(2000)}")
+        return IOException("HTTP " + code + " at " + connection.url +
+            if (body.isBlank()) "" else "\nResponse body: " + body.take(2000))
     }
 
 // ---------------------------------------------------------------- package info helpers
