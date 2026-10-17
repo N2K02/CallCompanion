@@ -122,16 +122,16 @@ object AppUpdater {
             val release = result.getOrNull()
             _state.value = when {
                 result.isFailure -> {
-                    PclLogger.log("Update check failed: couldn't reach GitHub")
+                    CallLogger.log("Update check failed: couldn't reach GitHub")
                     if (manual) State.Failed("Couldn't reach GitHub. Check your connection.", null) else State.Idle
                 }
                 release == null || release.versionCode <= installedVersionCode -> {
-                    if (manual) PclLogger.log("App is up to date")
+                    if (manual) CallLogger.log("App is up to date")
                     if (manual) State.UpToDate(true) else State.Idle
                 }
                 !manual && prefs.getString("skipped", null) == release.tag -> State.Idle
                 else -> {
-                    PclLogger.log("Update available: ${release.versionName}")
+                    CallLogger.log("Update available: ${release.versionName}")
                     State.Available(release)
                 }
             }
@@ -152,7 +152,7 @@ object AppUpdater {
     /** Downloads, verifies and installs [release]. */
     fun update(release: Release) {
         if (job?.isActive == true) return
-        PclLogger.log("Starting download for version ${release.versionName}")
+        CallLogger.log("Starting download for version ${release.versionName}")
         job = scope.launch {
             val file = apkFile(release)
             try {
@@ -166,11 +166,11 @@ object AppUpdater {
                 }
             } catch (e: Exception) {
                 file.delete()
-                PclLogger.log("Download failed: ${e.javaClass.simpleName}")
+                CallLogger.log("Download failed: ${e.javaClass.simpleName}")
                 _state.value = State.Failed("Download failed. Check your connection and try again.", release)
                 return@launch
             }
-            PclLogger.log("Download and APK verification completed for version ${release.versionName}")
+            CallLogger.log("Download and APK verification completed for version ${release.versionName}")
             if (canInstall()) openInstaller(release) else _state.value = State.NeedsPermission(release)
         }
     }
@@ -279,7 +279,7 @@ object AppUpdater {
         updateDir().mkdirs()
         updateDir().listFiles()?.filter { it != file }?.forEach { it.delete() }
         _state.value = State.Downloading(release, null)
-        PclLogger.log("Downloading APK (${release.apkSize.takeIf { it > 0 }?.let { "${it / 1024} KB" } ?: "size unknown"})")
+        CallLogger.log("Downloading APK (${release.apkSize.takeIf { it > 0 }?.let { "${it / 1024} KB" } ?: "size unknown"})")
         var url = URL(release.apkUrl)
         var c: HttpURLConnection
         var hops = 0
