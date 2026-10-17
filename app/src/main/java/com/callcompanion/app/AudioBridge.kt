@@ -173,6 +173,10 @@ class AudioBridge(
         val min = AudioTrack.getMinBufferSize(
             RATE, AudioFormat.CHANNEL_OUT_MONO, AudioFormat.ENCODING_PCM_16BIT
         )
+        if (min <= 0) {
+            fail("Speaker unavailable: minimum buffer size error $min")
+            return
+        }
         val track: AudioTrack
         try {
             track = AudioTrack.Builder()
