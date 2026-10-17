@@ -393,43 +393,71 @@ class MainActivity : ComponentActivity() {
                 }
 
                 if (screen == MainTab.HOME && setupReady) {
-                    SectionCard(title = "Bluetooth connection", subtitle = if (remote) "This phone connects to the Gateway phone." else "This SIM phone provides call control for the Remote phone.") {
-                        Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-                            Icon(Icons.Default.Hub, contentDescription = null, tint = MaterialTheme.colorScheme.primary)
-                            Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(4.dp)) {
-                                Text(if (connected) "Connected" else if (running) "Waiting for peer" else "Link stopped",
-                                    style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold)
-                                Text(
-                                    if (remote) {
-                                        val peer = devices.firstOrNull { it.second == selectedDevice }
-                                        if (peer != null) "Gateway: ${peer.first} ( ${peer.second} )" else "No paired Gateway selected. Pair in Android Bluetooth settings."
-                                    } else {
-                                        "Gateway role: this phone manages the SIM call. Pair the Remote phone in Bluetooth settings."
-                                    },
-                                    style = MaterialTheme.typography.bodyMedium,
-                                    color = MaterialTheme.colorScheme.onSurfaceVariant
-                                )
-                            }
-                            Icon(if (connected) Icons.Default.CheckCircle else Icons.Default.Sync, contentDescription = null,
-                                tint = if (connected) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant)
-                        }
-                        HorizontalDivider()
-                        Text("Transport: Bluetooth", style = MaterialTheme.typography.bodyMedium)
-                        Text("Peer connection status reflects the active CallCompanion link.", style = MaterialTheme.typography.bodySmall,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    val connectionText = service?.connectionState.orEmpty()
+                    val bluetoothStatus = when {
+                        connected -> "Connected"
+                        !running -> "Disconnected"
+                        connectionText.contains("retry", ignoreCase = true) ||
+                            connectionText.contains("connect", ignoreCase = true) -> "Reconnecting"
+                        else -> "Waiting for peer"
                     }
-                    SectionCard(title = "Call relay status", subtitle = "Bluetooth call-control and audio-link status.") {
-                        Text(if (!running) "Relay is stopped" else if (connected) "Bluetooth peer connected" else "Bluetooth peer not connected",
-                            style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold)
-                        Text(
-                            when (callState) {
-                                LinkService.CALL_RINGING -> "An incoming call is ringing."
-                                LinkService.CALL_OFFHOOK -> "A phone call is active."
-                                else -> "No active phone call."
-                            },
-                            style = MaterialTheme.typography.bodyMedium
-                        )
-                        Text("Voice link remains available below and can be started independently when the relay is running.",
+                    SectionCard(title = "Bluetooth", subtitle = "Connection to the other CallCompanion phone.") {
+                        Text(bluetoothStatus, style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold,
+                            color = if (connected) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurface)
+                        Text(if (running) connectionText else "Start the relay to connect.",
+                            style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                        Text(if (remote) {
+                            val peer = devices.firstOrNull { it.second == selectedDevice }
+                            if (peer != null) "Gateway: ${peer.first} (${peer.second})" else "No Gateway phone selected. Pair in Android Bluetooth settings."
+                        } else "This Gateway phone manages calls through its own SIM.",
+                            style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    }
+
+                    val callError = service?.callControlError
+                    val callFailed = callError?.startsWith("FAILED:") == true
+                    val callPending = callError?.startsWith("PENDING:") == true
+                    val callControlLabel = when {
+                        callFailed -> "Failed"
+                        callPending -> "Waiting for Gateway"
+                        callState == LinkService.CALL_RINGING -> "Ringing"
+                        callState == LinkService.CALL_OFFHOOK -> "Active"
+                        else -> "Idle"
+                    }
+                    SectionCard(title = "Call control", subtitle = "Status of the SIM call on the Gateway phone.") {
+                        Text(callControlLabel, style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold,
+                            color = if (callFailed) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.onSurface)
+                        Text(when {
+                            callFailed -> callError?.removePrefix("FAILED: ") ?: "The Gateway could not complete the request."
+                            callPending -> callError?.removePrefix("PENDING: ") ?: "Waiting for a response from the Gateway."
+                            callState == LinkService.CALL_RINGING -> "An incoming SIM call is ringing."
+                            callState == LinkService.CALL_OFFHOOK -> "The Gateway reports a call in progress."
+                            else -> "No active SIM call is reported by the Gateway."
+                        }, style = MaterialTheme.typography.bodyMedium)
+                        if (remote && !connected) Text("Call status may be out of date while Bluetooth is disconnected.",
+                            style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    }
+
+                    val voiceState = service?.voiceState ?: "STOPPED"
+                    SectionCard(title = "Voice link", subtitle = "App microphone-to-speaker audio over Bluetooth; this is separate from SIM-call audio.") {
+                        Text(when (voiceState) {
+                            "STARTING" -> "Starting"
+                            "RUNNING" -> "Running"
+                            "FAILED" -> "Failed"
+                            else -> "Stopped"
+                        }, style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold,
+                            color = if (voiceState == "FAILED") MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.onSurface)
+                        Text(when (voiceState) {
+                            "STARTING" -> "Waiting for microphone capture and audio playback to initialize."
+                            "RUNNING" -> "Microphone capture and playback have initialized. This does not confirm SIM-call audio is relayed."
+                            "FAILED" -> "Audio capture or playback failed. Check Activity logs, microphone permission and audio availability."
+                            else -> "The app voice link is not running."
+                        }, style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    }
+
+                    SectionCard(title = "SIM-call audio limitation", subtitle = "Important compatibility information.") {
+                        Text("CallCompanion can send call-control commands to the Gateway's existing SIM phone. The Voice link uses the phones' app microphones and speakers; it does not directly capture or inject the cellular call's audio.",
+                            style = MaterialTheme.typography.bodyMedium)
+                        Text("On ordinary Android phones, direct access to SIM-call audio is generally restricted. Do not assume the remote phone can hear the caller or that the caller can hear the remote phone until this is verified on your exact devices.",
                             style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                     }
                 }
