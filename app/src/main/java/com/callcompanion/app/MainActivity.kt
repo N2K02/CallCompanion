@@ -3,8 +3,13 @@ package com.callcompanion.app
 import android.Manifest
 import android.annotation.SuppressLint
 import androidx.activity.ComponentActivity
+import androidx.core.view.WindowCompat
+import androidx.core.view.WindowInsetsCompat
+import androidx.core.view.WindowInsetsControllerCompat
 import android.bluetooth.BluetoothManager
 import android.content.Intent
+import android.content.ClipData
+import android.content.ClipboardManager
 import android.content.SharedPreferences
 import android.content.pm.PackageManager
 import android.os.Build
@@ -24,6 +29,8 @@ import androidx.compose.material.icons.filled.Call
 import androidx.compose.material.icons.filled.CallEnd
 import androidx.compose.material.icons.filled.CheckCircle
 import androidx.compose.material.icons.filled.Close
+import androidx.compose.material.icons.filled.ContentCopy
+import androidx.compose.material.icons.filled.DeleteSweep
 import androidx.compose.material.icons.filled.Download
 import androidx.compose.material.icons.filled.Hub
 import androidx.compose.material.icons.filled.Mic
@@ -52,7 +59,7 @@ private enum class MainTab { HOME, UPDATE, SETTINGS }
 class MainActivity : ComponentActivity() {
     private lateinit var prefs: SharedPreferences
     private var revision by mutableIntStateOf(0)
-    private var role by mutableStateOf(LinkService.ROLE_REMOTE)
+    private var role by mutableStateOf(LinkService.ROLE_GATEWAY)
     private var roleSelected by mutableStateOf(false)
     private var devices by mutableStateOf<List<Pair<String, String>>>(emptyList())
     private var selectedDevice by mutableStateOf<String?>(null)
@@ -64,9 +71,16 @@ class MainActivity : ComponentActivity() {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        // Immersive full-screen: hide both system bars and allow Compose to use the display.
+        WindowCompat.setDecorFitsSystemWindows(window, false)
+        WindowInsetsControllerCompat(window, window.decorView).apply {
+            hide(WindowInsetsCompat.Type.systemBars())
+            systemBarsBehavior = WindowInsetsControllerCompat.BEHAVIOR_SHOW_TRANSIENT_BARS_BY_SWIPE
+        }
         prefs = getSharedPreferences("callcompanion", MODE_PRIVATE)
-        role = prefs.getString("role", LinkService.ROLE_REMOTE) ?: LinkService.ROLE_REMOTE
-        roleSelected = prefs.contains("role")
+        role = prefs.getString("role", LinkService.ROLE_GATEWAY) ?: LinkService.ROLE_GATEWAY
+        roleSelected = true
+        if (!prefs.contains("role")) prefs.edit().putString("role", LinkService.ROLE_GATEWAY).apply()
         selectedDevice = prefs.getString("device", null)
         Hub.clearLog()
         CallLogger.init(this)
@@ -391,15 +405,7 @@ class MainActivity : ComponentActivity() {
                     }
                 }
 
-                if (screen == MainTab.HOME && setupReady) SectionCard(title = "Activity log", subtitle = "Recent connection and service events.") {
-                    Text(Hub.logText().ifBlank { "No events yet. Start the link to see connection status here." },
-                        style = MaterialTheme.typography.bodySmall,
-                        fontFamily = androidx.compose.ui.text.font.FontFamily.Monospace,
-                        modifier = Modifier.fillMaxWidth().heightIn(max = 220.dp).verticalScroll(rememberScrollState())
-                            .background(MaterialTheme.colorScheme.surfaceContainerLow, RoundedCornerShape(18.dp))
-                            .padding(14.dp)
-                    )
-                }
+                if (screen == MainTab.HOME && setupReady) ActivityLogCard()
                 if (screen == MainTab.HOME && !setupReady) {
                     Text("Complete setup first", style = MaterialTheme.typography.headlineMedium, fontWeight = FontWeight.Bold)
                     SectionCard(title = "Home locked", subtitle = "Grant the required permissions in Settings to enable the connection controls.") {
@@ -427,12 +433,10 @@ class MainActivity : ComponentActivity() {
                             PermissionSetupRow("Notification access", "Read call notifications for the relay", notificationAccess) { runCatching { startActivity(Intent(Settings.ACTION_NOTIFICATION_LISTENER_SETTINGS)) }.onFailure { toast("Open Android Settings → Notifications → Notification access") } }
                             PermissionSetupRow("Microphone", "Required for the voice-link feature", granted(Manifest.permission.RECORD_AUDIO)) { requestPermissions(arrayOf(Manifest.permission.RECORD_AUDIO), 1) }
                             if (Build.VERSION.SDK_INT >= 31) PermissionSetupRow("Bluetooth connection", "Connect to the paired remote phone", granted(Manifest.permission.BLUETOOTH_CONNECT)) { requestPermissions(arrayOf(Manifest.permission.BLUETOOTH_CONNECT), 1) }
-                            PermissionSetupRow("Hotspot", "Open Android settings to enable the gateway hotspot if needed", false, "Open settings") { runCatching { startActivity(Intent(Settings.ACTION_WIRELESS_SETTINGS)) } }
                         } else if (roleSelected) {
                             PermissionSetupRow("Microphone", "Required for the voice-link feature", granted(Manifest.permission.RECORD_AUDIO)) { requestPermissions(arrayOf(Manifest.permission.RECORD_AUDIO), 1) }
                             if (Build.VERSION.SDK_INT >= 31) PermissionSetupRow("Bluetooth connection", "Find and connect to the paired gateway phone", granted(Manifest.permission.BLUETOOTH_CONNECT)) { requestPermissions(arrayOf(Manifest.permission.BLUETOOTH_CONNECT), 1) }
                             if (Build.VERSION.SDK_INT >= 33) PermissionSetupRow("Notifications", "Show the ongoing CallCompanion status", granted(Manifest.permission.POST_NOTIFICATIONS)) { requestPermissions(arrayOf(Manifest.permission.POST_NOTIFICATIONS), 1) }
-                            PermissionSetupRow("Local Wi-Fi", "Open Wi-Fi settings to check the local connection", false, "Open settings") { runCatching { startActivity(Intent(Settings.ACTION_WIFI_SETTINGS)) } }
                         } else {
                             Text("Choose Gateway or Remote above to load the matching permission checklist.")
                         }
@@ -509,6 +513,47 @@ class MainActivity : ComponentActivity() {
                         }
                     }
                     Text("CallCompanion • Material 3 Expressive", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.align(Alignment.CenterHorizontally))
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun ActivityLogCard() {
+    val context = LocalContext.current
+    val lines by CallLogger.lines.collectAsState()
+    SectionCard(title = "Activity logs", subtitle = "Latest ${lines.size}/100 lines. Newest entries appear first.") {
+        Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.fillMaxWidth()) {
+            OutlinedButton(
+                onClick = {
+                    val clipboard = context.getSystemService(android.content.Context.CLIPBOARD_SERVICE) as ClipboardManager
+                    clipboard.setPrimaryClip(ClipData.newPlainText("CallCompanion activity logs", lines.asReversed().joinToString("\n")))
+                    CallLogger.log("Activity logs copied")
+                },
+                modifier = Modifier.weight(1f)
+            ) {
+                Icon(Icons.Default.ContentCopy, contentDescription = null)
+                Spacer(Modifier.width(5.dp))
+                Text("Copy")
+            }
+            OutlinedButton(onClick = { CallLogger.clear() }, modifier = Modifier.weight(1f)) {
+                Icon(Icons.Default.DeleteSweep, contentDescription = null)
+                Spacer(Modifier.width(5.dp))
+                Text("Clear all")
+            }
+        }
+        HorizontalDivider()
+        if (lines.isEmpty()) {
+            Text("No activity recorded yet.", style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
+        } else {
+            Column(
+                Modifier.fillMaxWidth().heightIn(max = 280.dp).verticalScroll(rememberScrollState())
+                    .background(MaterialTheme.colorScheme.surfaceContainerLow, RoundedCornerShape(18.dp)).padding(12.dp),
+                verticalArrangement = Arrangement.spacedBy(5.dp)
+            ) {
+                lines.asReversed().forEach { line ->
+                    Text(line, style = MaterialTheme.typography.bodySmall, fontFamily = androidx.compose.ui.text.font.FontFamily.Monospace, color = MaterialTheme.colorScheme.onSurfaceVariant)
                 }
             }
         }
