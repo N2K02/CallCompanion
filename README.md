@@ -49,7 +49,7 @@ Gateway phone (SIM, mobile data/Wi-Fi, CallCompanion)
 
 1. On the Remote, choose a synced contact or enter a phone number in international format.
 2. Tap **WhatsApp chat on Gateway**.
-3. The Gateway displays a **Continue in WhatsApp** notification. Tap it on the Gateway to open the chat.
+3. The Gateway displays a **Continue in WhatsApp** notification. Tap it on the Gateway to open the chat; Android may use WhatsApp or a browser depending on installed apps and link settings.
 4. Start the voice call using WhatsApp's own call button. The Gateway's Android audio routing determines whether the call uses its paired hands-free speakerphone.
 
 WhatsApp does not expose a stable public Android API for third-party apps to place arbitrary outgoing voice calls directly. CallCompanion therefore does not pretend the chat handoff is a direct call, and does not use brittle private WhatsApp intents or simulated taps.
