@@ -501,7 +501,7 @@ class LinkService : Service() {
                 }
             }
             "NOTIF_ACTION_RESULT" -> Hub.log(if (arg1 == "OK") "Third-party call action sent to the app" else "Third-party call action failed")
-            else -> Hub.log("Unknown command: ${p[0]}")            else -> Hub.log("Unknown command: ${p[0]}")
+            else -> Hub.log("Unknown command: ${p[0]}")
         }
         Hub.notifyUi()
     }
