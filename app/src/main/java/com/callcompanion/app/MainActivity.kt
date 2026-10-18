@@ -110,7 +110,10 @@ class MainActivity : ComponentActivity() {
     }
 
     private fun corePerms(): List<String> {
-        val l = mutableListOf(Manifest.permission.RECORD_AUDIO)
+        // Microphone access is optional: SIM calls stay routed through Android and the
+        // Gateway's paired hands-free device. Ask for mic only if the separate app
+        // microphone-to-speaker voice-link feature is explicitly started.
+        val l = mutableListOf<String>()
         if (Build.VERSION.SDK_INT >= 31) l.add(Manifest.permission.BLUETOOTH_CONNECT)
         if (Build.VERSION.SDK_INT >= 33) l.add(Manifest.permission.POST_NOTIFICATIONS)
         return l
@@ -463,7 +466,15 @@ class MainActivity : ComponentActivity() {
                 }
 
                 if (screen == MainTab.HOME && setupReady) SectionCard(title = "Voice link controls", subtitle = "Start or stop the app microphone link and choose this phone’s speaker route.") {
-                    Button(onClick = { service?.toggleVoice(); refresh() }, enabled = running, modifier = Modifier.fillMaxWidth()) {
+                    Button(onClick = {
+                        if (service != null && !service.voiceActive && !granted(Manifest.permission.RECORD_AUDIO)) {
+                            requestPermissions(arrayOf(Manifest.permission.RECORD_AUDIO), 3)
+                            toast("Microphone permission is only needed for the separate voice-link feature")
+                        } else {
+                            service?.toggleVoice()
+                            refresh()
+                        }
+                    }, enabled = running, modifier = Modifier.fillMaxWidth()) {
                         Icon(Icons.Default.Mic, null); Spacer(Modifier.width(8.dp))
                         Text(if (service?.voiceActive == true) "End voice link" else "Start voice link")
                     }
@@ -501,7 +512,7 @@ class MainActivity : ComponentActivity() {
                             PermissionSetupRow("Answer calls", "Allow call answering requests", granted(Manifest.permission.ANSWER_PHONE_CALLS)) { requestPermissions(arrayOf(Manifest.permission.ANSWER_PHONE_CALLS), 1) }
                             PermissionSetupRow("Place calls", "Place calls through the gateway SIM", granted(Manifest.permission.CALL_PHONE)) { requestPermissions(arrayOf(Manifest.permission.CALL_PHONE), 1) }
                             PermissionSetupRow("Notification access", "Read call notifications for the relay", notificationAccess) { runCatching { startActivity(Intent(Settings.ACTION_NOTIFICATION_LISTENER_SETTINGS)) }.onFailure { toast("Open Android Settings → Notifications → Notification access") } }
-                            PermissionSetupRow("Microphone", "Required for the voice-link feature", granted(Manifest.permission.RECORD_AUDIO)) { requestPermissions(arrayOf(Manifest.permission.RECORD_AUDIO), 1) }
+                            PermissionSetupRow("Microphone (optional)", "Only for the separate app voice-link feature", granted(Manifest.permission.RECORD_AUDIO)) { requestPermissions(arrayOf(Manifest.permission.RECORD_AUDIO), 1) }
                             if (Build.VERSION.SDK_INT >= 31) PermissionSetupRow("Bluetooth connection", "Connect to the paired remote phone", granted(Manifest.permission.BLUETOOTH_CONNECT)) { requestPermissions(arrayOf(Manifest.permission.BLUETOOTH_CONNECT), 1) }
                         } else if (roleSelected) {
                             PermissionSetupRow("Microphone", "Required for the voice-link feature", granted(Manifest.permission.RECORD_AUDIO)) { requestPermissions(arrayOf(Manifest.permission.RECORD_AUDIO), 1) }
