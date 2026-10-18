@@ -741,7 +741,8 @@ class LinkService : Service() {
             Hub.log("Voice link stopped to preserve Android-managed call audio")
         }
         // Stop the peer too, even if this side was not streaming when the call arrived.
-        send("VOICE_STOP")
+        // If disconnected, neither side can be streaming through this socket.
+        if (connected) send("VOICE_STOP")
     }
 
     private fun tryCallNotificationFallback(kind: String): Boolean {
