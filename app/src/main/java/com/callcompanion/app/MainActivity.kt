@@ -485,6 +485,11 @@ class MainActivity : ComponentActivity() {
                 }
 
                 if (screen == MainTab.HOME && setupReady) SectionCard(title = "Voice link controls", subtitle = "Start or stop the app microphone link and choose this phone’s speaker route.") {
+                    if (callState != LinkService.CALL_IDLE) Text(
+                        "Voice link is disabled during a SIM call to preserve Android's call-audio routing.",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
                     Button(onClick = {
                         if (service != null && !service.voiceActive && !granted(Manifest.permission.RECORD_AUDIO)) {
                             requestPermissions(arrayOf(Manifest.permission.RECORD_AUDIO), 3)
@@ -493,7 +498,7 @@ class MainActivity : ComponentActivity() {
                             service?.toggleVoice()
                             refresh()
                         }
-                    }, enabled = running, modifier = Modifier.fillMaxWidth()) {
+                    }, enabled = running && (callState == LinkService.CALL_IDLE || service?.voiceActive == true), modifier = Modifier.fillMaxWidth()) {
                         Icon(Icons.Default.Mic, null); Spacer(Modifier.width(8.dp))
                         Text(if (service?.voiceActive == true) "End voice link" else "Start voice link")
                     }
