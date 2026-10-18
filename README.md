@@ -20,6 +20,31 @@ Install the same app on both phones and select a role:
 | Bluetooth transport | Call state, notification details, and commands travel over the existing Bluetooth RFCOMM connection. |
 | Call audio | The Gateway remains paired to the Bluetooth speakerphone, so the conversation audio stays between the Gateway and that device. CallCompanion does not relay cellular-call audio to the Remote. |
 
+## How the call flow works
+
+```text
+Remote phone (screen and buttons)
+        ⇅ Bluetooth RFCOMM
+Gateway phone (SIM, mobile data/Wi-Fi, CallCompanion)
+        ⇄ Bluetooth hands-free speakerphone (call microphone + speaker)
+```
+
+### Incoming or outgoing SIM call
+
+1. Android on the Gateway reports the call state to CallCompanion.
+2. CallCompanion sends the state and available caller details to the Remote over the paired-phone Bluetooth link.
+3. Tap **Answer**, **Reject**, or **End** on the Remote. The Gateway receives the request and asks Android Telecom to perform it.
+4. The Gateway's Bluetooth speakerphone handles the actual conversation audio. The Remote is a control screen, not the call's audio device.
+
+### Third-party app call (for example, WhatsApp)
+
+1. The third-party app posts a call notification on the Gateway.
+2. After Notification Access is enabled, CallCompanion forwards the notification and up to three actions exposed by that app.
+3. Tap an action on the Remote. CallCompanion asks the Gateway to invoke the original notification action.
+4. The third-party app decides whether that action succeeds. If it does not expose an Answer/Decline action in its notification, CallCompanion cannot manufacture one.
+
+The phones communicate locally over Bluetooth; no CallCompanion cloud server is involved. The Gateway itself still needs whatever internet connection the third-party calling app requires. This app mirrors call status and controls only—it does not forward call audio.
+
 ## Android compatibility and setup
 
 The app's minimum supported Android version is Android 8.0 (API 26), so the monitoring and Bluetooth flow covers Android 10 and newer. Android 12+ requires the Nearby devices/Bluetooth Connect runtime permission. Android 13+ also requires notification permission for CallCompanion's own notifications.
