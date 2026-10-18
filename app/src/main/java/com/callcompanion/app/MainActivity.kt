@@ -311,9 +311,9 @@ class MainActivity : ComponentActivity() {
                     SectionCard(title = "Phone call", subtitle = "Call controls are available while the link is running.") {
                         Text(
                             when (callState) {
-                                LinkService.CALL_RINGING -> "Incoming call"
-                                LinkService.CALL_OFFHOOK -> "Call in progress"
-                                else -> "No active phone call"
+                                LinkService.CALL_RINGING -> "Incoming SIM call"
+                                LinkService.CALL_OFFHOOK -> if (service?.callDirection == "OUTGOING") "Outgoing SIM call in progress" else "Call in progress"
+                                else -> "No active SIM call"
                             },
                             style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.SemiBold
                         )
@@ -429,6 +429,7 @@ class MainActivity : ComponentActivity() {
                             callFailed -> callError?.removePrefix("FAILED: ") ?: "The Gateway could not complete the request."
                             callPending -> callError?.removePrefix("PENDING: ") ?: "Waiting for a response from the Gateway."
                             callState == LinkService.CALL_RINGING -> "An incoming SIM call is ringing."
+                            callState == LinkService.CALL_OFFHOOK && service?.callDirection == "OUTGOING" -> "The Gateway reports an outgoing SIM call. The dialled number may not be available to a normal app."
                             callState == LinkService.CALL_OFFHOOK -> "The Gateway reports a call in progress."
                             else -> "No active SIM call is reported by the Gateway."
                         }, style = MaterialTheme.typography.bodyMedium)

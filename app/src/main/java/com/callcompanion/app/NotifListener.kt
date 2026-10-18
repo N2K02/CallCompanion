@@ -1,6 +1,7 @@
 package com.callcompanion.app
 
 import android.app.Notification
+import android.app.PendingIntent
 import android.content.ComponentName
 import android.content.Context
 import android.provider.Settings
@@ -25,6 +26,7 @@ class NotifListener : NotificationListenerService() {
     }
 
     private val lastSent = HashMap<String, String>()
+    private val actionsByKey = HashMap<String, Array<Notification.Action>>()
 
     override fun onListenerConnected() {
         instance = this
@@ -37,32 +39,63 @@ class NotifListener : NotificationListenerService() {
 
     override fun onNotificationPosted(sbn: StatusBarNotification) {
         val svc = Hub.service ?: return
-        if (!svc.shouldMirror()) return
-        if (sbn.packageName == packageName) return
-        if (sbn.isOngoing) return // music players, navigation, downloads…
+        if (!svc.shouldMirror() || sbn.packageName == packageName) return
         val n = sbn.notification ?: return
         if ((n.flags and Notification.FLAG_GROUP_SUMMARY) != 0) return
-        if (n.category == Notification.CATEGORY_CALL) return // calls are handled separately
-
         val ex = n.extras ?: return
         val title = ex.getCharSequence(Notification.EXTRA_TITLE)?.toString() ?: ""
-        val text = (ex.getCharSequence(Notification.EXTRA_BIG_TEXT)
-            ?: ex.getCharSequence(Notification.EXTRA_TEXT))?.toString()
-            ?: ex.getCharSequenceArray(Notification.EXTRA_TEXT_LINES)?.joinToString("\n")
-            ?: ""
+        val text = (ex.getCharSequence(Notification.EXTRA_BIG_TEXT) ?: ex.getCharSequence(Notification.EXTRA_TEXT))?.toString()
+            ?: ex.getCharSequenceArray(Notification.EXTRA_TEXT_LINES)?.joinToString("\n") ?: ""
         if (title.isEmpty() && text.isEmpty()) return
 
-        val sig = title + "\u0000" + text
-        synchronized(lastSent) {
-            if (lastSent[sbn.key] == sig) return // same content re-posted, skip
-            lastSent[sbn.key] = sig
+        val actions = n.actions ?: emptyArray()
+        val available = actions.withIndex().filter { it.value.actionIntent != null && !it.value.title.isNullOrBlank() }.take(3)
+        val indices = available.map { it.index }
+        val labels = available.map { it.value.title.toString().take(40) }
+        val lowerActions = labels.joinToString(" ").lowercase()
+        val callNotification = n.category == Notification.CATEGORY_CALL ||
+            (sbn.isOngoing && listOf("answer", "accept", "decline", "reject", "hang up", "end call").any { lowerActions.contains(it) })
+
+        if (callNotification) {
+            synchronized(actionsByKey) { actionsByKey[sbn.key] = actions }
+            val signature = "CALL\u0000$title\u0000$text\u0000" + labels.joinToString("\u0001")
+            synchronized(lastSent) { if (lastSent[sbn.key] == signature) return; lastSent[sbn.key] = signature }
+            svc.mirrorCallPosted(sbn.key, appName(sbn.packageName), title, text, indices, labels)
+            return
         }
+        if (sbn.isOngoing) return
+        val signature = title + "\u0000" + text
+        synchronized(lastSent) { if (lastSent[sbn.key] == signature) return; lastSent[sbn.key] = signature }
         svc.mirrorPosted(sbn.key, appName(sbn.packageName), title, text)
     }
 
     override fun onNotificationRemoved(sbn: StatusBarNotification) {
         synchronized(lastSent) { lastSent.remove(sbn.key) }
+        synchronized(actionsByKey) { actionsByKey.remove(sbn.key) }
         Hub.service?.mirrorRemoved(sbn.key)
+    }
+
+    /** Process notifications already present when the Bluetooth link reconnects. */
+    fun syncActiveNotifications() {
+        try { activeNotifications?.forEach { onNotificationPosted(it) } }
+        catch (e: Exception) { Hub.log("Could not sync active notifications: ${e.message}") }
+    }
+
+    /** Invoke only an action supplied by the original app notification. */
+    fun performAction(key: String, index: Int): Boolean {
+        val action = synchronized(actionsByKey) { actionsByKey[key]?.getOrNull(index) } ?: return false
+        val intent = action.actionIntent ?: return false
+        return try {
+            intent.send()
+            Hub.log("Invoked notification action: ${action.title}")
+            true
+        } catch (e: PendingIntent.CanceledException) {
+            Hub.log("Notification action expired: ${e.message}")
+            false
+        } catch (e: SecurityException) {
+            Hub.log("Notification action not allowed: ${e.message}")
+            false
+        }
     }
 
     /** Called when the user swipes the copy away on the remote phone. */

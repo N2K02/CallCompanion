@@ -54,7 +54,9 @@ class LinkService : Service() {
         const val ACTION_ANSWER = "com.callcompanion.app.ANSWER"
         const val ACTION_REJECT = "com.callcompanion.app.REJECT"
         const val ACTION_NOTIF_DISMISSED = "com.callcompanion.app.NOTIF_DISMISSED"
+        const val ACTION_NOTIF_ACTION = "com.callcompanion.app.NOTIF_ACTION"
         const val EXTRA_KEY = "key"
+        const val EXTRA_ACTION_INDEX = "action_index"
         const val EXTRA_ROLE = "role"
         const val EXTRA_DEVICE = "device"
 
@@ -81,6 +83,8 @@ class LinkService : Service() {
     @Volatile var callNumber: String = ""
         private set
     @Volatile var callName: String = ""
+        private set
+    @Volatile var callDirection: String = ""
         private set
     @Volatile var callControlError: String? = null
         private set
@@ -148,6 +152,15 @@ class LinkService : Service() {
             ACTION_NOTIF_DISMISSED -> {
                 val key = intent.getStringExtra(EXTRA_KEY)
                 if (running && key != null) send("NOTIF_DISMISS", key) else if (!running) stopSelf()
+            }
+            ACTION_NOTIF_ACTION -> {
+                val key = intent.getStringExtra(EXTRA_KEY)
+                val index = intent.getIntExtra(EXTRA_ACTION_INDEX, -1)
+                if (running && role == ROLE_REMOTE && connected && key != null && index >= 0) {
+                    send("NOTIF_ACTION", key, index.toString())
+                } else {
+                    Hub.log("Third-party call action unavailable: Bluetooth link is not connected")
+                }
             }
         }
         Hub.notifyUi()
@@ -310,6 +323,7 @@ class LinkService : Service() {
             "peer"
         }
         setConn(true, "Connected to $peer")
+        if (role == ROLE_GATEWAY) NotifListener.instance?.syncActiveNotifications()
         send("HELLO", role)
         if (role == ROLE_GATEWAY) {
             sendCallState()
@@ -411,6 +425,7 @@ class LinkService : Service() {
                 if (role == ROLE_REMOTE && callState == CALL_RINGING) callControlError = null
                 callNumber = p.getOrElse(2) { "" }
                 callName = p.getOrElse(3) { "" }
+                callDirection = p.getOrElse(4) { "" }
                 if (role == ROLE_REMOTE) onRemoteCallUpdate()
             }
             // remote -> gateway
@@ -459,13 +474,34 @@ class LinkService : Service() {
             }
             // notifications: gateway -> remote
             "NOTIF" -> showMirrored(arg1, p.getOrElse(2) { "" }, p.getOrElse(3) { "" }, p.drop(4).joinToString("/"))
+            "NOTIF_V2" -> showMirrored(arg1, decodeText(p.getOrElse(2) { "" }), decodeText(p.getOrElse(3) { "" }), decodeText(p.getOrElse(4) { "" }))
+            "CALL_NOTIF" -> {
+                val count = (p.getOrElse(5) { "0" }.toIntOrNull() ?: 0).coerceIn(0, 3)
+                val indices = ArrayList<Int>()
+                val labels = ArrayList<String>()
+                for (i in 0 until count) {
+                    val index = p.getOrNull(6 + i * 2)?.toIntOrNull() ?: continue
+                    val label = decodeText(p.getOrNull(7 + i * 2).orEmpty()).take(40)
+                    if (label.isNotBlank()) { indices.add(index); labels.add(label) }
+                }
+                showMirroredCall(arg1, decodeText(p.getOrElse(2) { "" }), decodeText(p.getOrElse(3) { "" }), decodeText(p.getOrElse(4) { "" }), indices, labels)
+            }
             "NOTIF_REMOVE" -> nm.cancel(TAG_MIRROR, arg1.hashCode())
-            // remote -> gateway: user swiped it away on the remote
             "NOTIF_DISMISS" -> {
                 val key = decodeKey(arg1)
                 if (key != null) NotifListener.instance?.dismiss(key)
             }
-            else -> Hub.log("Unknown command: ${p[0]}")
+            "NOTIF_ACTION" -> {
+                if (role == ROLE_GATEWAY) {
+                    val key = decodeKey(arg1)
+                    val index = p.getOrNull(2)?.toIntOrNull() ?: -1
+                    val ok = key != null && index >= 0 && (NotifListener.instance?.performAction(key, index) == true)
+                    if (!ok) Hub.log("Third-party call action failed or is no longer available")
+                    send("NOTIF_ACTION_RESULT", if (ok) "OK" else "FAILED")
+                }
+            }
+            "NOTIF_ACTION_RESULT" -> Hub.log(if (arg1 == "OK") "Third-party call action sent to the app" else "Third-party call action failed")
+            else -> Hub.log("Unknown command: ${p[0]}")            else -> Hub.log("Unknown command: ${p[0]}")
         }
         Hub.notifyUi()
     }
@@ -489,11 +525,15 @@ class LinkService : Service() {
             val st = i.getStringExtra(TelephonyManager.EXTRA_STATE) ?: return
             @Suppress("DEPRECATION")
             val num = i.getStringExtra(TelephonyManager.EXTRA_INCOMING_NUMBER)
+            val previousState = callState
             val newState = when (st) {
                 TelephonyManager.EXTRA_STATE_RINGING -> CALL_RINGING
                 TelephonyManager.EXTRA_STATE_OFFHOOK -> CALL_OFFHOOK
                 else -> CALL_IDLE
             }
+            if (newState == CALL_RINGING) callDirection = "INCOMING"
+            else if (newState == CALL_OFFHOOK && previousState == CALL_IDLE) callDirection = "OUTGOING"
+            else if (newState == CALL_IDLE) callDirection = ""
             val gotNumber = !num.isNullOrEmpty() && num != callNumber
             if (!num.isNullOrEmpty()) {
                 callNumber = num
@@ -523,7 +563,7 @@ class LinkService : Service() {
     }
 
     private fun sendCallState() {
-        if (writer != null) send("CALL", callState, callNumber, callName)
+        if (writer != null) send("CALL", callState, callNumber, callName, callDirection)
     }
 
     @SuppressLint("MissingPermission")
@@ -579,6 +619,7 @@ class LinkService : Service() {
         try {
             callNumber = n
             callName = lookupName(n)
+            callDirection = "OUTGOING"
             getSystemService(TelecomManager::class.java)!!
                 .placeCall(Uri.fromParts("tel", n, null), Bundle())
             callControlError = null
@@ -698,18 +739,23 @@ class LinkService : Service() {
         running && connected && role == ROLE_GATEWAY &&
             getSharedPreferences("callcompanion", MODE_PRIVATE).getBoolean("mirror", true)
 
-    private fun encodeKey(k: String): String =
-        Base64.encodeToString(k.toByteArray(Charsets.UTF_8), Base64.NO_WRAP or Base64.URL_SAFE)
+    private fun encodeKey(k: String): String = encodeText(k)
+    private fun decodeKey(k: String): String? = try { decodeText(k) } catch (_: Exception) { null }
+    private fun encodeText(value: String): String = Base64.encodeToString(value.toByteArray(Charsets.UTF_8), Base64.NO_WRAP or Base64.URL_SAFE)
+    private fun decodeText(value: String): String = try { String(Base64.decode(value, Base64.NO_WRAP or Base64.URL_SAFE), Charsets.UTF_8) } catch (_: Exception) { "" }
 
-    private fun decodeKey(k: String): String? = try {
-        String(Base64.decode(k, Base64.NO_WRAP or Base64.URL_SAFE), Charsets.UTF_8)
-    } catch (e: Exception) {
-        null
+    /** Gateway: forward a notification with delimiter-safe fields. */
+    fun mirrorPosted(key: String, app: String, title: String, text: String) {
+        send("NOTIF_V2", encodeKey(key), encodeText(app), encodeText(title), encodeText(text.take(2000)))
     }
 
-    /** Gateway: forward a phone notification to the remote. */
-    fun mirrorPosted(key: String, app: String, title: String, text: String) {
-        send("NOTIF", encodeKey(key), app, title, text.take(2000))
+    /** Gateway: forward a third-party call notification and its available action buttons. */
+    fun mirrorCallPosted(key: String, app: String, title: String, text: String, actionIndices: List<Int>, actionLabels: List<String>) {
+        val fields = mutableListOf("CALL_NOTIF", encodeKey(key), encodeText(app), encodeText(title), encodeText(text.take(1200)))
+        val count = minOf(3, actionIndices.size, actionLabels.size)
+        fields += count.toString()
+        for (i in 0 until count) { fields += actionIndices[i].toString(); fields += encodeText(actionLabels[i].take(40)) }
+        send(*fields.toTypedArray())
     }
 
     /** Gateway: the notification was cleared on this phone, clear the copy too. */
@@ -720,29 +766,40 @@ class LinkService : Service() {
     /** Remote: show a copy of a gateway notification. */
     private fun showMirrored(encKey: String, app: String, title: String, text: String) {
         val id = encKey.hashCode()
-        val deletePi = PendingIntent.getService(
-            this, id,
-            Intent(this, LinkService::class.java)
-                .setAction(ACTION_NOTIF_DISMISSED)
-                .putExtra(EXTRA_KEY, encKey),
-            PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT
-        )
+        val deletePi = PendingIntent.getService(this, id, Intent(this, LinkService::class.java).setAction(ACTION_NOTIF_DISMISSED).putExtra(EXTRA_KEY, encKey), PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT)
         val n = Notification.Builder(this, CH_MIRROR)
-            .setSmallIcon(android.R.drawable.stat_notify_chat)
-            .setSubText(app)
-            .setContentTitle(title.ifEmpty { app })
-            .setContentText(text)
-            .setStyle(Notification.BigTextStyle().bigText(text))
-            .setWhen(System.currentTimeMillis())
-            .setShowWhen(true)
-            .setAutoCancel(true)
-            .setContentIntent(openAppPi())
-            .setDeleteIntent(deletePi)
-            .build()
-        try {
-            nm.notify(TAG_MIRROR, id, n)
-        } catch (e: Exception) {
+            .setSmallIcon(android.R.drawable.stat_notify_chat).setSubText(app)
+            .setContentTitle(title.ifEmpty { app }).setContentText(text)
+            .setStyle(Notification.BigTextStyle().bigText(text)).setWhen(System.currentTimeMillis())
+            .setShowWhen(true).setAutoCancel(true).setContentIntent(openAppPi()).setDeleteIntent(deletePi).build()
+        try { nm.notify(TAG_MIRROR, id, n) } catch (_: Exception) { }
+    }
+
+    /** Remote: mirror a third-party call notification with its original available actions. */
+    private fun showMirroredCall(encKey: String, app: String, title: String, text: String, actionIndices: List<Int>, actionLabels: List<String>) {
+        val id = encKey.hashCode()
+        val deletePi = PendingIntent.getService(this, id, Intent(this, LinkService::class.java).setAction(ACTION_NOTIF_DISMISSED).putExtra(EXTRA_KEY, encKey), PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT)
+        val builder = Notification.Builder(this, CH_MIRROR)
+            .setSmallIcon(android.R.drawable.sym_action_call).setSubText(app)
+            .setContentTitle(title.ifEmpty { app }).setContentText(text)
+            .setStyle(Notification.BigTextStyle().bigText(text)).setCategory(Notification.CATEGORY_CALL)
+            .setWhen(System.currentTimeMillis()).setShowWhen(true).setOngoing(true)
+            .setContentIntent(openAppPi()).setDeleteIntent(deletePi)
+        for (i in 0 until minOf(3, actionIndices.size, actionLabels.size)) {
+            val sourceIndex = actionIndices[i]
+            val label = actionLabels[i]
+            val lower = label.lowercase()
+            val iconId = when {
+                lower.contains("answer") || lower.contains("accept") || lower.contains("join") -> android.R.drawable.sym_action_call
+                lower.contains("decline") || lower.contains("reject") || lower.contains("end") -> android.R.drawable.ic_menu_close_clear_cancel
+                else -> android.R.drawable.ic_menu_view
+            }
+            val pi = PendingIntent.getService(this, id xor (sourceIndex + 0x341),
+                Intent(this, LinkService::class.java).setAction(ACTION_NOTIF_ACTION).putExtra(EXTRA_KEY, encKey).putExtra(EXTRA_ACTION_INDEX, sourceIndex),
+                PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT)
+            builder.addAction(action(iconId, label, pi))
         }
+        try { nm.notify(TAG_MIRROR, id, builder.build()) } catch (_: Exception) { }
     }
 
     // ---------------------------------------------------------------- notifications
