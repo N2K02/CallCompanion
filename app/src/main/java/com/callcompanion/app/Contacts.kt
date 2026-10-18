@@ -105,9 +105,11 @@ object ContactStore {
         val seen = HashSet<String>()
         val out = ArrayList<Contact>()
         for (c in readDevice(ctx) + loadSynced(ctx)) {
-            val d = digits(c.number)
-            val key = if (d.length > 9) d.takeLast(9) else d // treat +230 5xxx and 5xxx as the same
-            if (seen.add(key)) out.add(c)
+            // Deduplicate formatting variants of the same full number without
+            // dropping country-code digits; truncating to the last 9 digits can merge
+            // unrelated contacts in countries with longer international numbers.
+            val key = digits(c.number)
+            if (key.isNotEmpty() && seen.add(key)) out.add(c)
         }
         return out.sortedBy { it.name.lowercase() }
     }

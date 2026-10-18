@@ -13,6 +13,8 @@ Install the same app on both phones and select a role:
 |---|---|
 | Incoming SIM call state | Gateway forwards ringing state and caller number when Android provides it; contact names can be resolved if Contacts permission is granted. |
 | Outgoing SIM call state | Gateway reports an outgoing-call transition when it can infer it from telephony state. Android may not expose the dialled number to a normal app. |
+| Contact sync | Contacts can be synced from Gateway to Remote at connection time or manually with **Sync contacts from Gateway**. The Remote keeps a local offline copy. Gateway Contacts permission is required; Remote Contacts permission is optional for merging its own contacts into search. |
+| WhatsApp outgoing handoff | Remote can ask Gateway to post a notification that opens a WhatsApp chat for the entered number. Tap that notification on Gateway, then place the voice call inside WhatsApp. This is a chat handoff, not an automated call-placement API. |
 | Answer/reject/end SIM calls | Remote sends a command to the Gateway. Actual success depends on Android/OEM telephony permissions and API behaviour; a normal app cannot guarantee all call controls on every device. |
 | Third-party call notifications | With Notification Access enabled on the Gateway, supported call notifications from apps such as WhatsApp can be mirrored to the Remote. |
 | Third-party call actions | If the originating app exposes notification action buttons (for example, Answer or Decline), CallCompanion mirrors up to three available actions and asks the Gateway to invoke the original action. Not every app exposes usable actions. |
@@ -43,18 +45,34 @@ Gateway phone (SIM, mobile data/Wi-Fi, CallCompanion)
 3. Tap an action on the Remote. CallCompanion asks the Gateway to invoke the original notification action.
 4. The third-party app decides whether that action succeeds. If it does not expose an Answer/Decline action in its notification, CallCompanion cannot manufacture one.
 
+### Starting an outgoing WhatsApp call
+
+1. On the Remote, choose a synced contact or enter a phone number in international format.
+2. Tap **WhatsApp chat on Gateway**.
+3. The Gateway displays a **Continue in WhatsApp** notification. Tap it on the Gateway to open the chat; Android may use WhatsApp or a browser depending on installed apps and link settings.
+4. Start the voice call using WhatsApp's own call button. The Gateway's Android audio routing determines whether the call uses its paired hands-free speakerphone.
+
+WhatsApp does not expose a stable public Android API for third-party apps to place arbitrary outgoing voice calls directly. CallCompanion therefore does not pretend the chat handoff is a direct call, and does not use brittle private WhatsApp intents or simulated taps.
+
 The phones communicate locally over Bluetooth; no CallCompanion cloud server is involved. The Gateway itself still needs whatever internet connection the third-party calling app requires. This app mirrors call status and controls only—it does not forward call audio.
 
 ## Android compatibility and setup
 
-The app's minimum supported Android version is Android 8.0 (API 26), so the monitoring and Bluetooth flow covers Android 10 and newer. Android 12+ requires the Nearby devices/Bluetooth Connect runtime permission. Android 13+ also requires notification permission for CallCompanion's own notifications. Microphone permission is optional and is requested only for the separate app voice-link feature; it is not needed for SIM call status or remote call controls.
+The app's minimum supported Android version is Android 8.0 (API 26), so the monitoring and Bluetooth flow covers Android 10 and newer. Android 12+ requires the Nearby devices/Bluetooth Connect runtime permission. Android 13+ also requires notification permission for CallCompanion's own notifications. Microphone permission is optional and is requested only for the separate app voice-link feature; it is not needed for SIM call status or remote call controls. Contacts permission is requested separately for contact sync/search and is not needed to keep the Bluetooth relay running.
 
 1. Install the same APK on both phones.
 2. Pair the two phones in Android **Settings → Bluetooth**.
 3. Pair the Gateway phone with your Bluetooth speakerphone.
-4. On the Gateway, choose **Gateway**, grant Phone and Nearby devices permissions, and enable **Notification access** in Android settings.
+4. On the Gateway, choose **Gateway**, grant Phone and Nearby devices permissions, grant **Contacts** if you want contact sync, and enable **Notification access** in Android settings.
 5. On the Remote, choose **Remote**, select the paired Gateway, and start the connection.
-6. Keep CallCompanion running on both phones. On Xiaomi/Redmi/POCO, Huawei/Honor, OPPO/realme/OnePlus, vivo, and some Samsung builds, set CallCompanion battery usage to **Unrestricted** / **Allow background activity**, allow auto-start if offered, and lock the app in Recents if available. Menu names vary. Enable notifications for the system Phone app if you want the call-notification fallback.
+6. Keep CallCompanion running on both phones. In the Remote's **Make a call** section, use **Sync contacts from Gateway** whenever you want to refresh the offline contact cache. On Xiaomi/Redmi/POCO, Huawei/Honor, OPPO/realme/OnePlus, vivo, and some Samsung builds, set CallCompanion battery usage to **Unrestricted** / **Allow background activity**, allow auto-start if offered, and lock the app in Recents if available. Menu names vary. Enable notifications for the system Phone app if you want the call-notification fallback.
+
+## Battery and background reliability
+
+- When Bluetooth connection attempts fail, the reconnect loop increases the retry interval from 3 seconds up to 30 seconds. A session that stays connected for at least 15 seconds resets the retry delay, so normal reconnects stay quick without repeatedly waking the radio during a prolonged outage.
+- The app does not continuously scan for nearby Bluetooth devices; it connects to the selected, already-paired device. Keep the relay foreground service running for call notifications and controls.
+- The two audio capture/playback threads run only while the optional **Voice link** is active. The audio capture loop backs off briefly if an OEM audio driver returns zero bytes, rather than spinning continuously.
+- For best standby life, leave Voice link off when not needed, disable notification mirroring if you do not use it, and allow the OS/OEM background setting described above. Battery optimisation exceptions improve reliability but may increase standby power use.
 
 ## Important Android limitations
 

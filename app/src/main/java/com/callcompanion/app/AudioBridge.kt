@@ -161,7 +161,9 @@ class AudioBridge(
                     fail("Microphone read error $n")
                     break
                 } else {
-                    Thread.yield()
+                    // A zero-byte read is unusual, but yielding can spin on some OEM audio drivers.
+                    // A tiny bounded sleep avoids burning a core while still recovering quickly.
+                    Thread.sleep(2)
                 }
             }
         } catch (e: Exception) {
