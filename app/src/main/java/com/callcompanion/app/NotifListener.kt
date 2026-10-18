@@ -77,13 +77,39 @@ class NotifListener : NotificationListenerService() {
 
     /** Process notifications already present when the Bluetooth link reconnects. */
     fun syncActiveNotifications() {
-        try { activeNotifications?.forEach { onNotificationPosted(it) } }
-        catch (e: Exception) { Hub.log("Could not sync active notifications: ${e.message}") }
+        try {
+            val active = activeNotifications ?: return
+            // Dedupe is useful for repeated posts, but not after a reconnect: the Remote
+            // may have missed notifications while disconnected.
+            synchronized(lastSent) { active.forEach { lastSent.remove(it.key) } }
+            active.forEach { onNotificationPosted(it) }
+        } catch (e: Exception) {
+            Hub.log("Could not sync active notifications: ${e.message}")
+        }
     }
 
     /** Invoke only an action supplied by the original app notification. */
     fun performAction(key: String, index: Int): Boolean {
         val action = synchronized(actionsByKey) { actionsByKey[key]?.getOrNull(index) } ?: return false
+        return dispatchAction(action)
+    }
+
+    /** Fallback for OEM Phone apps that expose controls only in their call notification. */
+    fun performCallAction(kind: String): Boolean {
+        val actions = synchronized(actionsByKey) { actionsByKey.values.flatMap { it.asList() } }
+        val matching = actions.firstOrNull { action ->
+            val label = action.title?.toString()?.trim()?.lowercase().orEmpty()
+            when (kind) {
+                "answer" -> listOf("answer", "accept", "pick up", "接听", "接聽", "応答", "rispondi", "contestar", "responder", "décrocher", "annehmen").any(label::contains)
+                "reject" -> listOf("decline", "reject", "ignore", "拒绝", "拒接", "拒否", "rifiuta", "rechazar", "refuser", "ablehnen").any(label::contains)
+                "end" -> listOf("hang up", "end call", "disconnect", "terminate", "end", "終了", "切断", "riaggancia", "colgar", "raccrocher", "auflegen").any(label::contains)
+                else -> false
+            }
+        } ?: return false
+        return dispatchAction(matching)
+    }
+
+    private fun dispatchAction(action: Notification.Action): Boolean {
         val intent = action.actionIntent ?: return false
         return try {
             intent.send()
@@ -94,6 +120,9 @@ class NotifListener : NotificationListenerService() {
             false
         } catch (e: SecurityException) {
             Hub.log("Notification action not allowed: ${e.message}")
+            false
+        } catch (e: RuntimeException) {
+            Hub.log("Notification action failed: ${e.message}")
             false
         }
     }
