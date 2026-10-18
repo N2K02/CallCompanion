@@ -47,7 +47,7 @@ The phones communicate locally over Bluetooth; no CallCompanion cloud server is 
 
 ## Android compatibility and setup
 
-The app's minimum supported Android version is Android 8.0 (API 26), so the monitoring and Bluetooth flow covers Android 10 and newer. Android 12+ requires the Nearby devices/Bluetooth Connect runtime permission. Android 13+ also requires notification permission for CallCompanion's own notifications.
+The app's minimum supported Android version is Android 8.0 (API 26), so the monitoring and Bluetooth flow covers Android 10 and newer. Android 12+ requires the Nearby devices/Bluetooth Connect runtime permission. Android 13+ also requires notification permission for CallCompanion's own notifications. Microphone permission is optional and is requested only for the separate app voice-link feature; it is not needed for SIM call status or remote call controls.
 
 1. Install the same APK on both phones.
 2. Pair the two phones in Android **Settings → Bluetooth**.
