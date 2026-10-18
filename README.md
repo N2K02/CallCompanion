@@ -69,7 +69,7 @@ The app's minimum supported Android version is Android 8.0 (API 26), so the moni
 
 ## Battery and background reliability
 
-- When Bluetooth connection attempts fail, the Remote now increases the retry interval from 3 seconds up to 30 seconds. A session that stays connected for at least 15 seconds resets the retry delay, so normal reconnects stay quick without repeatedly waking the radio during a prolonged outage.
+- When Bluetooth connection attempts fail, the reconnect loop increases the retry interval from 3 seconds up to 30 seconds. A session that stays connected for at least 15 seconds resets the retry delay, so normal reconnects stay quick without repeatedly waking the radio during a prolonged outage.
 - The app does not continuously scan for nearby Bluetooth devices; it connects to the selected, already-paired device. Keep the relay foreground service running for call notifications and controls.
 - The two audio capture/playback threads run only while the optional **Voice link** is active. The audio capture loop backs off briefly if an OEM audio driver returns zero bytes, rather than spinning continuously.
 - For best standby life, leave Voice link off when not needed, disable notification mirroring if you do not use it, and allow the OS/OEM background setting described above. Battery optimisation exceptions improve reliability but may increase standby power use.
