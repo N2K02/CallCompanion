@@ -286,7 +286,7 @@ class LinkService : Service() {
             try {
                 s = if (role == ROLE_GATEWAY) acceptOne(gen) else connectOnce()
                 if (s != null && alive(gen)) {
-                    sessionStartedAt = System.currentTimeMillis()
+                    sessionStartedAt = android.os.SystemClock.elapsedRealtime()
                     runSession(s, gen)
                 }
             } catch (e: Exception) {
@@ -298,7 +298,7 @@ class LinkService : Service() {
                 }
             }
             if (!alive(gen)) break
-            if (sessionStartedAt != 0L && System.currentTimeMillis() - sessionStartedAt >= 15_000L) {
+            if (sessionStartedAt != 0L && android.os.SystemClock.elapsedRealtime() - sessionStartedAt >= 15_000L) {
                 retryDelayMs = 3_000L
             }
             val waitMs = retryDelayMs
