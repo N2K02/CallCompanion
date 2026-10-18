@@ -176,7 +176,7 @@ class LinkService : Service() {
 
     fun reject() {
         stopRinging()
-        if (role == ROLE_GATEWAY) gatewayEnd() else requestGateway("REJECT")
+        if (role == ROLE_GATEWAY) gatewayEnd(rejectRinging = true) else requestGateway("REJECT")
     }
 
     fun hangUp() {
@@ -430,7 +430,7 @@ class LinkService : Service() {
             }
             // remote -> gateway
             "ANSWER" -> { gatewayAnswer(); sendCallResult() }
-            "REJECT", "HANGUP" -> { gatewayEnd(); sendCallResult() }
+            "REJECT", "HANGUP" -> { gatewayEnd(rejectRinging = p[0] == "REJECT"); sendCallResult() }
             "DIAL" -> { gatewayDial(arg1); sendCallResult() }
             "CALL_RESULT" -> {
                 val result = arg1
@@ -557,9 +557,39 @@ class LinkService : Service() {
     private fun registerPhoneReceiver() {
         if (receiverRegistered) return
         val f = IntentFilter(TelephonyManager.ACTION_PHONE_STATE_CHANGED)
-        if (Build.VERSION.SDK_INT >= 33) registerReceiver(phoneReceiver, f, Context.RECEIVER_EXPORTED)
-        else registerReceiver(phoneReceiver, f)
-        receiverRegistered = true
+        try {
+            if (Build.VERSION.SDK_INT >= 33) registerReceiver(phoneReceiver, f, Context.RECEIVER_EXPORTED)
+            else registerReceiver(phoneReceiver, f)
+            receiverRegistered = true
+            // Some devices do not redeliver the current phone state on registration.
+            syncCurrentPhoneState()
+        } catch (e: SecurityException) {
+            Hub.log("Phone-state monitoring blocked by Android: ${e.message ?: "permission denied"}")
+        } catch (e: RuntimeException) {
+            Hub.log("Could not register phone-state monitoring: ${e.message ?: e.javaClass.simpleName}")
+        }
+    }
+
+    @SuppressLint("MissingPermission")
+    private fun syncCurrentPhoneState() {
+        try {
+            val tm = getSystemService(TelephonyManager::class.java) ?: return
+            val current = when (tm.callState) {
+                TelephonyManager.CALL_STATE_RINGING -> CALL_RINGING
+                TelephonyManager.CALL_STATE_OFFHOOK -> CALL_OFFHOOK
+                else -> CALL_IDLE
+            }
+            if (current != callState) {
+                callState = current
+                // A snapshot cannot reliably identify call direction or caller number.
+                if (current != CALL_IDLE) callDirection = ""
+                else { callDirection = ""; callNumber = ""; callName = "" }
+                Hub.log("Initial phone state: $current (details may be unavailable)")
+                sendCallState()
+            }
+        } catch (e: Exception) {
+            Hub.log("Initial phone-state query unavailable: ${e.message ?: e.javaClass.simpleName}")
+        }
     }
 
     private fun sendCallState() {
@@ -577,16 +607,21 @@ class LinkService : Service() {
         try {
             getSystemService(TelecomManager::class.java)!!.acceptRingingCall()
             callControlError = null
-            Hub.log("Answered the call on this phone")
+            Hub.log("Sent answer request through Android Telecom")
         } catch (e: Exception) {
-            callControlError = "FAILED: ${e.message ?: "Android rejected the answer request"}"
-            Hub.log("Answer failed: ${e.message}")
+            // OEM Phone apps may expose an Answer PendingIntent when Telecom control fails.
+            // Invoke only the action the dialer itself supplied; never synthesize a private intent.
+            val fallbackWorked = NotifListener.instance?.performCallAction("answer") == true
+            callControlError = if (fallbackWorked) null else
+                "FAILED: ${e.message ?: "Android rejected the answer request"}"
+            Hub.log(if (fallbackWorked) "Answered via the Phone notification action fallback"
+                else "Answer failed: ${e.message ?: e.javaClass.simpleName}")
         }
     }
 
     @SuppressLint("MissingPermission")
     @Suppress("DEPRECATION")
-    private fun gatewayEnd() {
+    private fun gatewayEnd(rejectRinging: Boolean = false) {
         if (Build.VERSION.SDK_INT < 28) {
             callControlError = "FAILED: Ending calls needs Android 9 or newer on Gateway"
             Hub.log("Ending calls needs Android 9+ on the gateway")
@@ -599,11 +634,23 @@ class LinkService : Service() {
         }
         try {
             val ok = getSystemService(TelecomManager::class.java)!!.endCall()
-            callControlError = if (ok) null else "FAILED: Android did not end the call"
-            Hub.log(if (ok) "Call ended" else "No call to end")
+            if (ok) {
+                callControlError = null
+                Hub.log("End-call request accepted by Android Telecom")
+                return
+            }
+            val fallbackKind = if (rejectRinging) "reject" else "end"
+            val fallbackWorked = NotifListener.instance?.performCallAction(fallbackKind) == true
+            callControlError = if (fallbackWorked) null else "FAILED: Android did not end the call"
+            Hub.log(if (fallbackWorked) "Call control used the Phone notification action fallback"
+                else "Android did not end the call and no matching notification action was available")
         } catch (e: Exception) {
-            callControlError = "FAILED: ${e.message ?: "Android rejected the end-call request"}"
-            Hub.log("End call failed: ${e.message}")
+            val fallbackKind = if (rejectRinging) "reject" else "end"
+            val fallbackWorked = NotifListener.instance?.performCallAction(fallbackKind) == true
+            callControlError = if (fallbackWorked) null else
+                "FAILED: ${e.message ?: "Android rejected the end-call request"}"
+            Hub.log(if (fallbackWorked) "Call control used the Phone notification action fallback"
+                else "End call failed: ${e.message ?: e.javaClass.simpleName}")
         }
     }
 

@@ -7,6 +7,7 @@ import android.content.Context
 import android.provider.Settings
 import android.service.notification.NotificationListenerService
 import android.service.notification.StatusBarNotification
+import android.telecom.TelecomManager
 
 /**
  * Runs on the GATEWAY phone (needs "Notification access" in Android settings).
@@ -27,6 +28,7 @@ class NotifListener : NotificationListenerService() {
 
     private val lastSent = HashMap<String, String>()
     private val actionsByKey = HashMap<String, Array<Notification.Action>>()
+    private val actionPackagesByKey = HashMap<String, String>()
 
     override fun onListenerConnected() {
         instance = this
@@ -57,7 +59,10 @@ class NotifListener : NotificationListenerService() {
             (sbn.isOngoing && listOf("answer", "accept", "decline", "reject", "hang up", "end call").any { lowerActions.contains(it) })
 
         if (callNotification) {
-            synchronized(actionsByKey) { actionsByKey[sbn.key] = actions }
+            synchronized(actionsByKey) {
+                actionsByKey[sbn.key] = actions
+                actionPackagesByKey[sbn.key] = sbn.packageName
+            }
             val signature = "CALL\u0000$title\u0000$text\u0000" + labels.joinToString("\u0001")
             synchronized(lastSent) { if (lastSent[sbn.key] == signature) return; lastSent[sbn.key] = signature }
             svc.mirrorCallPosted(sbn.key, appName(sbn.packageName), title, text, indices, labels)
@@ -71,19 +76,57 @@ class NotifListener : NotificationListenerService() {
 
     override fun onNotificationRemoved(sbn: StatusBarNotification) {
         synchronized(lastSent) { lastSent.remove(sbn.key) }
-        synchronized(actionsByKey) { actionsByKey.remove(sbn.key) }
+        synchronized(actionsByKey) {
+            actionsByKey.remove(sbn.key)
+            actionPackagesByKey.remove(sbn.key)
+        }
         Hub.service?.mirrorRemoved(sbn.key)
     }
 
     /** Process notifications already present when the Bluetooth link reconnects. */
     fun syncActiveNotifications() {
-        try { activeNotifications?.forEach { onNotificationPosted(it) } }
-        catch (e: Exception) { Hub.log("Could not sync active notifications: ${e.message}") }
+        try {
+            val active = activeNotifications ?: return
+            // Dedupe is useful for repeated posts, but not after a reconnect: the Remote
+            // may have missed notifications while disconnected.
+            synchronized(lastSent) { active.forEach { lastSent.remove(it.key) } }
+            active.forEach { onNotificationPosted(it) }
+        } catch (e: Exception) {
+            Hub.log("Could not sync active notifications: ${e.message}")
+        }
     }
 
     /** Invoke only an action supplied by the original app notification. */
     fun performAction(key: String, index: Int): Boolean {
         val action = synchronized(actionsByKey) { actionsByKey[key]?.getOrNull(index) } ?: return false
+        return dispatchAction(action)
+    }
+
+    /** Fallback for OEM Phone apps that expose controls only in their call notification. */
+    fun performCallAction(kind: String): Boolean {
+        // Never let a third-party VoIP notification accidentally answer or end the SIM
+        // call. Restrict this fallback to notifications posted by Android's default dialer.
+        val dialerPackage = try {
+            getSystemService(TelecomManager::class.java)?.defaultDialerPackage
+        } catch (_: Exception) { null } ?: return false
+        val actions = synchronized(actionsByKey) {
+            actionsByKey.entries
+                .filter { actionPackagesByKey[it.key] == dialerPackage }
+                .flatMap { it.value.asList() }
+        }
+        val matching = actions.firstOrNull { action ->
+            val label = action.title?.toString()?.trim()?.lowercase().orEmpty()
+            when (kind) {
+                "answer" -> listOf("answer", "accept", "pick up", "接听", "接聽", "応答", "rispondi", "contestar", "responder", "décrocher", "annehmen").any(label::contains)
+                "reject" -> listOf("decline", "reject", "ignore", "拒绝", "拒接", "拒否", "rifiuta", "rechazar", "refuser", "ablehnen").any(label::contains)
+                "end" -> listOf("hang up", "end call", "disconnect", "terminate", "end", "終了", "切断", "riaggancia", "colgar", "raccrocher", "auflegen").any(label::contains)
+                else -> false
+            }
+        } ?: return false
+        return dispatchAction(matching)
+    }
+
+    private fun dispatchAction(action: Notification.Action): Boolean {
         val intent = action.actionIntent ?: return false
         return try {
             intent.send()
@@ -94,6 +137,9 @@ class NotifListener : NotificationListenerService() {
             false
         } catch (e: SecurityException) {
             Hub.log("Notification action not allowed: ${e.message}")
+            false
+        } catch (e: RuntimeException) {
+            Hub.log("Notification action failed: ${e.message}")
             false
         }
     }
