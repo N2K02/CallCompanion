@@ -7,6 +7,7 @@ import android.content.Context
 import android.provider.Settings
 import android.service.notification.NotificationListenerService
 import android.service.notification.StatusBarNotification
+import android.telecom.TelecomManager
 
 /**
  * Runs on the GATEWAY phone (needs "Notification access" in Android settings).
@@ -27,6 +28,7 @@ class NotifListener : NotificationListenerService() {
 
     private val lastSent = HashMap<String, String>()
     private val actionsByKey = HashMap<String, Array<Notification.Action>>()
+    private val actionPackagesByKey = HashMap<String, String>()
 
     override fun onListenerConnected() {
         instance = this
@@ -57,7 +59,10 @@ class NotifListener : NotificationListenerService() {
             (sbn.isOngoing && listOf("answer", "accept", "decline", "reject", "hang up", "end call").any { lowerActions.contains(it) })
 
         if (callNotification) {
-            synchronized(actionsByKey) { actionsByKey[sbn.key] = actions }
+            synchronized(actionsByKey) {
+                actionsByKey[sbn.key] = actions
+                actionPackagesByKey[sbn.key] = sbn.packageName
+            }
             val signature = "CALL\u0000$title\u0000$text\u0000" + labels.joinToString("\u0001")
             synchronized(lastSent) { if (lastSent[sbn.key] == signature) return; lastSent[sbn.key] = signature }
             svc.mirrorCallPosted(sbn.key, appName(sbn.packageName), title, text, indices, labels)
@@ -71,7 +76,10 @@ class NotifListener : NotificationListenerService() {
 
     override fun onNotificationRemoved(sbn: StatusBarNotification) {
         synchronized(lastSent) { lastSent.remove(sbn.key) }
-        synchronized(actionsByKey) { actionsByKey.remove(sbn.key) }
+        synchronized(actionsByKey) {
+            actionsByKey.remove(sbn.key)
+            actionPackagesByKey.remove(sbn.key)
+        }
         Hub.service?.mirrorRemoved(sbn.key)
     }
 
@@ -96,7 +104,16 @@ class NotifListener : NotificationListenerService() {
 
     /** Fallback for OEM Phone apps that expose controls only in their call notification. */
     fun performCallAction(kind: String): Boolean {
-        val actions = synchronized(actionsByKey) { actionsByKey.values.flatMap { it.asList() } }
+        // Never let a third-party VoIP notification accidentally answer or end the SIM
+        // call. Restrict this fallback to notifications posted by Android's default dialer.
+        val dialerPackage = try {
+            getSystemService(TelecomManager::class.java)?.defaultDialerPackage
+        } catch (_: Exception) { null } ?: return false
+        val actions = synchronized(actionsByKey) {
+            actionsByKey.entries
+                .filter { actionPackagesByKey[it.key] == dialerPackage }
+                .flatMap { it.value.asList() }
+        }
         val matching = actions.firstOrNull { action ->
             val label = action.title?.toString()?.trim()?.lowercase().orEmpty()
             when (kind) {
