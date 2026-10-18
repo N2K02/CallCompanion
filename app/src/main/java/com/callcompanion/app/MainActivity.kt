@@ -106,6 +106,7 @@ class MainActivity : ComponentActivity() {
     override fun onRequestPermissionsResult(requestCode: Int, permissions: Array<String>, grantResults: IntArray) {
         super.onRequestPermissionsResult(requestCode, permissions, grantResults)
         loadDevices()
+        if (role == LinkService.ROLE_REMOTE) loadContacts()
         refresh()
     }
 
