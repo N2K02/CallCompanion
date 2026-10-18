@@ -242,6 +242,10 @@ class LinkService : Service() {
             setForegroundAudioActive(false)
             send("VOICE_STOP")
         } else {
+            if (callState != CALL_IDLE) {
+                Hub.log("Voice link unavailable during a SIM call; preserving Android call-audio routing")
+                return
+            }
             if (!connected) {
                 Hub.log("Not connected yet")
                 return
@@ -463,7 +467,11 @@ class LinkService : Service() {
             "HELLO" -> Hub.log("Peer is the $arg1 phone")
             // gateway -> remote
             "CALL" -> {
+                val previousCallState = callState
                 callState = arg1.ifEmpty { CALL_IDLE }
+                if (previousCallState == CALL_IDLE && callState != CALL_IDLE) {
+                    stopVoiceLinkForPhoneCall()
+                }
                 if (role == ROLE_REMOTE && callState == CALL_RINGING) callControlError = null
                 callNumber = p.getOrElse(2) { "" }
                 callName = p.getOrElse(3) { "" }
@@ -502,7 +510,10 @@ class LinkService : Service() {
             }
             // both directions
             "VOICE_START" -> {
-                if (has(Manifest.permission.RECORD_AUDIO)) {
+                if (callState != CALL_IDLE) {
+                    Hub.log("Rejected voice link request during a SIM call to preserve Android call-audio routing")
+                    send("VOICE_STOP")
+                } else if (has(Manifest.permission.RECORD_AUDIO)) {
                     try {
                         setForegroundAudioActive(true)
                         audio.start()
@@ -605,6 +616,9 @@ class LinkService : Service() {
             val changed = newState != callState
             if (changed && newState == CALL_RINGING) callControlError = null
             callState = newState
+            if (previousState == CALL_IDLE && newState != CALL_IDLE) {
+                stopVoiceLinkForPhoneCall()
+            }
             if (changed || gotNumber) {
                 Hub.log("Phone call: $newState ${display()}")
                 sendCallState()
@@ -717,6 +731,17 @@ class LinkService : Service() {
             Hub.log(if (fallbackWorked) "Call control used the Phone notification action fallback"
                 else "End call failed: ${e.message ?: e.javaClass.simpleName}")
         }
+    }
+
+    private fun stopVoiceLinkForPhoneCall() {
+        val wasRunning = audio.isRunning
+        if (wasRunning) {
+            audio.stop()
+            runCatching { setForegroundAudioActive(false) }
+            Hub.log("Voice link stopped to preserve Android-managed call audio")
+        }
+        // Stop the peer too, even if this side was not streaming when the call arrived.
+        send("VOICE_STOP")
     }
 
     private fun tryCallNotificationFallback(kind: String): Boolean {
