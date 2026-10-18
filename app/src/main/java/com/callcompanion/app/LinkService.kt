@@ -187,6 +187,34 @@ class LinkService : Service() {
         if (role == ROLE_GATEWAY) gatewayDial(number) else requestGateway("DIAL", number)
     }
 
+    /** Ask the Gateway to refresh the Remote's offline contact cache. */
+    fun syncContacts() {
+        if (role == ROLE_GATEWAY) {
+            sendContacts()
+        } else if (!connected) {
+            Hub.log("Contact sync unavailable: Bluetooth is disconnected")
+        } else {
+            send("SYNC_CONTACTS")
+            Hub.log("Requested contact sync from Gateway")
+        }
+    }
+
+    /**
+     * WhatsApp does not expose a stable public API to place a voice call directly.
+     * This asks the Gateway to post a notification that opens the WhatsApp chat when
+     * tapped on that phone; the user starts the voice call inside WhatsApp.
+     */
+    fun openWhatsAppChat(number: String) {
+        if (role == ROLE_GATEWAY) {
+            gatewayWhatsAppChat(number)
+        } else if (!connected) {
+            Hub.log("WhatsApp handoff unavailable: Bluetooth is disconnected")
+        } else {
+            send("WHATSAPP_CHAT", number)
+            Hub.log("Requested WhatsApp chat handoff on Gateway")
+        }
+    }
+
     private fun requestGateway(command: String, argument: String = "") {
         if (!connected) {
             callControlError = "FAILED: Bluetooth is disconnected"
@@ -244,11 +272,19 @@ class LinkService : Service() {
     private fun alive(gen: Int) = running && gen == generation
 
     private fun workerLoop(gen: Int) {
+        // Failed client connection attempts back off exponentially to reduce wakeups
+        // and log churn when the peer is out of range or Bluetooth is unavailable.
+        // A healthy session resets the delay so ordinary reconnects remain quick.
+        var retryDelayMs = 3_000L
         while (alive(gen)) {
             var s: BluetoothSocket? = null
+            var sessionStartedAt = 0L
             try {
                 s = if (role == ROLE_GATEWAY) acceptOne(gen) else connectOnce()
-                if (s != null && alive(gen)) runSession(s, gen)
+                if (s != null && alive(gen)) {
+                    sessionStartedAt = System.currentTimeMillis()
+                    runSession(s, gen)
+                }
             } catch (e: Exception) {
                 if (alive(gen)) Hub.log("Link: ${e.message}")
             } finally {
@@ -258,12 +294,18 @@ class LinkService : Service() {
                 }
             }
             if (!alive(gen)) break
-            setConn(false, if (role == ROLE_GATEWAY) "Disconnected – waiting again…" else "Disconnected – retrying in 3s…")
+            if (sessionStartedAt != 0L && System.currentTimeMillis() - sessionStartedAt >= 15_000L) {
+                retryDelayMs = 3_000L
+            }
+            val waitMs = retryDelayMs
+            setConn(false, if (role == ROLE_GATEWAY) "Disconnected – waiting again…"
+                else "Disconnected – retrying in ${waitMs / 1000}s…")
             try {
-                Thread.sleep(3000)
+                Thread.sleep(waitMs)
             } catch (e: InterruptedException) {
                 break
             }
+            retryDelayMs = (retryDelayMs * 2).coerceAtMost(30_000L)
         }
     }
 
@@ -432,6 +474,22 @@ class LinkService : Service() {
             "ANSWER" -> { gatewayAnswer(); sendCallResult() }
             "REJECT", "HANGUP" -> { gatewayEnd(rejectRinging = p[0] == "REJECT"); sendCallResult() }
             "DIAL" -> { gatewayDial(arg1); sendCallResult() }
+            "SYNC_CONTACTS" -> {
+                if (role == ROLE_GATEWAY) sendContacts()
+                else Hub.log("Ignored contact-sync request received by Remote")
+            }
+            "WHATSAPP_CHAT" -> {
+                if (role == ROLE_GATEWAY) {
+                    val ok = gatewayWhatsAppChat(arg1)
+                    send("WHATSAPP_CHAT_RESULT", if (ok) "OK" else "FAILED")
+                } else {
+                    Hub.log("Ignored WhatsApp handoff request received by Remote")
+                }
+            }
+            "WHATSAPP_CHAT_RESULT" -> Hub.log(
+                if (arg1 == "OK") "WhatsApp chat handoff notification created on Gateway"
+                else "Could not create WhatsApp chat handoff on Gateway"
+            )
             "CALL_RESULT" -> {
                 val result = arg1
                 val detail = p.drop(2).joinToString("|")
@@ -663,6 +721,42 @@ class LinkService : Service() {
             Hub.log("Call control used the default Phone notification action fallback")
         }
         return worked
+    }
+
+    private fun gatewayWhatsAppChat(number: String): Boolean {
+        val digits = number.filter { it.isDigit() }
+        if (digits.length !in 7..15) {
+            Hub.log("WhatsApp handoff failed: enter a valid number including its country code")
+            return false
+        }
+        return try {
+            val uri = Uri.parse("https://wa.me/$digits")
+            val openChat = Intent(Intent.ACTION_VIEW, uri).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+            val pending = PendingIntent.getActivity(
+                this,
+                digits.hashCode(),
+                openChat,
+                PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
+            )
+            val name = lookupName(number)
+            val display = if (name.isNotBlank()) "$name ($digits)" else digits
+            val n = Notification.Builder(this, CH_MIRROR)
+                .setSmallIcon(android.R.drawable.sym_action_call)
+                .setContentTitle("Continue in WhatsApp")
+                .setContentText("Tap to open chat with $display, then start the voice call in WhatsApp.")
+                .setStyle(Notification.BigTextStyle().bigText(
+                    "Tap to open the WhatsApp chat with $display. Start the voice call from WhatsApp; CallCompanion cannot place that call directly."
+                ))
+                .setAutoCancel(true)
+                .setContentIntent(pending)
+                .build()
+            nm.notify(42, n)
+            Hub.log("Posted WhatsApp chat handoff for $display")
+            true
+        } catch (e: Exception) {
+            Hub.log("WhatsApp handoff failed: ${e.message ?: e.javaClass.simpleName}")
+            false
+        }
     }
 
     @SuppressLint("MissingPermission")
