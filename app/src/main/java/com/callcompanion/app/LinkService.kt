@@ -530,6 +530,11 @@ class LinkService : Service() {
                 Hub.contactsVersion++
                 Hub.log("Received ${ContactStore.parse(data).size} contacts from gateway")
             }
+            "CONTACTS_RESULT" -> {
+                val detail = p.drop(2).joinToString("|")
+                if (arg1 == "OK") Hub.log("Gateway contact sync completed: $detail contacts sent")
+                else Hub.log("Contact sync failed: $detail")
+            }
             // notifications: gateway -> remote
             "NOTIF" -> showMirrored(arg1, p.getOrElse(2) { "" }, p.getOrElse(3) { "" }, p.drop(4).joinToString("/"))
             "NOTIF_V2" -> showMirrored(arg1, decodeText(p.getOrElse(2) { "" }), decodeText(p.getOrElse(3) { "" }), decodeText(p.getOrElse(4) { "" }))
@@ -863,11 +868,16 @@ class LinkService : Service() {
     // ---------------------------------------------------------------- contacts sync
 
     private fun sendContacts() {
-        if (!has(Manifest.permission.READ_CONTACTS)) {
-            Hub.log("Contacts permission missing – contacts not sent to remote")
+        val w = writer
+        if (w == null || !connected) {
+            Hub.log("Contact sync unavailable: Bluetooth is disconnected")
             return
         }
-        val w = writer ?: return
+        if (!has(Manifest.permission.READ_CONTACTS)) {
+            Hub.log("Contacts permission missing – contacts not sent to Remote")
+            send("CONTACTS_RESULT", "FAILED", "Contacts permission is not granted on Gateway")
+            return
+        }
         val list = ContactStore.readDevice(this)
         val chunks = ContactStore.toChunks(list)
         try {
@@ -876,12 +886,14 @@ class LinkService : Service() {
                     w.writeCmd("CONTACTS_BEGIN")
                     for (c in chunks) w.writeCmd("CONTACTS|$c")
                     w.writeCmd("CONTACTS_END")
-                    Hub.log("Sent ${list.size} contacts to remote")
+                    w.writeCmd("CONTACTS_RESULT|OK|${list.size}")
+                    Hub.log("Sent ${list.size} contacts to Remote")
                 } catch (e: Exception) {
                     Hub.log("Contacts sync failed: ${e.message}")
                 }
             }
         } catch (e: Exception) {
+            Hub.log("Could not queue contact sync: ${e.message}")
         }
     }
 
