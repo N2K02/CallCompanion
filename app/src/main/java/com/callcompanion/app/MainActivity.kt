@@ -125,9 +125,6 @@ class MainActivity : ComponentActivity() {
         Manifest.permission.CALL_PHONE
     )
 
-    private fun allPerms(): List<String> =
-        corePerms() + gatewayPerms() + listOf(Manifest.permission.READ_CALL_LOG, Manifest.permission.READ_CONTACTS)
-
     private fun granted(p: String) = checkSelfPermission(p) == PackageManager.PERMISSION_GRANTED
 
     private fun requestMissingPermissions() {
@@ -144,8 +141,7 @@ class MainActivity : ComponentActivity() {
         val missing = needed.filter { !granted(it) }
         if (missing.isNotEmpty()) {
             requestPermissions(
-                (missing + listOf(Manifest.permission.READ_CALL_LOG, Manifest.permission.READ_CONTACTS))
-                    .distinct().filter { !granted(it) }.toTypedArray(), 2
+                missing.distinct().filter { !granted(it) }.toTypedArray(), 2
             )
             toast("Please allow the permissions, then press Start again")
             return
@@ -383,6 +379,29 @@ class MainActivity : ComponentActivity() {
                         }, modifier = Modifier.fillMaxWidth()) {
                             Icon(Icons.Default.Call, null); Spacer(Modifier.width(8.dp)); Text("Call through gateway")
                         }
+                        OutlinedButton(
+                            onClick = { service?.syncContacts(); refresh() },
+                            enabled = connected,
+                            modifier = Modifier.fillMaxWidth()
+                        ) {
+                            Icon(Icons.Default.Sync, null); Spacer(Modifier.width(8.dp)); Text("Sync contacts from Gateway")
+                        }
+                        FilledTonalButton(
+                            onClick = {
+                                val n = numberToDial()
+                                if (n.isEmpty()) toast("Pick a contact or enter a number")
+                                else service?.openWhatsAppChat(n)
+                            },
+                            enabled = connected,
+                            modifier = Modifier.fillMaxWidth()
+                        ) {
+                            Icon(Icons.Default.Call, null); Spacer(Modifier.width(8.dp)); Text("WhatsApp chat on Gateway")
+                        }
+                        Text(
+                            "WhatsApp handoff opens a chat from a notification on the Gateway. Tap that notification, then start the voice call in WhatsApp.",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
                         FilledTonalButton(onClick = {
                             gatewaySpeaker = !gatewaySpeaker
                             service?.setGatewaySpeaker(gatewaySpeaker)
@@ -511,11 +530,13 @@ class MainActivity : ComponentActivity() {
                             PermissionSetupRow("Phone state", "Detect incoming and active SIM calls", granted(Manifest.permission.READ_PHONE_STATE)) { requestPermissions(arrayOf(Manifest.permission.READ_PHONE_STATE), 1) }
                             PermissionSetupRow("Answer calls", "Allow call answering requests", granted(Manifest.permission.ANSWER_PHONE_CALLS)) { requestPermissions(arrayOf(Manifest.permission.ANSWER_PHONE_CALLS), 1) }
                             PermissionSetupRow("Place calls", "Place calls through the gateway SIM", granted(Manifest.permission.CALL_PHONE)) { requestPermissions(arrayOf(Manifest.permission.CALL_PHONE), 1) }
+                            PermissionSetupRow("Contacts (for sync)", "Send Gateway contacts to the Remote and resolve caller names", granted(Manifest.permission.READ_CONTACTS)) { requestPermissions(arrayOf(Manifest.permission.READ_CONTACTS), 1) }
                             PermissionSetupRow("Notification access", "Read call notifications for the relay", notificationAccess) { runCatching { startActivity(Intent(Settings.ACTION_NOTIFICATION_LISTENER_SETTINGS)) }.onFailure { toast("Open Android Settings → Notifications → Notification access") } }
                             PermissionSetupRow("Microphone (optional)", "Only for the separate app voice-link feature", granted(Manifest.permission.RECORD_AUDIO)) { requestPermissions(arrayOf(Manifest.permission.RECORD_AUDIO), 1) }
                             if (Build.VERSION.SDK_INT >= 31) PermissionSetupRow("Bluetooth connection", "Connect to the paired remote phone", granted(Manifest.permission.BLUETOOTH_CONNECT)) { requestPermissions(arrayOf(Manifest.permission.BLUETOOTH_CONNECT), 1) }
                         } else if (roleSelected) {
-                            PermissionSetupRow("Microphone", "Required for the voice-link feature", granted(Manifest.permission.RECORD_AUDIO)) { requestPermissions(arrayOf(Manifest.permission.RECORD_AUDIO), 1) }
+                            PermissionSetupRow("Local contacts (optional)", "Include this phone's contacts in Remote search", granted(Manifest.permission.READ_CONTACTS)) { requestPermissions(arrayOf(Manifest.permission.READ_CONTACTS), 1) }
+                            PermissionSetupRow("Microphone (optional)", "Only for the separate voice-link feature", granted(Manifest.permission.RECORD_AUDIO)) { requestPermissions(arrayOf(Manifest.permission.RECORD_AUDIO), 1) }
                             if (Build.VERSION.SDK_INT >= 31) PermissionSetupRow("Bluetooth connection", "Find and connect to the paired gateway phone", granted(Manifest.permission.BLUETOOTH_CONNECT)) { requestPermissions(arrayOf(Manifest.permission.BLUETOOTH_CONNECT), 1) }
                             if (Build.VERSION.SDK_INT >= 33) PermissionSetupRow("Notifications", "Show the ongoing CallCompanion status", granted(Manifest.permission.POST_NOTIFICATIONS)) { requestPermissions(arrayOf(Manifest.permission.POST_NOTIFICATIONS), 1) }
                         } else {
