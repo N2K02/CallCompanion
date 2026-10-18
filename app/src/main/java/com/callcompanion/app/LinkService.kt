@@ -756,6 +756,11 @@ class LinkService : Service() {
 
     private fun gatewayWhatsAppChat(number: String): Boolean {
         val digits = number.filter { it.isDigit() }
+        if (!nm.areNotificationsEnabled() ||
+            nm.getNotificationChannel(CH_MIRROR)?.importance == NotificationManager.IMPORTANCE_NONE) {
+            Hub.log("WhatsApp handoff failed: enable CallCompanion notifications on Gateway")
+            return false
+        }
         if (digits.length !in 7..15) {
             Hub.log("WhatsApp handoff failed: enter a valid number including its country code")
             return false
