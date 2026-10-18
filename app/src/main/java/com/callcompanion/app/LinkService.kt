@@ -643,13 +643,11 @@ class LinkService : Service() {
                 Hub.log("End-call request accepted by Android Telecom")
                 return
             }
-            val fallbackKind = if (rejectRinging) "reject" else "end"
             val fallbackWorked = NotifListener.instance?.performCallAction(fallbackKind) == true
             callControlError = if (fallbackWorked) null else "FAILED: Android did not end the call"
             Hub.log(if (fallbackWorked) "Call control used the Phone notification action fallback"
                 else "Android did not end the call and no matching notification action was available")
         } catch (e: Exception) {
-            val fallbackKind = if (rejectRinging) "reject" else "end"
             val fallbackWorked = NotifListener.instance?.performCallAction(fallbackKind) == true
             callControlError = if (fallbackWorked) null else
                 "FAILED: ${e.message ?: "Android rejected the end-call request"}"
