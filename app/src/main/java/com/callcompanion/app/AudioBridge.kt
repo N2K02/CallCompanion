@@ -33,6 +33,10 @@ class AudioBridge(
 
     @Volatile
     private var readyWorkers = 0
+    // MODE_IN_COMMUNICATION is temporary; restore the previous mode only if Android
+    // has not taken ownership of audio routing for a cellular/Telecom call.
+    @Volatile
+    private var previousAudioMode: Int = AudioManager.MODE_NORMAL
     private var recordThread: Thread? = null
     private var playThread: Thread? = null
     private val queue = ArrayBlockingQueue<ByteArray>(10) // 200 ms at 20 ms per frame
@@ -51,6 +55,7 @@ class AudioBridge(
         readyWorkers = 0
         queue.clear()
         val am = context.getSystemService(AudioManager::class.java)!!
+        previousAudioMode = am.mode
         am.mode = AudioManager.MODE_IN_COMMUNICATION
         AudioRoute.setSpeaker(context, speakerOn)
         recordThread = Thread({ recordLoop() }, "callcompanion-record").also { it.start() }
@@ -69,9 +74,24 @@ class AudioBridge(
         recordThread = null
         playThread = null
         queue.clear()
-        AudioRoute.clear(context)
-        context.getSystemService(AudioManager::class.java)!!.mode = AudioManager.MODE_NORMAL
+        restoreAudioRouting()
         Hub.log("Voice link OFF")
+    }
+
+    /**
+     * Do not clear a communication device or force MODE_NORMAL if Android Telecom
+     * changed the mode while the voice link was running; doing so can disrupt an
+     * active cellular call's Bluetooth route.
+     */
+    private fun restoreAudioRouting() {
+        val am = context.getSystemService(AudioManager::class.java) ?: return
+        if (am.mode == AudioManager.MODE_IN_COMMUNICATION) {
+            AudioRoute.clear(context)
+            am.mode = previousAudioMode
+        } else {
+            Hub.log("Android changed audio mode; leaving system-managed call routing untouched")
+        }
+        previousAudioMode = AudioManager.MODE_NORMAL
     }
 
     @Synchronized
@@ -92,8 +112,7 @@ class AudioBridge(
         recordThread?.takeIf { it !== Thread.currentThread() }?.interrupt()
         playThread?.takeIf { it !== Thread.currentThread() }?.interrupt()
         queue.clear()
-        AudioRoute.clear(context)
-        runCatching { context.getSystemService(AudioManager::class.java)?.mode = AudioManager.MODE_NORMAL }
+        runCatching { restoreAudioRouting() }
         Hub.log(message)
     }
 
