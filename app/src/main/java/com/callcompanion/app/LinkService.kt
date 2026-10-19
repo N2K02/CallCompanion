@@ -418,7 +418,7 @@ class LinkService : Service() {
             if (writer === w) writer = null
             if (socket === s) socket = null
             connected = false
-            peerWhatsappCallState = "IDLE"
+            peerWhatsappCallStates.clear()
             audio.stop()
             setForegroundAudioActive(false)
             if (role == ROLE_REMOTE) {
