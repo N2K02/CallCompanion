@@ -24,6 +24,8 @@ import android.net.Uri
 import android.os.Build
 import android.os.Bundle
 import android.os.IBinder
+import android.os.Handler
+import android.os.Looper
 import android.os.VibrationEffect
 import android.os.Vibrator
 import android.provider.ContactsContract
@@ -34,6 +36,7 @@ import java.io.BufferedInputStream
 import java.io.DataInputStream
 import java.io.IOException
 import java.util.concurrent.Executors
+import java.util.concurrent.atomic.AtomicLong
 
 /**
  * Runs on both phones.
@@ -89,6 +92,26 @@ class LinkService : Service() {
         private set
     @Volatile var callControlError: String? = null
         private set
+    @Volatile var downloadBytesPerSecond: Long = 0L
+        private set
+    @Volatile var uploadBytesPerSecond: Long = 0L
+        private set
+    private val rxTotal = AtomicLong(0L)
+    private val txTotal = AtomicLong(0L)
+    private var lastRxSample = 0L
+    private var lastTxSample = 0L
+    private val trafficHandler = Handler(Looper.getMainLooper())
+    private val trafficSampler = object : Runnable {
+        override fun run() {
+            if (!running) return
+            val rx = rxTotal.get(); val tx = txTotal.get()
+            downloadBytesPerSecond = if (connected) (rx - lastRxSample).coerceAtLeast(0L) else 0L
+            uploadBytesPerSecond = if (connected) (tx - lastTxSample).coerceAtLeast(0L) else 0L
+            lastRxSample = rx; lastTxSample = tx
+            updateStatus()
+            trafficHandler.postDelayed(this, 1000L)
+        }
+    }
     private val localWhatsappCallStates = java.util.concurrent.ConcurrentHashMap<String, String>()
     private val peerWhatsappCallStates = java.util.concurrent.ConcurrentHashMap<String, String>()
 
@@ -132,6 +155,10 @@ class LinkService : Service() {
                 deviceAddress = intent.getStringExtra(EXTRA_DEVICE)
                 running = true
                 connectionState = "Starting…"
+                rxTotal.set(0L); txTotal.set(0L); lastRxSample = 0L; lastTxSample = 0L
+                downloadBytesPerSecond = 0L; uploadBytesPerSecond = 0L
+                trafficHandler.removeCallbacks(trafficSampler)
+                trafficHandler.postDelayed(trafficSampler, 1000L)
                 goForeground()
                 if (role == ROLE_GATEWAY) registerPhoneReceiver()
                 startWorker()
@@ -367,6 +394,7 @@ class LinkService : Service() {
                 if (len < 0 || len > Protocol.MAX_FRAME) throw IOException("bad data from peer")
                 val data = ByteArray(len)
                 input.readFully(data)
+                rxTotal.addAndGet(len.toLong() + 5L)
                 when (type) {
                     Protocol.TYPE_CMD -> handleCommand(String(data, Charsets.UTF_8))
                 }
@@ -396,6 +424,8 @@ class LinkService : Service() {
     private fun shutdown() {
         if (!running && worker == null) return
         running = false
+        trafficHandler.removeCallbacks(trafficSampler)
+        downloadBytesPerSecond = 0L; uploadBytesPerSecond = 0L
         generation++
         try {
             serverSocket?.close()
@@ -432,6 +462,7 @@ class LinkService : Service() {
             io.execute {
                 try {
                     w.writeCmd(msg)
+                    txTotal.addAndGet(msg.toByteArray(Charsets.UTF_8).size.toLong() + 5L)
                 } catch (e: Exception) {
                     Hub.log("Send failed: ${e.message}")
                     closeSocket()
@@ -987,8 +1018,14 @@ class LinkService : Service() {
     private fun action(icon: Int, title: String, pi: PendingIntent): Notification.Action =
         Notification.Action.Builder(Icon.createWithResource(this, icon), title, pi).build()
 
+    private fun formatTrafficRate(bytesPerSecond: Long): String = when {
+        bytesPerSecond >= 1024L * 1024L -> String.format(java.util.Locale.US, "%.1f MB/s", bytesPerSecond / (1024.0 * 1024.0))
+        bytesPerSecond >= 1024L -> String.format(java.util.Locale.US, "%.1f KB/s", bytesPerSecond / 1024.0)
+        else -> "$bytesPerSecond B/s"
+    }
+
     private fun statusNotification(): Notification {
-        val text = connectionState
+        val text = if (connected) "$connectionState · ↓ ${formatTrafficRate(downloadBytesPerSecond)}  ↑ ${formatTrafficRate(uploadBytesPerSecond)}" else "$connectionState · PCL traffic rate unavailable while disconnected"
         return Notification.Builder(this, CH_STATUS)
             .setSmallIcon(android.R.drawable.sym_action_call)
             .setContentTitle(if (role == ROLE_GATEWAY) "PCL · Gateway" else "PCL · Remote")
