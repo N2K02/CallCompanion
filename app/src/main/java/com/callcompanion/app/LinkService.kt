@@ -125,7 +125,6 @@ class LinkService : Service() {
     @Volatile var hotspotToggleRequested: Boolean = false
         private set
     @Volatile private var hotspotEnabledByPcl = false
-    @Volatile private var remoteWhatsappCallRequested = false
 
 
     @Volatile private var running = false
@@ -528,7 +527,6 @@ class LinkService : Service() {
                 if (role == ROLE_GATEWAY) {
                     val action = decodeText(arg1)
                     if (action == "START") {
-                        remoteWhatsappCallRequested = true
                         beginHotspotAutomation(enable = true)
                     }
                 } else {
@@ -621,14 +619,12 @@ class LinkService : Service() {
                     if (role == ROLE_GATEWAY) {
                         when (state) {
                             "ACTIVE" -> {
-                                remoteWhatsappCallRequested = true
                                 beginHotspotAutomation(enable = true)
                             }
                             "IDLE" -> {
                                 // Keep the hotspot while any other Remote WhatsApp call
                                 // remains active; never react to Gateway's own call state.
-                                if (peerWhatsappCallStates.values.none { it == "ACTIVE" }) {
-                                    remoteWhatsappCallRequested = false
+                                if (peerWhatsappCallStates.values.none { it == "ACTIVE" || it == "RINGING" }) {
                                     stopHotspotForRemoteCall()
                                 }
                             }
@@ -1176,6 +1172,10 @@ class LinkService : Service() {
                 hotspotEnabledByPcl = false
             }
             nm.cancel(ID_HOTSPOT)
+        } else if (hotspotTargetEnabled && hotspotToggleRequested) {
+            // A tap succeeded but the OEM UI did not confirm the final state.
+            // Remember ownership so PCL can still attempt cleanup when the call ends.
+            hotspotEnabledByPcl = true
             if (hotspotTargetEnabled) {
                 Hub.log("If the Remote is not already connected to Gateway Wi-Fi, connect it before expecting WhatsApp to use that route")
             } else {
