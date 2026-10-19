@@ -34,7 +34,7 @@ Install the same app on both phones and select a role:
             (when configured for call audio)
 ```
 
-**What the diagram means:** the Bluetooth link carries call state, notification information, and control requests. It does not carry the Gateway's cellular-call audio, clone app sessions, or automatically share internet. The Gateway needs internet for its own internet-calling apps. Remote internet access can use the Gateway's on-demand Wi-Fi hotspot for linked WhatsApp calls; PCL's Bluetooth link itself does not carry internet.
+**What the diagram means:** the Bluetooth link carries call state, notification information, and control requests. It does not carry the Gateway's cellular-call audio, clone app sessions, or automatically share internet. The Gateway needs internet for its own internet-calling apps. Remote internet access can use Android Bluetooth tethering as the primary path, with the Gateway's on-demand Wi-Fi hotspot as a call-time fallback. PCL's RFCOMM control messages themselves do not carry internet.
 
 
 ## Features
@@ -92,18 +92,18 @@ Install the same app on both phones and select a role:
 - Notification mirroring can be turned on or off in the Gateway's settings.
 - Only notification actions exposed by the original app can be relayed.
 
-### 6. On-demand Gateway Wi-Fi hotspot for linked WhatsApp calls
+### 6. Bluetooth tethering as the primary internet path, Wi-Fi hotspot as fallback
 
-PCL uses Bluetooth RFCOMM for call-state and control messages only; Bluetooth does not carry internet traffic or call audio. The Gateway must have internet access and shares it through its built-in Wi-Fi hotspot only when needed.
+For a low-power always-on connection, use Android's built-in **Bluetooth tethering** as the primary internet path and keep the Gateway Wi-Fi hotspot off when it is not needed. Bluetooth tethering and PCL's Bluetooth control link are different functions: Android routes internet through Bluetooth PAN, while PCL sends call-state/control messages over its existing RFCOMM connection. Neither PCL Bluetooth control messages nor tethering relay call audio.
 
-1. Enable Notification access on both phones. On Gateway, enable PCL's optional **Hotspot automation** accessibility service.
-2. Save the Gateway hotspot network on Remote and enable automatic connection before testing.
-3. When Gateway detects its incoming WhatsApp call notification, PCL requests hotspot activation and sends a Bluetooth call-state trigger to Remote. The Remote helper then asks Android to reconnect to a saved Wi-Fi network if Wi-Fi is enabled and the phone is disconnected.
-4. Android controls network selection and auto-join. If Remote remains connected to another Wi-Fi network, Wi-Fi is disabled, or auto-join does not choose Gateway, open Wi-Fi settings and connect to Gateway manually. Android does not allow ordinary apps to force a specific saved Wi-Fi network silently on all supported versions.
-5. Keep the hotspot active while Remote reports **RINGING** or **ACTIVE**. When Remote reports **IDLE**, PCL requests hotspot shutdown if no other Remote WhatsApp call remains active or ringing. If the Gateway call ends before Remote ever reports a call, PCL waits five seconds before cleanup.
-6. PCL turns off the hotspot only if it enabled it. If the hotspot was already on before the call, PCL leaves it on.
+1. On Gateway, make sure mobile data works. Pair Gateway and Remote in Android **Settings → Bluetooth**.
+2. On Gateway, open **Settings → Hotspot & tethering** (wording varies by manufacturer) and enable **Bluetooth tethering**. Leave it enabled. Android may turn it off automatically on some devices or after a reboot, so verify the setting.
+3. On Remote, keep Bluetooth enabled, connect to the paired Gateway, and allow **Internet access** for that Bluetooth device if Android exposes the option. Menu labels and whether the device connects automatically vary by manufacturer. Confirm Remote can load a webpage with Wi-Fi disabled before relying on this route.
+4. Keep the Gateway Wi-Fi hotspot off when Bluetooth tethering is working. Android chooses the active network and failover behaviour; do not assume that Wi-Fi always has priority on every device or that an ongoing WhatsApp call will switch networks without interruption.
+5. PCL can also request the Gateway Wi-Fi hotspot when it detects a WhatsApp call. The current call-time fallback requests hotspot activation, sends Remote a Bluetooth trigger, and keeps the hotspot on while Remote reports **RINGING** or **ACTIVE**. When Remote reports **IDLE**, PCL requests shutdown if no other Remote WhatsApp call remains active or ringing. If the Gateway call ends before Remote reports a call, PCL waits five seconds before cleanup.
+6. PCL turns off the Wi-Fi hotspot only if it enabled it. Bluetooth tethering remains a separate Android setting; PCL does not silently enable or disable it.
 
-Hotspot switching uses best-effort Accessibility interaction with Android Settings, not a universal public API. OEM layouts and confirmation dialogs may require manual action. WhatsApp's linked-device/companion mode must be set up on Remote, and a slow Wi-Fi reconnection can still mean the call arrives too late.
+**Limitations:** Android restricts ordinary apps from silently toggling tethering. PCL provides Settings shortcuts and setup guidance, but the user must enable Bluetooth tethering in Android. Wi-Fi hotspot switching uses best-effort Accessibility interaction with Android Settings, not a universal public API. OEM behaviour and network failover vary. WhatsApp linked-device/companion mode must be configured on Remote. Mobile-data charges may apply.
 
 ## Android compatibility and setup
 
