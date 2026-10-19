@@ -260,34 +260,65 @@ class MainActivity : ComponentActivity() {
                     .padding(horizontal = 18.dp, vertical = 12.dp),
                 verticalArrangement = Arrangement.spacedBy(14.dp)
             ) {
-                if (screen == MainTab.HOME && setupReady && remote) SectionCard(title = "Bluetooth device", subtitle = "Select the paired Gateway phone.") {
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                Text("${devices.size} paired", modifier = Modifier.weight(1f), style = MaterialTheme.typography.titleMedium)
-                OutlinedButton(onClick = { loadDevices(); refresh() }) {
-                Icon(Icons.Default.Refresh, null); Spacer(Modifier.width(5.dp)); Text("Refresh")
-                }
-                }
-                if (devices.isEmpty()) {
-                Text("No paired devices. Pair the phones in Bluetooth settings, then refresh.", color = MaterialTheme.colorScheme.onSurfaceVariant)
-                OutlinedButton(onClick = { runCatching { startActivity(Intent(Settings.ACTION_BLUETOOTH_SETTINGS)) } }, modifier = Modifier.fillMaxWidth()) { Text("Open Bluetooth settings") }
-                } else {
-                devices.forEach { device ->
-                Card(
-                onClick = { if (!running) { selectedDevice = device.second; prefs.edit().putString("device", device.second).apply(); refresh() } },
-                colors = CardDefaults.cardColors(containerColor = if (device.second == selectedDevice) MaterialTheme.colorScheme.secondaryContainer else MaterialTheme.colorScheme.surfaceContainerLow)
-                ) {
-                Row(Modifier.fillMaxWidth().padding(14.dp), verticalAlignment = Alignment.CenterVertically) {
-                Icon(Icons.Default.Smartphone, null, tint = MaterialTheme.colorScheme.primary)
-                Spacer(Modifier.width(12.dp))
-                Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(3.dp)) {
-                Text(device.first, fontWeight = FontWeight.SemiBold)
-                Text(device.second, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                }
-                if (device.second == selectedDevice) Icon(Icons.Default.CheckCircle, null, tint = MaterialTheme.colorScheme.primary)
-                }
-                }
-                }
-                }
+                if (screen == MainTab.HOME && setupReady && remote) {
+                    SectionCard(title = "Bluetooth device", subtitle = "Select the paired Gateway phone.") {
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            Text("${devices.size} paired", modifier = Modifier.weight(1f), style = MaterialTheme.typography.titleMedium)
+                            OutlinedButton(onClick = { loadDevices(); refresh() }) {
+                                Icon(Icons.Default.Refresh, null)
+                                Spacer(Modifier.width(5.dp))
+                                Text("Refresh")
+                            }
+                        }
+                        if (devices.isEmpty()) {
+                            Text("No paired devices. Pair the phones in Bluetooth settings, then refresh.", color = MaterialTheme.colorScheme.onSurfaceVariant)
+                            OutlinedButton(
+                                onClick = { runCatching { startActivity(Intent(Settings.ACTION_BLUETOOTH_SETTINGS)) } },
+                                modifier = Modifier.fillMaxWidth()
+                            ) {
+                                Text("Open Bluetooth settings")
+                            }
+                        } else {
+                            devices.forEach { device ->
+                                Card(
+                                    onClick = {
+                                        if (!running) {
+                                            selectedDevice = device.second
+                                            prefs.edit().putString("device", device.second).apply()
+                                            refresh()
+                                        }
+                                    },
+                                    colors = CardDefaults.cardColors(
+                                        containerColor = if (device.second == selectedDevice)
+                                            MaterialTheme.colorScheme.secondaryContainer
+                                        else MaterialTheme.colorScheme.surfaceContainerLow
+                                    )
+                                ) {
+                                    Row(
+                                        Modifier.fillMaxWidth().padding(14.dp),
+                                        verticalAlignment = Alignment.CenterVertically
+                                    ) {
+                                        Icon(Icons.Default.Smartphone, null, tint = MaterialTheme.colorScheme.primary)
+                                        Spacer(Modifier.width(12.dp))
+                                        Column(
+                                            Modifier.weight(1f),
+                                            verticalArrangement = Arrangement.spacedBy(3.dp)
+                                        ) {
+                                            Text(device.first, fontWeight = FontWeight.SemiBold)
+                                            Text(
+                                                device.second,
+                                                style = MaterialTheme.typography.bodySmall,
+                                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                                            )
+                                        }
+                                        if (device.second == selectedDevice) {
+                                            Icon(Icons.Default.CheckCircle, null, tint = MaterialTheme.colorScheme.primary)
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
                 }
 
                 if (screen == MainTab.HOME && setupReady) Text("Connection", style = MaterialTheme.typography.headlineMedium, fontWeight = FontWeight.Bold)
@@ -324,7 +355,7 @@ class MainActivity : ComponentActivity() {
                         Text(
                             if (remote) {
                                 val peer = devices.firstOrNull { it.second == selectedDevice }
-                                if (peer != null) "Gateway: ${peer.first} (${peer.second})" else "No Gateway selected. Pair the phones in Android Bluetooth settings, then refresh devices in Settings."
+                                if (peer != null) "Gateway: ${peer.first} (${peer.second})" else "Select a paired Gateway above."
                             } else "Gateway role · cellular calls use this phone's SIM and Android's native earpiece, speaker or connected hands-free device.",
                             style = MaterialTheme.typography.bodySmall,
                             color = MaterialTheme.colorScheme.onSurfaceVariant
