@@ -69,7 +69,7 @@ Install the same app on both phones and select a role:
 1. Enable **Notification access on both phones**. Gateway mirrors the WhatsApp call notification and any action buttons that WhatsApp exposes to Remote.
 2. You can tap **Answer** on the mirrored notification on Remote; CallCompanion forwards the original notification action to the Gateway. Or answer in WhatsApp directly on either phone.
 3. CallCompanion observes notification-based call state and refuses a stale mirrored **Answer** action if it can already see an active WhatsApp call on either phone. It does not automatically answer, reject, mute, or end calls.
-4. When both installations use the same WhatsApp account through official linked-device mode, WhatsApp itself should coordinate which device has answered. CallCompanion cannot guarantee that both devices ring or that every call state is visible; this depends on WhatsApp, notification actions, account setup, Android version, and device vendor. Separate WhatsApp accounts/profiles are separate call sessions and are not merged by CallCompanion.
+4. When both installations use the same WhatsApp account through official linked-device mode, WhatsApp itself should coordinate which device has answered. CallCompanion cannot guarantee that both devices ring or that every call state is visible; this depends on WhatsApp, notification actions, account setup, Android version, and device vendor. Separate WhatsApp accounts/profiles are separate call sessions and are not merged by CallCompanion. Android notifications do not reliably identify the WhatsApp account behind a notification, so the duplicate-answer guard is conservative per WhatsApp app package rather than account-specific.
 
 ### 4. Starting a WhatsApp chat/call from the Remote
 
