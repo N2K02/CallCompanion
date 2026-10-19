@@ -260,7 +260,7 @@ class MainActivity : ComponentActivity() {
                     .padding(horizontal = 18.dp, vertical = 12.dp),
                 verticalArrangement = Arrangement.spacedBy(14.dp)
             ) {
-                if (screen == MainTab.HOME && setupReady) Text("Your relay workspace", style = MaterialTheme.typography.headlineMedium, fontWeight = FontWeight.Bold)
+                if (screen == MainTab.HOME && setupReady) Text("Bluetooth connection", style = MaterialTheme.typography.headlineMedium, fontWeight = FontWeight.Bold)
                 if (screen == MainTab.HOME && setupReady) Card(
                     colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.primaryContainer),
                     modifier = Modifier.fillMaxWidth()
