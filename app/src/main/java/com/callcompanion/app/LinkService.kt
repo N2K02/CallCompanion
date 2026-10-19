@@ -55,6 +55,7 @@ class LinkService : Service() {
         const val ACTION_STOP = "com.pcl.app.STOP"
         const val ACTION_ANSWER = "com.pcl.app.ANSWER"
         const val ACTION_REJECT = "com.pcl.app.REJECT"
+        const val ACTION_HANGUP = "com.pcl.app.HANGUP"
         const val ACTION_NOTIF_DISMISSED = "com.pcl.app.NOTIF_DISMISSED"
         const val ACTION_NOTIF_ACTION = "com.pcl.app.NOTIF_ACTION"
         const val EXTRA_KEY = "key"
@@ -175,6 +176,7 @@ class LinkService : Service() {
             }
             ACTION_ANSWER -> if (running) answer() else stopSelf()
             ACTION_REJECT -> if (running) reject() else stopSelf()
+            ACTION_HANGUP -> if (running) hangUp() else stopSelf()
             ACTION_NOTIF_DISMISSED -> {
                 val key = intent.getStringExtra(EXTRA_KEY)
                 if (running && key != null) send("NOTIF_DISMISS", key) else if (!running) stopSelf()
@@ -864,7 +866,7 @@ class LinkService : Service() {
             }
             CALL_OFFHOOK -> {
                 stopRinging()
-                nm.cancel(ID_INCOMING)
+                showOngoingCall()
                 Hub.log("Call in progress on gateway: ${display()}")
             }
             else -> {
@@ -874,6 +876,25 @@ class LinkService : Service() {
             }
         }
         updateStatus()
+    }
+
+    private fun showOngoingCall() {
+        // Reuse the incoming-call notification ID so the Remote has one call notification,
+        // updated in place when the Gateway call is answered or connects.
+        val n = Notification.Builder(this, CH_CALLS)
+            .setSmallIcon(android.R.drawable.sym_action_call)
+            .setContentTitle("Call in progress")
+            .setContentText(display())
+            .setCategory(Notification.CATEGORY_CALL)
+            .setOngoing(true)
+            .setContentIntent(openAppPi())
+            .addAction(action(android.R.drawable.ic_menu_close_clear_cancel, "End call", actionPi(ACTION_HANGUP, 13)))
+            .build()
+        try {
+            nm.notify(ID_INCOMING, n)
+        } catch (e: Exception) {
+            Hub.log("Could not show ongoing-call notification: ${e.message ?: e.javaClass.simpleName}")
+        }
     }
 
     private fun startRinging() {
