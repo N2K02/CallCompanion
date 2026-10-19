@@ -260,7 +260,37 @@ class MainActivity : ComponentActivity() {
                     .padding(horizontal = 18.dp, vertical = 12.dp),
                 verticalArrangement = Arrangement.spacedBy(14.dp)
             ) {
-                if (screen == MainTab.HOME && setupReady) Text("Bluetooth connection", style = MaterialTheme.typography.headlineMedium, fontWeight = FontWeight.Bold)
+                if (screen == MainTab.HOME && setupReady && remote) SectionCard(title = "Bluetooth device", subtitle = "Select the paired Gateway phone.") {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                Text("${devices.size} paired", modifier = Modifier.weight(1f), style = MaterialTheme.typography.titleMedium)
+                OutlinedButton(onClick = { loadDevices(); refresh() }) {
+                Icon(Icons.Default.Refresh, null); Spacer(Modifier.width(5.dp)); Text("Refresh")
+                }
+                }
+                if (devices.isEmpty()) {
+                Text("No paired devices. Pair the phones in Bluetooth settings, then refresh.", color = MaterialTheme.colorScheme.onSurfaceVariant)
+                OutlinedButton(onClick = { runCatching { startActivity(Intent(Settings.ACTION_BLUETOOTH_SETTINGS)) } }, modifier = Modifier.fillMaxWidth()) { Text("Open Bluetooth settings") }
+                } else {
+                devices.forEach { device ->
+                Card(
+                onClick = { if (!running) { selectedDevice = device.second; prefs.edit().putString("device", device.second).apply(); refresh() } },
+                colors = CardDefaults.cardColors(containerColor = if (device.second == selectedDevice) MaterialTheme.colorScheme.secondaryContainer else MaterialTheme.colorScheme.surfaceContainerLow)
+                ) {
+                Row(Modifier.fillMaxWidth().padding(14.dp), verticalAlignment = Alignment.CenterVertically) {
+                Icon(Icons.Default.Smartphone, null, tint = MaterialTheme.colorScheme.primary)
+                Spacer(Modifier.width(12.dp))
+                Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(3.dp)) {
+                Text(device.first, fontWeight = FontWeight.SemiBold)
+                Text(device.second, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                }
+                if (device.second == selectedDevice) Icon(Icons.Default.CheckCircle, null, tint = MaterialTheme.colorScheme.primary)
+                }
+                }
+                }
+                }
+                }
+
+                if (screen == MainTab.HOME && setupReady) Text("Connection", style = MaterialTheme.typography.headlineMedium, fontWeight = FontWeight.Bold)
                 if (screen == MainTab.HOME && setupReady) Card(
                     colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.primaryContainer),
                     modifier = Modifier.fillMaxWidth()
@@ -304,7 +334,7 @@ class MainActivity : ComponentActivity() {
 
                 if (screen == MainTab.HOME && setupReady) {
                     val traffic = service
-                    SectionCard(title = "Network speed", subtitle = "PCL app traffic over Bluetooth only · not internet or tethering speed") {
+                    SectionCard(title = "Network speed", subtitle = "PCL traffic over Bluetooth · not internet speed") {
                         if (connected && traffic != null) {
                             Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
                                 Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(4.dp)) {
@@ -316,10 +346,8 @@ class MainActivity : ComponentActivity() {
                                     Text(formatTrafficRate(traffic.uploadBytesPerSecond), style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.SemiBold)
                                 }
                             }
-                            Text("Counts PCL protocol data sent and received by this app; it does not measure Bluetooth radio capacity or internet traffic.", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                         } else {
-                            Text("Unavailable until the PCL Bluetooth link is connected.", style = MaterialTheme.typography.bodyMedium)
-                            Text("This card never substitutes internet speed or the phone's general network speed.", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                            Text("Connect to view app traffic rates.", style = MaterialTheme.typography.bodyMedium)
                         }
                     }
                 }
@@ -361,7 +389,7 @@ class MainActivity : ComponentActivity() {
 
 
                 if (screen == MainTab.HOME && setupReady && running) {
-                    SectionCard(title = "Phone call", subtitle = if (remote) "SIM call on the Gateway · audio stays on the Gateway" else "SIM call status and controls for this phone") {
+                    SectionCard(title = "Phone call", subtitle = if (remote) "Gateway SIM call · audio stays on Gateway" else "This phone’s SIM call status and controls") {
                         Text(
                             when (callState) {
                                 LinkService.CALL_RINGING -> "Incoming SIM call"
@@ -406,10 +434,7 @@ class MainActivity : ComponentActivity() {
                 }
 
                 if (screen == MainTab.HOME && setupReady && running && remote) {
-                    SectionCard(title = "Make a call", subtitle = "Type a number or search synced contacts.") {
-                        Text("The Gateway places the SIM call and handles its audio. The Remote is a controller, not the call's microphone or speaker.",
-                            style = MaterialTheme.typography.bodySmall,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    SectionCard(title = "Make a call", subtitle = "Dial through the Gateway SIM or search synced contacts.") {
                         var suggestionsExpanded by remember { mutableStateOf(false) }
                         OutlinedTextField(
                             value = dialInput,
@@ -497,10 +522,10 @@ class MainActivity : ComponentActivity() {
                             PermissionSetupRow("Answer calls", "Allow call answering requests", granted(Manifest.permission.ANSWER_PHONE_CALLS)) { requestPermissions(arrayOf(Manifest.permission.ANSWER_PHONE_CALLS), 1) }
                             PermissionSetupRow("Place calls", "Place calls through the gateway SIM", granted(Manifest.permission.CALL_PHONE)) { requestPermissions(arrayOf(Manifest.permission.CALL_PHONE), 1) }
                             PermissionSetupRow("Contacts (for sync)", "Send Gateway contacts to the Remote and resolve caller names", granted(Manifest.permission.READ_CONTACTS)) { requestPermissions(arrayOf(Manifest.permission.READ_CONTACTS), 1) }
-                            PermissionSetupRow("Notification access", "Mirror notifications and detect WhatsApp call state", notificationAccess) { runCatching { startActivity(Intent(Settings.ACTION_NOTIFICATION_LISTENER_SETTINGS)) }.onFailure { toast("Open Android Settings → Notifications → Notification access") } }
+                            PermissionSetupRow("Notification access", "Mirror notifications and detect WhatsApp call state", notificationAccess, actionLabel = "Open settings") { runCatching { startActivity(Intent(Settings.ACTION_NOTIFICATION_LISTENER_SETTINGS)) }.onFailure { toast("Open Android Settings → Notifications → Notification access") } }
                             if (Build.VERSION.SDK_INT >= 31) PermissionSetupRow("Bluetooth connection", "Connect to the paired remote phone", granted(Manifest.permission.BLUETOOTH_CONNECT)) { requestPermissions(arrayOf(Manifest.permission.BLUETOOTH_CONNECT), 1) }
                         } else if (roleSelected) {
-                            PermissionSetupRow("Notification access", "Detect local WhatsApp call state and prevent stale duplicate Answer actions", notificationAccess) { runCatching { startActivity(Intent(Settings.ACTION_NOTIFICATION_LISTENER_SETTINGS)) }.onFailure { toast("Open Android Settings → Notifications → Notification access") } }
+                            PermissionSetupRow("Notification access", "Detect local WhatsApp call state", notificationAccess, actionLabel = "Open settings") { runCatching { startActivity(Intent(Settings.ACTION_NOTIFICATION_LISTENER_SETTINGS)) }.onFailure { toast("Open Android Settings → Notifications → Notification access") } }
                             PermissionSetupRow("Local contacts (optional)", "Include this phone's contacts in Remote search", granted(Manifest.permission.READ_CONTACTS)) { requestPermissions(arrayOf(Manifest.permission.READ_CONTACTS), 1) }
                             if (Build.VERSION.SDK_INT >= 31) PermissionSetupRow("Bluetooth connection", "Find and connect to the paired gateway phone", granted(Manifest.permission.BLUETOOTH_CONNECT)) { requestPermissions(arrayOf(Manifest.permission.BLUETOOTH_CONNECT), 1) }
                             if (Build.VERSION.SDK_INT >= 33) PermissionSetupRow("Notifications", "Show the ongoing PCL status", granted(Manifest.permission.POST_NOTIFICATIONS)) { requestPermissions(arrayOf(Manifest.permission.POST_NOTIFICATIONS), 1) }
@@ -550,35 +575,6 @@ class MainActivity : ComponentActivity() {
                     }
                 }
 
-                    if (remote) SectionCard(title = "Bluetooth devices", subtitle = "Choose the paired gateway phone by its device name. The address is shown underneath to distinguish similarly named devices.") {
-                        Row(verticalAlignment = Alignment.CenterVertically) {
-                            Text("Paired devices: ${devices.size}", modifier = Modifier.weight(1f), style = MaterialTheme.typography.titleMedium)
-                            OutlinedButton(onClick = { loadDevices(); refresh() }) {
-                                Icon(Icons.Default.Refresh, null); Spacer(Modifier.width(5.dp)); Text("Refresh")
-                            }
-                        }
-                        if (devices.isEmpty()) {
-                            Text("No paired Bluetooth devices found. Pair the two phones in Android Bluetooth settings, then refresh.", color = MaterialTheme.colorScheme.onSurfaceVariant)
-                            OutlinedButton(onClick = { runCatching { startActivity(Intent(Settings.ACTION_BLUETOOTH_SETTINGS)) } }, modifier = Modifier.fillMaxWidth()) { Text("Open Bluetooth settings") }
-                        } else {
-                            devices.forEach { device ->
-                                Card(
-                                    onClick = { if (!running) { selectedDevice = device.second; prefs.edit().putString("device", device.second).apply(); refresh() } },
-                                    colors = CardDefaults.cardColors(containerColor = if (device.second == selectedDevice) MaterialTheme.colorScheme.secondaryContainer else MaterialTheme.colorScheme.surfaceContainerLow)
-                                ) {
-                                    Row(Modifier.fillMaxWidth().padding(14.dp), verticalAlignment = Alignment.CenterVertically) {
-                                        Icon(Icons.Default.Smartphone, null, tint = MaterialTheme.colorScheme.primary)
-                                        Spacer(Modifier.width(12.dp))
-                                        Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(3.dp)) {
-                                            Text(device.first, fontWeight = FontWeight.SemiBold)
-                                            Text(device.second, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                                        }
-                                        if (device.second == selectedDevice) Icon(Icons.Default.CheckCircle, null, tint = MaterialTheme.colorScheme.primary)
-                                    }
-                                }
-                            }
-                        }
-                    }
                     Text("PCL • Material 3 Expressive", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.align(Alignment.CenterHorizontally))
                 }
             }
@@ -650,10 +646,10 @@ private fun PermissionSetupRow(title: String, description: String, ready: Boolea
             Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(4.dp)) {
                 Text(title, style = MaterialTheme.typography.titleMedium)
                 Text(description, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                Text(if (ready) "Ready" else "Needs setup", style = MaterialTheme.typography.labelMedium, color = if (ready) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.error)
+                Text(if (ready) "Granted" else "Not granted", style = MaterialTheme.typography.labelMedium, color = if (ready) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.error)
             }
             Spacer(Modifier.width(8.dp))
-            Button(onClick = action) { Text(actionLabel ?: if (ready) "Review" else "Set up") }
+            Button(onClick = action, enabled = actionLabel != null || !ready) { Text(actionLabel ?: if (ready) "Granted" else "Allow") }
         }
     }
 }
