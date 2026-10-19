@@ -71,9 +71,11 @@ class LinkService : Service() {
         private const val CH_STATUS = "vgs_status"
         private const val CH_CALLS = "vgs_calls"
         private const val CH_MIRROR = "vgs_mirror"
+        private const val CH_HOTSPOT = "vgs_hotspot"
         private const val TAG_MIRROR = "mirror"
         private const val ID_STATUS = 1
         private const val ID_INCOMING = 2
+        private const val ID_HOTSPOT = 43
     }
 
     @Volatile var role: String = ROLE_REMOTE
@@ -257,6 +259,17 @@ class LinkService : Service() {
     private fun isAnswerActionLabel(label: String): Boolean {
         val lower = label.trim().lowercase()
         return listOf("answer", "accept", "pick up", "rispondi", "contestar", "responder", "décrocher", "annehmen", "接听", "接聽", "応答").any(lower::contains)
+    }
+
+    /** Called by the opt-in accessibility observer on Remote after a WhatsApp call-button click. */
+    fun onWhatsAppCallUiAction(action: String) {
+        if (role != ROLE_REMOTE || action != "START") return
+        if (!connected) {
+            Hub.log("WhatsApp call detected, but Gateway prompt was not sent because Bluetooth is disconnected")
+            return
+        }
+        send("WHATSAPP_CALL_TRIGGER", encodeText(action))
+        Hub.log("Sent WhatsApp call-start event to Gateway")
     }
 
     /**
@@ -493,6 +506,14 @@ class LinkService : Service() {
             "SYNC_CONTACTS" -> {
                 if (role == ROLE_GATEWAY) sendContacts()
                 else Hub.log("Ignored contact-sync request received by Remote")
+            }
+            "WHATSAPP_CALL_TRIGGER" -> {
+                if (role == ROLE_GATEWAY) {
+                    val action = decodeText(arg1)
+                    if (action == "START") showHotspotPrompt()
+                } else {
+                    Hub.log("Ignored hotspot request received by Remote")
+                }
             }
             "WHATSAPP_CHAT" -> {
                 if (role == ROLE_GATEWAY) {
@@ -1001,6 +1022,36 @@ class LinkService : Service() {
         nm.createNotificationChannel(
             NotificationChannel(CH_MIRROR, "Notifications from gateway phone", NotificationManager.IMPORTANCE_HIGH)
         )
+        nm.createNotificationChannel(
+            NotificationChannel(CH_HOTSPOT, "WhatsApp call connectivity", NotificationManager.IMPORTANCE_HIGH)
+        )
+    }
+
+    /**
+     * Ordinary apps cannot silently enable tethering on all Android devices.
+     * Notify the Gateway user and provide a direct settings action instead.
+     */
+    private fun showHotspotPrompt() {
+        if (role != ROLE_GATEWAY) return
+        val settingsIntent = Intent("android.settings.TETHER_SETTINGS")
+            .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+        val pending = PendingIntent.getActivity(
+            this, ID_HOTSPOT, settingsIntent,
+            PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT
+        )
+        val n = Notification.Builder(this, CH_HOTSPOT)
+            .setSmallIcon(android.R.drawable.stat_sys_wifi)
+            .setContentTitle("WhatsApp call detected")
+            .setContentText("Enable the Gateway Wi-Fi hotspot for better call quality.")
+            .setStyle(Notification.BigTextStyle().bigText(
+                "The Remote phone started or answered a WhatsApp call. Enable the Wi-Fi hotspot, then connect the Remote to this network. Android requires you to confirm hotspot activation."
+            ))
+            .setAutoCancel(true)
+            .setContentIntent(pending)
+            .addAction(action(android.R.drawable.stat_sys_wifi, "Open hotspot settings", pending))
+            .build()
+        nm.notify(ID_HOTSPOT, n)
+        Hub.log("WhatsApp call detected on Remote; Gateway hotspot prompt posted")
     }
 
     private fun openAppPi(): PendingIntent = PendingIntent.getActivity(
