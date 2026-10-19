@@ -30,6 +30,10 @@ class NotifListener : NotificationListenerService() {
     private val actionsByKey = HashMap<String, Array<Notification.Action>>()
     private val actionPackagesByKey = HashMap<String, String>()
 
+    /** WhatsApp linked devices manage VoIP ringing and answer state themselves. */
+    private fun isWhatsAppPackage(pkg: String): Boolean =
+        pkg == "com.whatsapp" || pkg == "com.whatsapp.w4b"
+
     override fun onListenerConnected() {
         instance = this
         Hub.log("Notification access active")
@@ -59,6 +63,14 @@ class NotifListener : NotificationListenerService() {
             (sbn.isOngoing && listOf("answer", "accept", "decline", "reject", "hang up", "end call").any { lowerActions.contains(it) })
 
         if (callNotification) {
+            // Do not proxy WhatsApp call-answer actions across Bluetooth. When both phones
+            // are linked to the same WhatsApp account, WhatsApp itself is responsible for
+            // ringing both devices and stopping the other device after one answers. A
+            // mirrored Answer button could race that state or answer on the wrong phone.
+            if (isWhatsAppPackage(sbn.packageName)) {
+                Hub.log("WhatsApp call notification left to WhatsApp linked-device handling")
+                return
+            }
             synchronized(actionsByKey) {
                 actionsByKey[sbn.key] = actions
                 actionPackagesByKey[sbn.key] = sbn.packageName
