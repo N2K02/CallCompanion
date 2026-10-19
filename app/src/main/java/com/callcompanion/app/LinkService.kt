@@ -1,4 +1,4 @@
-package com.callcompanion.app
+package com.pcl.app
 
 import android.Manifest
 import android.annotation.SuppressLint
@@ -49,12 +49,12 @@ class LinkService : Service() {
         const val ROLE_GATEWAY = "gateway"
         const val ROLE_REMOTE = "remote"
 
-        const val ACTION_START = "com.callcompanion.app.START"
-        const val ACTION_STOP = "com.callcompanion.app.STOP"
-        const val ACTION_ANSWER = "com.callcompanion.app.ANSWER"
-        const val ACTION_REJECT = "com.callcompanion.app.REJECT"
-        const val ACTION_NOTIF_DISMISSED = "com.callcompanion.app.NOTIF_DISMISSED"
-        const val ACTION_NOTIF_ACTION = "com.callcompanion.app.NOTIF_ACTION"
+        const val ACTION_START = "com.pcl.app.START"
+        const val ACTION_STOP = "com.pcl.app.STOP"
+        const val ACTION_ANSWER = "com.pcl.app.ANSWER"
+        const val ACTION_REJECT = "com.pcl.app.REJECT"
+        const val ACTION_NOTIF_DISMISSED = "com.pcl.app.NOTIF_DISMISSED"
+        const val ACTION_NOTIF_ACTION = "com.pcl.app.NOTIF_ACTION"
         const val EXTRA_KEY = "key"
         const val EXTRA_ACTION_INDEX = "action_index"
         const val EXTRA_ACTION_LABEL = "action_label"

@@ -12,11 +12,11 @@ val appVersionCode = appVersion.split(".").let { (major, minor) ->
 }
 
 android {
-    namespace = "com.callcompanion.app"
+    namespace = "com.pcl.app"
     compileSdk = 34
 
     defaultConfig {
-        applicationId = "com.callcompanion.app"
+        applicationId = "com.pcl.app"
         minSdk = 26
         targetSdk = 34
         versionCode = appVersionCode
