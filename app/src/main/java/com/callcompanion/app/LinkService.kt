@@ -30,6 +30,7 @@ import android.os.Looper
 import android.os.VibrationEffect
 import android.os.Vibrator
 import android.provider.ContactsContract
+import android.provider.Settings
 import android.telecom.TelecomManager
 import android.telephony.TelephonyManager
 import android.util.Base64
