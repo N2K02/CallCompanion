@@ -50,6 +50,7 @@ Install the same app on both phones and select a role:
 | Third-party call actions | PCL can relay actions exposed by the original notification. It detects WhatsApp call state on both phones when Notification Access exposes recognizable Answer/Decline or End-call actions, and blocks stale WhatsApp Answer actions when either phone is already in an active WhatsApp call. It never auto-answers or rejects a call. |
 | Other notifications | Non-ongoing notifications can be mirrored to the Remote. Persistent non-call notifications are ignored. |
 | Bluetooth transport | Call state, notification details, and commands travel over the existing Bluetooth RFCOMM connection. |
+| PCL Bluetooth traffic speed | Home and the ongoing notification show approximate download/upload rates for PCL protocol frames sent and received over its Bluetooth RFCOMM link. This is app-level traffic only; it is not Bluetooth radio capacity, internet speed, or tethered internet throughput. Rates are unavailable while disconnected. |
 | Call audio | Android manages the Gateway's cellular-call audio route (earpiece, loudspeaker, or a connected Bluetooth hands-free device). PCL relays call control and status only; it does not stream cellular-call audio to the Remote. |
 
 ## How the app works — step by step
