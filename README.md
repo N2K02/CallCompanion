@@ -14,12 +14,12 @@ Install the same app on both phones and select a role:
                  AND CONTROL COMMANDS
        ┌─────────────────────────────────────┐
        │                                     ⇅
-┌────────────────────┐  paired Bluetooth  ┌────────────────────┐
+┌────────────────────┐  paired Bluetooth   ┌────────────────────┐
 │ GATEWAY PHONE      │◄──── RFCOMM link ──►│ REMOTE PHONE       │
 │                    │                     │                    │
 │ • SIM / Phone app  │                     │ • PCL UI │
 │ • WhatsApp apps    │                     │ • Mirrored alerts  │
-│ • PCL    │                     │ • Answer/reject or │
+│ • PCL    │                               │ • Answer/reject or │
 │   Gateway role     │                     │   other available  │
 │ • Mobile data/Wi-Fi│                     │   notification acts│
 └─────────┬──────────┘                     └────────────────────┘
