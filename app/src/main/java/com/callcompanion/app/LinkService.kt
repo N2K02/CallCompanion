@@ -163,9 +163,9 @@ class LinkService : Service() {
                 val label = intent.getStringExtra(EXTRA_ACTION_LABEL).orEmpty()
                 val notifPackage = intent.getStringExtra(EXTRA_NOTIF_PACKAGE).orEmpty()
                 if (running && role == ROLE_REMOTE && connected && key != null && index >= 0 &&
-                    !(localWhatsappCallState == "ACTIVE" && isWhatsAppPackage(notifPackage) && isAnswerActionLabel(label))) {
+                    !((localWhatsappCallState == "ACTIVE" || peerWhatsappCallState == "ACTIVE") && isWhatsAppPackage(notifPackage) && isAnswerActionLabel(label))) {
                     send("NOTIF_ACTION", key, index.toString(), encodeText(label))
-                } else if (localWhatsappCallState == "ACTIVE" && isWhatsAppPackage(notifPackage) && isAnswerActionLabel(label)) {
+                } else if ((localWhatsappCallState == "ACTIVE" || peerWhatsappCallState == "ACTIVE") && isWhatsAppPackage(notifPackage) && isAnswerActionLabel(label)) {
                     Hub.log("Ignored stale WhatsApp Answer action: a WhatsApp call is already active on Remote")
                 } else {
                     Hub.log("Third-party call action unavailable: Bluetooth link is not connected")
@@ -418,6 +418,7 @@ class LinkService : Service() {
             if (writer === w) writer = null
             if (socket === s) socket = null
             connected = false
+            peerWhatsappCallState = "IDLE"
             audio.stop()
             setForegroundAudioActive(false)
             if (role == ROLE_REMOTE) {
