@@ -120,6 +120,12 @@ class LinkService : Service() {
     @Volatile private var hotspotAutomationStartedAt = 0L
     @Volatile var isHotspotAutomationPending: Boolean = false
         private set
+    @Volatile var hotspotTargetEnabled: Boolean = true
+        private set
+    @Volatile var hotspotToggleRequested: Boolean = false
+        private set
+    @Volatile private var hotspotEnabledByPcl = false
+    @Volatile private var remoteWhatsappCallRequested = false
 
 
     @Volatile private var running = false
@@ -292,6 +298,11 @@ class LinkService : Service() {
         if (state == "IDLE") localWhatsappCallStates.remove(pkg) else localWhatsappCallStates[pkg] = state
         Hub.log("Local WhatsApp call state detected for $pkg: $state")
         if (connected) send("WHATSAPP_CALL_STATE", encodeText(pkg), state)
+
+        // Only an actually active native Remote call (or an outgoing call-button tap)
+        // requests Wi-Fi. A ringing notification alone may belong to a call answered
+        // on Gateway, in which case it should disappear without enabling the hotspot.
+        if (role == ROLE_REMOTE && state == "ACTIVE") onWhatsAppCallUiAction("START")
         Hub.notifyUi()
     }
 
@@ -516,7 +527,10 @@ class LinkService : Service() {
             "WHATSAPP_CALL_TRIGGER" -> {
                 if (role == ROLE_GATEWAY) {
                     val action = decodeText(arg1)
-                    if (action == "START") beginHotspotAutomation()
+                    if (action == "START") {
+                        remoteWhatsappCallRequested = true
+                        beginHotspotAutomation(enable = true)
+                    }
                 } else {
                     Hub.log("Ignored hotspot request received by Remote")
                 }
@@ -603,6 +617,23 @@ class LinkService : Service() {
                         }
                     }
                     Hub.log("Peer WhatsApp call state for $pkg: $state")
+
+                    if (role == ROLE_GATEWAY) {
+                        when (state) {
+                            "ACTIVE" -> {
+                                remoteWhatsappCallRequested = true
+                                beginHotspotAutomation(enable = true)
+                            }
+                            "IDLE" -> {
+                                // Keep the hotspot while any other Remote WhatsApp call
+                                // remains active; never react to Gateway's own call state.
+                                if (peerWhatsappCallStates.values.none { it == "ACTIVE" }) {
+                                    remoteWhatsappCallRequested = false
+                                    stopHotspotForRemoteCall()
+                                }
+                            }
+                        }
+                    }
                 }
             }
             "NOTIF_ACTION_RESULT" -> Hub.log(if (arg1 == "OK") "Third-party call action sent to the app" else "Third-party call action failed")
@@ -1057,26 +1088,51 @@ class LinkService : Service() {
      * visible Settings switch, but Android does not grant apps a universal hotspot API.
      * A notification remains available as a manual fallback if UI automation fails.
      */
-    private fun beginHotspotAutomation() {
+    /**
+     * Best-effort hotspot lifecycle automation for stock/OEM Android. Accessibility can
+     * operate a visible Settings switch, but Android does not grant ordinary apps a
+     * universal hotspot API. Only disable a hotspot that PCL itself turned on.
+     */
+    private fun beginHotspotAutomation(enable: Boolean) {
         if (role != ROLE_GATEWAY) return
+        if (enable && (hotspotEnabledByPcl || isHotspotAutomationPending)) return
+        if (!enable && !hotspotEnabledByPcl) return
+
+        // If a call ended while enabling was in progress, stop the stale attempt.
+        if (!enable && isHotspotAutomationPending) {
+            if (hotspotTargetEnabled && hotspotToggleRequested) hotspotEnabledByPcl = true
+            isHotspotAutomationPending = false
+            nm.cancel(ID_HOTSPOT)
+        }
+
+        hotspotTargetEnabled = enable
+        hotspotToggleRequested = false
         val settingsIntent = Intent("android.settings.TETHER_SETTINGS")
             .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
         val pending = PendingIntent.getActivity(
             this, ID_HOTSPOT, settingsIntent,
             PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT
         )
-        val n = Notification.Builder(this, CH_HOTSPOT)
+        val title = if (enable) "Remote WhatsApp call detected" else "Remote WhatsApp call ended"
+        val detail = if (enable) {
+            "Trying to enable the Gateway Wi-Fi hotspot."
+        } else {
+            "Trying to turn off the hotspot PCL enabled."
+        }
+        val fallback = if (enable) {
+            "PCL will try to enable the hotspot using the accessibility permission on this phone. Android and OEM settings may block this. If it does not turn on, tap Open hotspot settings and enable it manually; then connect the Remote phone to this Wi-Fi network."
+        } else {
+            "PCL will try to turn off the hotspot it enabled using the accessibility permission on this phone. If Android or the OEM blocks this, open hotspot settings and turn it off manually."
+        }
+        nm.notify(ID_HOTSPOT, Notification.Builder(this, CH_HOTSPOT)
             .setSmallIcon(android.R.drawable.sym_action_call)
-            .setContentTitle("WhatsApp call detected")
-            .setContentText("Trying to enable the Gateway Wi-Fi hotspot.")
-            .setStyle(Notification.BigTextStyle().bigText(
-                "PCL will try to enable the hotspot using the accessibility permission on this phone. Android and OEM settings may block this. If it does not turn on, tap Open hotspot settings and enable it manually; then connect the Remote phone to this Wi-Fi network."
-            ))
+            .setContentTitle(title)
+            .setContentText(detail)
+            .setStyle(Notification.BigTextStyle().bigText(fallback))
             .setAutoCancel(true)
             .setContentIntent(pending)
             .addAction(action(android.R.drawable.sym_action_call, "Open hotspot settings", pending))
-            .build()
-        nm.notify(ID_HOTSPOT, n)
+            .build())
 
         if (!WhatsappCallAccessibilityService.isEnabled(this)) {
             Hub.log("Hotspot automation unavailable: enable PCL accessibility on Gateway; manual hotspot notification shown")
@@ -1086,11 +1142,24 @@ class LinkService : Service() {
         hotspotAutomationStartedAt = android.os.SystemClock.elapsedRealtime()
         try {
             startActivity(settingsIntent)
-            Hub.log("Opening Gateway hotspot settings for accessibility automation")
+            Hub.log(if (enable) "Opening Gateway hotspot settings to enable Wi-Fi hotspot" else "Opening Gateway hotspot settings to disable the PCL-enabled hotspot")
         } catch (e: Exception) {
             isHotspotAutomationPending = false
             Hub.log("Could not open hotspot settings automatically: ${e.message}; use notification action")
         }
+    }
+
+    private fun stopHotspotForRemoteCall() {
+        if (isHotspotAutomationPending && hotspotTargetEnabled) {
+            if (hotspotToggleRequested) hotspotEnabledByPcl = true
+            isHotspotAutomationPending = false
+            nm.cancel(ID_HOTSPOT)
+        }
+        if (hotspotEnabledByPcl) beginHotspotAutomation(enable = false)
+    }
+
+    fun noteHotspotToggleRequested() {
+        hotspotToggleRequested = true
     }
 
     fun isHotspotAutomationExpired(now: Long): Boolean =
@@ -1101,8 +1170,17 @@ class LinkService : Service() {
         isHotspotAutomationPending = false
         Hub.log(if (success) "Hotspot accessibility automation: $detail" else "Hotspot accessibility automation stopped: $detail")
         if (success) {
+            if (hotspotTargetEnabled) {
+                hotspotEnabledByPcl = hotspotToggleRequested
+            } else {
+                hotspotEnabledByPcl = false
+            }
             nm.cancel(ID_HOTSPOT)
-            Hub.log("If the Remote is not already connected to Gateway Wi-Fi, connect it before expecting WhatsApp to use that route")
+            if (hotspotTargetEnabled) {
+                Hub.log("If the Remote is not already connected to Gateway Wi-Fi, connect it before expecting WhatsApp to use that route")
+            } else {
+                Hub.log("PCL-enabled Gateway hotspot is now off; Android/OEM must restore the Remote's Bluetooth internet route if supported")
+            }
         }
     }
 
