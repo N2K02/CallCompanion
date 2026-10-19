@@ -13,13 +13,12 @@ import java.util.UUID
 /**
  * Wire format over the Bluetooth RFCOMM socket:
  *   [1 byte type][4 byte length][payload]
- * type 1 = text command "NAME|arg1|arg2", type 2 = raw PCM audio (8 kHz, 16-bit mono).
+ * type 1 = text command "NAME|arg1|arg2".
  */
 object Protocol {
     val SERVICE_UUID: UUID = UUID.fromString("7a1e5d2c-3b4f-4c8a-9e61-2f5d8c0b9a41")
     const val SERVICE_NAME = "PCL"
     const val TYPE_CMD = 1
-    const val TYPE_AUDIO = 2
     const val MAX_FRAME = 64 * 1024
 }
 
@@ -30,11 +29,6 @@ class FrameWriter(stream: OutputStream) {
     fun writeCmd(cmd: String) {
         val b = cmd.toByteArray(Charsets.UTF_8)
         writeFrame(Protocol.TYPE_CMD, b, b.size)
-    }
-
-    @Synchronized
-    fun writeAudio(buf: ByteArray, len: Int) {
-        writeFrame(Protocol.TYPE_AUDIO, buf, len)
     }
 
     private fun writeFrame(type: Int, b: ByteArray, len: Int) {
