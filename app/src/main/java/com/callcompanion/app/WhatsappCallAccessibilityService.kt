@@ -31,6 +31,7 @@ class WhatsappCallAccessibilityService : AccessibilityService() {
 
     private var lastTriggerAt = 0L
     private var lastSettingsTapAt = 0L
+    private var lastToggleTapAt = 0L
 
     override fun onAccessibilityEvent(event: AccessibilityEvent?) {
         event ?: return
@@ -88,11 +89,13 @@ class WhatsappCallAccessibilityService : AccessibilityService() {
             if (control.isChecked) {
                 service.finishHotspotAutomation(true, "Hotspot was already enabled")
             } else {
+                if (now - lastToggleTapAt < 2_000L) return
+                lastToggleTapAt = now
                 val clicked = try { control.performAction(AccessibilityNodeInfo.ACTION_CLICK) } catch (_: Exception) { false }
-                if (clicked) {
-                    service.finishHotspotAutomation(true, "Requested hotspot activation through Android Settings")
-                } else {
+                if (!clicked) {
                     service.finishHotspotAutomation(false, "Android Settings did not allow the hotspot switch to be tapped")
+                } else {
+                    Hub.log("Hotspot switch tapped; waiting to verify that Android enabled it")
                 }
             }
             return
@@ -119,12 +122,16 @@ class WhatsappCallAccessibilityService : AccessibilityService() {
 
         if (mentionsHotspot) {
             if (root.isCheckable) return root
-            for (i in 0 until root.childCount) {
-                val child = root.getChild(i) ?: continue
-                val match = findCheckableDescendant(child)
-                if (match != null) return match
+            // Only inspect descendants when this is a clickable, labelled row.
+            // This avoids mistaking a page title for the hotspot toggle.
+            if (root.isClickable) {
+                for (i in 0 until root.childCount) {
+                    val child = root.getChild(i) ?: continue
+                    val match = findCheckableDescendant(child)
+                    if (match != null) return match
+                }
+                return root
             }
-            if (root.isClickable) return root
         }
 
         for (i in 0 until root.childCount) {
