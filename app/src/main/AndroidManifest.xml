@@ -30,7 +30,7 @@
     <application
         android:allowBackup="false"
         android:icon="@android:drawable/sym_action_call"
-        android:label="@string/app_name"
+        android:label="PCL"
         android:theme="@style/Theme.PCL">
         <activity
             android:name=".MainActivity"
