@@ -59,7 +59,9 @@ class NotifListener : NotificationListenerService() {
         val indices = available.map { it.index }
         val labels = available.map { it.value.title.toString().take(40) }
         val lowerActions = labels.joinToString(" ").lowercase()
-        val callNotification = n.category == Notification.CATEGORY_CALL ||
+        val whatsappCallAction = isWhatsAppPackage(sbn.packageName) &&
+            listOf("answer", "accept", "decline", "reject").any { lowerActions.contains(it) }
+        val callNotification = n.category == Notification.CATEGORY_CALL || whatsappCallAction ||
             (sbn.isOngoing && listOf("answer", "accept", "decline", "reject", "hang up", "end call").any { lowerActions.contains(it) })
 
         if (callNotification) {
