@@ -71,9 +71,11 @@ class LinkService : Service() {
         private const val CH_STATUS = "vgs_status"
         private const val CH_CALLS = "vgs_calls"
         private const val CH_MIRROR = "vgs_mirror"
+        private const val CH_HOTSPOT = "vgs_hotspot"
         private const val TAG_MIRROR = "mirror"
         private const val ID_STATUS = 1
         private const val ID_INCOMING = 2
+        private const val ID_HOTSPOT = 43
     }
 
     @Volatile var role: String = ROLE_REMOTE
@@ -114,6 +116,10 @@ class LinkService : Service() {
     }
     private val localWhatsappCallStates = java.util.concurrent.ConcurrentHashMap<String, String>()
     private val peerWhatsappCallStates = java.util.concurrent.ConcurrentHashMap<String, String>()
+    @Volatile private var hotspotAutomationStartedAt = 0L
+    @Volatile var isHotspotAutomationPending: Boolean = false
+        private set
+
 
     @Volatile private var running = false
     @Volatile private var generation = 0
@@ -257,6 +263,17 @@ class LinkService : Service() {
     private fun isAnswerActionLabel(label: String): Boolean {
         val lower = label.trim().lowercase()
         return listOf("answer", "accept", "pick up", "rispondi", "contestar", "responder", "décrocher", "annehmen", "接听", "接聽", "応答").any(lower::contains)
+    }
+
+    /** Called by the opt-in accessibility observer on Remote after a WhatsApp call-button click. */
+    fun onWhatsAppCallUiAction(action: String) {
+        if (role != ROLE_REMOTE || action != "START") return
+        if (!connected) {
+            Hub.log("WhatsApp call detected, but Gateway prompt was not sent because Bluetooth is disconnected")
+            return
+        }
+        send("WHATSAPP_CALL_TRIGGER", encodeText(action))
+        Hub.log("Sent WhatsApp call-start event to Gateway")
     }
 
     /**
@@ -493,6 +510,14 @@ class LinkService : Service() {
             "SYNC_CONTACTS" -> {
                 if (role == ROLE_GATEWAY) sendContacts()
                 else Hub.log("Ignored contact-sync request received by Remote")
+            }
+            "WHATSAPP_CALL_TRIGGER" -> {
+                if (role == ROLE_GATEWAY) {
+                    val action = decodeText(arg1)
+                    if (action == "START") beginHotspotAutomation()
+                } else {
+                    Hub.log("Ignored hotspot request received by Remote")
+                }
             }
             "WHATSAPP_CHAT" -> {
                 if (role == ROLE_GATEWAY) {
@@ -1001,6 +1026,63 @@ class LinkService : Service() {
         nm.createNotificationChannel(
             NotificationChannel(CH_MIRROR, "Notifications from gateway phone", NotificationManager.IMPORTANCE_HIGH)
         )
+        nm.createNotificationChannel(
+            NotificationChannel(CH_HOTSPOT, "WhatsApp call connectivity", NotificationManager.IMPORTANCE_HIGH)
+        )
+    }
+
+    /**
+     * Best-effort hotspot automation for stock/OEM Android. Accessibility can tap a
+     * visible Settings switch, but Android does not grant apps a universal hotspot API.
+     * A notification remains available as a manual fallback if UI automation fails.
+     */
+    private fun beginHotspotAutomation() {
+        if (role != ROLE_GATEWAY) return
+        val settingsIntent = Intent("android.settings.TETHER_SETTINGS")
+            .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+        val pending = PendingIntent.getActivity(
+            this, ID_HOTSPOT, settingsIntent,
+            PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT
+        )
+        val n = Notification.Builder(this, CH_HOTSPOT)
+            .setSmallIcon(android.R.drawable.sym_action_call)
+            .setContentTitle("WhatsApp call detected")
+            .setContentText("Trying to enable the Gateway Wi-Fi hotspot.")
+            .setStyle(Notification.BigTextStyle().bigText(
+                "PCL will try to enable the hotspot using the accessibility permission on this phone. Android and OEM settings may block this. If it does not turn on, tap Open hotspot settings and enable it manually; then connect the Remote phone to this Wi-Fi network."
+            ))
+            .setAutoCancel(true)
+            .setContentIntent(pending)
+            .addAction(action(android.R.drawable.sym_action_call, "Open hotspot settings", pending))
+            .build()
+        nm.notify(ID_HOTSPOT, n)
+
+        if (!WhatsappCallAccessibilityService.isEnabled(this)) {
+            Hub.log("Hotspot automation unavailable: enable PCL accessibility on Gateway; manual hotspot notification shown")
+            return
+        }
+        isHotspotAutomationPending = true
+        hotspotAutomationStartedAt = android.os.SystemClock.elapsedRealtime()
+        try {
+            startActivity(settingsIntent)
+            Hub.log("Opening Gateway hotspot settings for accessibility automation")
+        } catch (e: Exception) {
+            isHotspotAutomationPending = false
+            Hub.log("Could not open hotspot settings automatically: ${e.message}; use notification action")
+        }
+    }
+
+    fun isHotspotAutomationExpired(now: Long): Boolean =
+        isHotspotAutomationPending && now - hotspotAutomationStartedAt > 20_000L
+
+    fun finishHotspotAutomation(success: Boolean, detail: String) {
+        if (!isHotspotAutomationPending) return
+        isHotspotAutomationPending = false
+        Hub.log(if (success) "Hotspot accessibility automation: $detail" else "Hotspot accessibility automation stopped: $detail")
+        if (success) {
+            nm.cancel(ID_HOTSPOT)
+            Hub.log("If the Remote is not already connected to Gateway Wi-Fi, connect it before expecting WhatsApp to use that route")
+        }
     }
 
     private fun openAppPi(): PendingIntent = PendingIntent.getActivity(
