@@ -57,6 +57,8 @@ class LinkService : Service() {
         const val ACTION_NOTIF_ACTION = "com.callcompanion.app.NOTIF_ACTION"
         const val EXTRA_KEY = "key"
         const val EXTRA_ACTION_INDEX = "action_index"
+        const val EXTRA_ACTION_LABEL = "action_label"
+        const val EXTRA_NOTIF_PACKAGE = "notification_package"
         const val EXTRA_ROLE = "role"
         const val EXTRA_DEVICE = "device"
 
@@ -88,6 +90,8 @@ class LinkService : Service() {
         private set
     @Volatile var callControlError: String? = null
         private set
+    private val localWhatsappCallStates = java.util.concurrent.ConcurrentHashMap<String, String>()
+    private val peerWhatsappCallStates = java.util.concurrent.ConcurrentHashMap<String, String>()
 
     @Volatile private var running = false
     @Volatile private var generation = 0
@@ -156,8 +160,13 @@ class LinkService : Service() {
             ACTION_NOTIF_ACTION -> {
                 val key = intent.getStringExtra(EXTRA_KEY)
                 val index = intent.getIntExtra(EXTRA_ACTION_INDEX, -1)
-                if (running && role == ROLE_REMOTE && connected && key != null && index >= 0) {
-                    send("NOTIF_ACTION", key, index.toString())
+                val label = intent.getStringExtra(EXTRA_ACTION_LABEL).orEmpty()
+                val notifPackage = intent.getStringExtra(EXTRA_NOTIF_PACKAGE).orEmpty()
+                if (running && role == ROLE_REMOTE && connected && key != null && index >= 0 &&
+                    !((localWhatsappCallStates[notifPackage] == "ACTIVE" || peerWhatsappCallStates[notifPackage] == "ACTIVE") && isWhatsAppPackage(notifPackage) && isAnswerActionLabel(label))) {
+                    send("NOTIF_ACTION", key, index.toString(), encodeText(label))
+                } else if ((localWhatsappCallStates[notifPackage] == "ACTIVE" || peerWhatsappCallStates[notifPackage] == "ACTIVE") && isWhatsAppPackage(notifPackage) && isAnswerActionLabel(label)) {
+                    Hub.log("Ignored stale WhatsApp Answer action: a WhatsApp call is already active on Remote")
                 } else {
                     Hub.log("Third-party call action unavailable: Bluetooth link is not connected")
                 }
@@ -224,6 +233,30 @@ class LinkService : Service() {
         }
         callControlError = "PENDING: Waiting for Gateway confirmation"
         if (command == "DIAL") send(command, argument) else send(command)
+        Hub.notifyUi()
+    }
+
+    private fun isWhatsAppPackage(pkg: String): Boolean = pkg == "com.whatsapp" || pkg == "com.whatsapp.w4b"
+
+    private fun isAnswerActionLabel(label: String): Boolean {
+        val lower = label.trim().lowercase()
+        return listOf("answer", "accept", "pick up", "rispondi", "contestar", "responder", "décrocher", "annehmen", "接听", "接聽", "応答").any(lower::contains)
+    }
+
+    /**
+     * Suppress the Gateway's WhatsApp call copy whenever Remote has already
+     * detected its own native WhatsApp call notification. Native WhatsApp UI
+     * takes priority; mirroring remains a fallback if Remote has no detected call.
+     */
+    fun shouldSuppressWhatsAppMirror(pkg: String): Boolean =
+        isWhatsAppPackage(pkg) && peerWhatsappCallStates[pkg] in setOf("RINGING", "ACTIVE")
+
+    /** Observe and relay call state only; never auto-answer, reject, or mute a call. */
+    fun updateLocalWhatsappCallState(pkg: String, state: String) {
+        if (!isWhatsAppPackage(pkg) || state !in setOf("IDLE", "RINGING", "ACTIVE")) return
+        if (state == "IDLE") localWhatsappCallStates.remove(pkg) else localWhatsappCallStates[pkg] = state
+        Hub.log("Local WhatsApp call state detected for $pkg: $state")
+        if (connected) send("WHATSAPP_CALL_STATE", encodeText(pkg), state)
         Hub.notifyUi()
     }
 
@@ -369,8 +402,9 @@ class LinkService : Service() {
             "peer"
         }
         setConn(true, "Connected to $peer")
-        if (role == ROLE_GATEWAY) NotifListener.instance?.syncActiveNotifications()
+        NotifListener.instance?.syncActiveNotifications()
         send("HELLO", role)
+        localWhatsappCallStates.forEach { (pkg, state) -> send("WHATSAPP_CALL_STATE", encodeText(pkg), state) }
         if (role == ROLE_GATEWAY) {
             sendCallState()
             sendContacts()
@@ -392,6 +426,7 @@ class LinkService : Service() {
             if (writer === w) writer = null
             if (socket === s) socket = null
             connected = false
+            peerWhatsappCallStates.clear()
             audio.stop()
             setForegroundAudioActive(false)
             if (role == ROLE_REMOTE) {
@@ -558,7 +593,8 @@ class LinkService : Service() {
                     val label = decodeText(p.getOrNull(7 + i * 2).orEmpty()).take(40)
                     if (label.isNotBlank()) { indices.add(index); labels.add(label) }
                 }
-                showMirroredCall(arg1, decodeText(p.getOrElse(2) { "" }), decodeText(p.getOrElse(3) { "" }), decodeText(p.getOrElse(4) { "" }), indices, labels)
+                val pkg = decodeText(p.getOrElse(6 + count * 2) { "" })
+                showMirroredCall(arg1, pkg, decodeText(p.getOrElse(2) { "" }), decodeText(p.getOrElse(3) { "" }), decodeText(p.getOrElse(4) { "" }), indices, labels)
             }
             "NOTIF_REMOVE" -> nm.cancel(TAG_MIRROR, arg1.hashCode())
             "NOTIF_DISMISS" -> {
@@ -569,9 +605,31 @@ class LinkService : Service() {
                 if (role == ROLE_GATEWAY) {
                     val key = decodeKey(arg1)
                     val index = p.getOrNull(2)?.toIntOrNull() ?: -1
-                    val ok = key != null && index >= 0 && (NotifListener.instance?.performAction(key, index) == true)
-                    if (!ok) Hub.log("Third-party call action failed or is no longer available")
+                    val label = decodeText(p.getOrNull(3).orEmpty())
+                    val notifPackage = key?.let { NotifListener.instance?.notificationPackage(it) }.orEmpty()
+                    val duplicateWhatsappAnswer = isWhatsAppPackage(notifPackage) &&
+                        peerWhatsappCallStates[notifPackage] == "ACTIVE" && isAnswerActionLabel(label)
+                    val ok = !duplicateWhatsappAnswer && key != null && index >= 0 && (NotifListener.instance?.performAction(key, index) == true)
+                    if (duplicateWhatsappAnswer) Hub.log("Ignored stale WhatsApp Answer action: Remote already has an active WhatsApp call in $notifPackage")
+                    else if (!ok) Hub.log("Third-party call action failed or is no longer available")
                     send("NOTIF_ACTION_RESULT", if (ok) "OK" else "FAILED")
+                }
+            }
+            "WHATSAPP_CALL_STATE" -> {
+                val pkg = decodeText(arg1)
+                val state = p.getOrNull(2).orEmpty()
+                if (isWhatsAppPackage(pkg) && state in setOf("IDLE", "RINGING", "ACTIVE")) {
+                    if (state == "IDLE") {
+                        peerWhatsappCallStates.remove(pkg)
+                    } else {
+                        peerWhatsappCallStates[pkg] = state
+                        if (role == ROLE_GATEWAY) {
+                            // Remote may detect its native notification after the Gateway
+                            // already mirrored one. Remove all WhatsApp call copies now.
+                            NotifListener.instance?.suppressWhatsAppCallMirrors(pkg)
+                        }
+                    }
+                    Hub.log("Peer WhatsApp call state for $pkg: $state")
                 }
             }
             "NOTIF_ACTION_RESULT" -> Hub.log(if (arg1 == "OK") "Third-party call action sent to the app" else "Third-party call action failed")
@@ -945,11 +1003,13 @@ class LinkService : Service() {
     }
 
     /** Gateway: forward a third-party call notification and its available action buttons. */
-    fun mirrorCallPosted(key: String, app: String, title: String, text: String, actionIndices: List<Int>, actionLabels: List<String>) {
+    fun mirrorCallPosted(key: String, pkg: String, app: String, title: String, text: String, actionIndices: List<Int>, actionLabels: List<String>) {
+        // Keep the original field order; append the package so older peers can still parse actions.
         val fields = mutableListOf("CALL_NOTIF", encodeKey(key), encodeText(app), encodeText(title), encodeText(text.take(1200)))
         val count = minOf(3, actionIndices.size, actionLabels.size)
         fields += count.toString()
         for (i in 0 until count) { fields += actionIndices[i].toString(); fields += encodeText(actionLabels[i].take(40)) }
+        fields += encodeText(pkg)
         send(*fields.toTypedArray())
     }
 
@@ -971,7 +1031,7 @@ class LinkService : Service() {
     }
 
     /** Remote: mirror a third-party call notification with its original available actions. */
-    private fun showMirroredCall(encKey: String, app: String, title: String, text: String, actionIndices: List<Int>, actionLabels: List<String>) {
+    private fun showMirroredCall(encKey: String, pkg: String, app: String, title: String, text: String, actionIndices: List<Int>, actionLabels: List<String>) {
         val id = encKey.hashCode()
         val deletePi = PendingIntent.getService(this, id, Intent(this, LinkService::class.java).setAction(ACTION_NOTIF_DISMISSED).putExtra(EXTRA_KEY, encKey), PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT)
         val builder = Notification.Builder(this, CH_MIRROR)
@@ -990,7 +1050,7 @@ class LinkService : Service() {
                 else -> android.R.drawable.ic_menu_view
             }
             val pi = PendingIntent.getService(this, id xor (sourceIndex + 0x341),
-                Intent(this, LinkService::class.java).setAction(ACTION_NOTIF_ACTION).putExtra(EXTRA_KEY, encKey).putExtra(EXTRA_ACTION_INDEX, sourceIndex),
+                Intent(this, LinkService::class.java).setAction(ACTION_NOTIF_ACTION).putExtra(EXTRA_KEY, encKey).putExtra(EXTRA_ACTION_INDEX, sourceIndex).putExtra(EXTRA_ACTION_LABEL, label).putExtra(EXTRA_NOTIF_PACKAGE, pkg),
                 PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT)
             builder.addAction(action(iconId, label, pi))
         }

@@ -10,8 +10,8 @@ import android.service.notification.StatusBarNotification
 import android.telecom.TelecomManager
 
 /**
- * Runs on the GATEWAY phone (needs "Notification access" in Android settings).
- * Every new notification is forwarded to the remote phone over the Bluetooth link.
+ * Runs on both phones and requires user-granted Notification Access.
+ * Gateway mirrors supported notifications/actions; Remote observes its local WhatsApp call state.
  */
 class NotifListener : NotificationListenerService() {
 
@@ -29,10 +29,56 @@ class NotifListener : NotificationListenerService() {
     private val lastSent = HashMap<String, String>()
     private val actionsByKey = HashMap<String, Array<Notification.Action>>()
     private val actionPackagesByKey = HashMap<String, String>()
+    private val whatsappCallStates = HashMap<String, String>()
+    private val whatsappCallPackages = HashMap<String, String>()
+
+    private fun isWhatsAppPackage(pkg: String): Boolean =
+        pkg == "com.whatsapp" || pkg == "com.whatsapp.w4b"
+
+    private fun reportWhatsAppState(pkg: String) {
+        val state = synchronized(whatsappCallStates) {
+            val states = whatsappCallStates.filterKeys { whatsappCallPackages[it] == pkg }.values
+            when {
+                states.any { it == "ACTIVE" } -> "ACTIVE"
+                states.any { it == "RINGING" } -> "RINGING"
+                else -> "IDLE"
+            }
+        }
+        Hub.service?.updateLocalWhatsappCallState(pkg, state)
+    }
+
+    private fun updateWhatsappCallNotification(sbn: StatusBarNotification, removed: Boolean) {
+        if (!isWhatsAppPackage(sbn.packageName)) return
+        if (removed) {
+            val changed = synchronized(whatsappCallStates) {
+                val removed = whatsappCallStates.remove(sbn.key) != null
+                whatsappCallPackages.remove(sbn.key)
+                removed
+            }
+            if (changed) reportWhatsAppState(sbn.packageName)
+            return
+        }
+        val n = sbn.notification ?: return
+        val labels = (n.actions ?: emptyArray()).mapNotNull { it.title?.toString()?.trim()?.lowercase() }
+        val hasAnswer = labels.any { label -> listOf("answer", "accept", "pick up", "rispondi", "contestar", "responder", "décrocher", "annehmen", "接听", "接聽", "応答").any(label::contains) }
+        val hasDecline = labels.any { label -> listOf("decline", "reject", "ignore", "rifiuta", "rechazar", "refuser", "ablehnen", "拒绝", "拒接", "拒否").any(label::contains) }
+        val hasEnd = labels.any { label -> listOf("hang up", "end call", "disconnect", "terminate", "riaggancia", "colgar", "raccrocher", "auflegen", "終了", "切断").any(label::contains) }
+        val state = when {
+            hasEnd -> "ACTIVE"
+            hasAnswer && hasDecline -> "RINGING"
+            else -> null // Do not guess when WhatsApp/OEM exposes no recognizable call actions.
+        } ?: return
+        val changed = synchronized(whatsappCallStates) {
+            whatsappCallPackages[sbn.key] = sbn.packageName
+            whatsappCallStates.put(sbn.key, state) != state
+        }
+        if (changed) reportWhatsAppState(sbn.packageName)
+    }
 
     override fun onListenerConnected() {
         instance = this
         Hub.log("Notification access active")
+        syncActiveNotifications()
     }
 
     override fun onListenerDisconnected() {
@@ -41,7 +87,10 @@ class NotifListener : NotificationListenerService() {
 
     override fun onNotificationPosted(sbn: StatusBarNotification) {
         val svc = Hub.service ?: return
-        if (!svc.shouldMirror() || sbn.packageName == packageName) return
+        if (sbn.packageName == packageName) return
+        if (isWhatsAppPackage(sbn.packageName)) updateWhatsappCallNotification(sbn, removed = false)
+        // Notification access on Remote is used only for local WhatsApp call-state detection.
+        if (svc.role == LinkService.ROLE_REMOTE || !svc.shouldMirror()) return
         val n = sbn.notification ?: return
         if ((n.flags and Notification.FLAG_GROUP_SUMMARY) != 0) return
         val ex = n.extras ?: return
@@ -55,17 +104,27 @@ class NotifListener : NotificationListenerService() {
         val indices = available.map { it.index }
         val labels = available.map { it.value.title.toString().take(40) }
         val lowerActions = labels.joinToString(" ").lowercase()
-        val callNotification = n.category == Notification.CATEGORY_CALL ||
+        val whatsappCallAction = isWhatsAppPackage(sbn.packageName) &&
+            listOf("answer", "accept", "decline", "reject", "pick up", "rispondi", "contestar", "responder", "décrocher", "annehmen", "rifiuta", "rechazar", "refuser", "ablehnen", "接听", "接聽", "拒绝", "拒接", "応答", "拒否").any { lowerActions.contains(it) }
+        val callNotification = n.category == Notification.CATEGORY_CALL || whatsappCallAction ||
             (sbn.isOngoing && listOf("answer", "accept", "decline", "reject", "hang up", "end call").any { lowerActions.contains(it) })
 
         if (callNotification) {
+            // Prefer the Remote phone's native WhatsApp notification when its own
+            // call-state observer already sees the same app ringing or active.
+            // The Gateway copy is only a fallback when Remote has no local call state.
+            if (isWhatsAppPackage(sbn.packageName) && svc.shouldSuppressWhatsAppMirror(sbn.packageName)) {
+                suppressWhatsAppCallMirrors(sbn.packageName)
+                Hub.log("Suppressed duplicate WhatsApp call notification: Remote already reports a native ringing/active call")
+                return
+            }
             synchronized(actionsByKey) {
                 actionsByKey[sbn.key] = actions
                 actionPackagesByKey[sbn.key] = sbn.packageName
             }
             val signature = "CALL\u0000$title\u0000$text\u0000" + labels.joinToString("\u0001")
             synchronized(lastSent) { if (lastSent[sbn.key] == signature) return; lastSent[sbn.key] = signature }
-            svc.mirrorCallPosted(sbn.key, appName(sbn.packageName), title, text, indices, labels)
+            svc.mirrorCallPosted(sbn.key, sbn.packageName, appName(sbn.packageName), title, text, indices, labels)
             return
         }
         if (sbn.isOngoing) return
@@ -75,6 +134,7 @@ class NotifListener : NotificationListenerService() {
     }
 
     override fun onNotificationRemoved(sbn: StatusBarNotification) {
+        if (isWhatsAppPackage(sbn.packageName)) updateWhatsappCallNotification(sbn, removed = true)
         synchronized(lastSent) { lastSent.remove(sbn.key) }
         synchronized(actionsByKey) {
             actionsByKey.remove(sbn.key)
@@ -93,6 +153,27 @@ class NotifListener : NotificationListenerService() {
             active.forEach { onNotificationPosted(it) }
         } catch (e: Exception) {
             Hub.log("Could not sync active notifications: ${e.message}")
+        }
+    }
+
+    fun notificationPackage(key: String): String? =
+        synchronized(actionPackagesByKey) { actionPackagesByKey[key] }
+
+    /**
+     * Remove already mirrored WhatsApp call notifications when Remote's native
+     * WhatsApp call is detected. This is deliberately package-level because
+     * Android notifications do not reliably identify the signed-in account.
+     */
+    fun suppressWhatsAppCallMirrors(pkg: String) {
+        if (!isWhatsAppPackage(pkg)) return
+        val keys = synchronized(actionPackagesByKey) {
+            actionPackagesByKey.filterValues { it == pkg }.keys.toList()
+        }
+        keys.forEach { key ->
+            synchronized(actionsByKey) { actionsByKey.remove(key) }
+            synchronized(actionPackagesByKey) { actionPackagesByKey.remove(key) }
+            synchronized(lastSent) { lastSent.remove(key) }
+            Hub.service?.mirrorRemoved(key)
         }
     }
 
