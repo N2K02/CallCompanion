@@ -204,6 +204,12 @@ class MainActivity : ComponentActivity() {
         if (currentRole() == LinkService.ROLE_REMOTE && loadedContactsVersion != Hub.contactsVersion) loadContacts()
     }
 
+    private fun formatTrafficRate(bytesPerSecond: Long): String = when {
+        bytesPerSecond >= 1024L * 1024L -> String.format(java.util.Locale.US, "%.1f MB/s", bytesPerSecond / (1024.0 * 1024.0))
+        bytesPerSecond >= 1024L -> String.format(java.util.Locale.US, "%.1f KB/s", bytesPerSecond / 1024.0)
+        else -> "$bytesPerSecond B/s"
+    }
+
     private fun toast(msg: String) = Toast.makeText(this, msg, Toast.LENGTH_LONG).show()
 
     @OptIn(ExperimentalMaterial3Api::class)
@@ -293,6 +299,28 @@ class MainActivity : ComponentActivity() {
                             style = MaterialTheme.typography.bodySmall,
                             color = MaterialTheme.colorScheme.onSurfaceVariant
                         )
+                    }
+                }
+
+                if (screen == MainTab.HOME && setupReady) {
+                    val traffic = service
+                    SectionCard(title = "Network speed", subtitle = "PCL app traffic over Bluetooth only · not internet or tethering speed") {
+                        if (connected && traffic != null) {
+                            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                                Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                                    Text("Download", style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                                    Text(formatTrafficRate(traffic.downloadBytesPerSecond), style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.SemiBold)
+                                }
+                                Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                                    Text("Upload", style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                                    Text(formatTrafficRate(traffic.uploadBytesPerSecond), style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.SemiBold)
+                                }
+                            }
+                            Text("Counts PCL protocol data sent and received by this app; it does not measure Bluetooth radio capacity or internet traffic.", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                        } else {
+                            Text("Unavailable until the PCL Bluetooth link is connected.", style = MaterialTheme.typography.bodyMedium)
+                            Text("This card never substitutes internet speed or the phone's general network speed.", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                        }
                     }
                 }
 
