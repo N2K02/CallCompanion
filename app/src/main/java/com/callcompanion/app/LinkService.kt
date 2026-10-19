@@ -1080,11 +1080,6 @@ class LinkService : Service() {
     }
 
     /**
-     * Best-effort hotspot automation for stock/OEM Android. Accessibility can tap a
-     * visible Settings switch, but Android does not grant apps a universal hotspot API.
-     * A notification remains available as a manual fallback if UI automation fails.
-     */
-    /**
      * Best-effort hotspot lifecycle automation for stock/OEM Android. Accessibility can
      * operate a visible Settings switch, but Android does not grant ordinary apps a
      * universal hotspot API. Only disable a hotspot that PCL itself turned on.
