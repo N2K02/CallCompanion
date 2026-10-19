@@ -57,40 +57,23 @@ jobs:
           echo "VERSION=$ver" >> "$GITHUB_ENV"
           echo "Version: $ver (previous: ${last:-none})"
 
+          # Build notes from commits since the previous PCL release.
+          # The version-line scoped tag lookup above ignores legacy CallCompanion v5.x tags.
+          prev="$last"
+          if [ -n "$prev" ]; then range="$prev..HEAD"; else range="HEAD"; fi
+          changes=$(git log --no-merges --pretty='- %s' "$range" | head -40)
+          [ -n "$changes" ] || changes="- Maintenance and build updates"
+
           {
             echo "## $APP $ver"
             echo
             echo "### What's new"
-            cat <<'CHANGELOG'
-          - Document native WhatsApp notification priority
-          - Remove mirrored WhatsApp calls when Remote is already ringing
-          - Suppress duplicate WhatsApp call notifications on Remote
-          - Document account identity limit for WhatsApp call guard
-          - Reset per-package peer call states on disconnect
-          - Expose source package for guarded notification actions
-          - Guard duplicate WhatsApp answers per app package
-          - Track WhatsApp call state separately by app package
-          - Remove duplicate WhatsApp package helper
-          - Clarify notification listener runs on both phones
-          - Allow Remote to answer mirrored WhatsApp call notifications
-          - Keep call-notification protocol backward compatible
-          - Document WhatsApp call-state safety and Remote answering
-          - Guard stale WhatsApp answer actions on either phone
-          - Require notification access on both phones for call-state detection
-          - Include source package for safe mirrored call actions
-          - Relay WhatsApp call state and guard duplicate answers
-          - Detect WhatsApp call state on both phones
-          - Detect WhatsApp call actions before excluding mirroring
-          - Document native WhatsApp linked-device call handling
-          - Keep WhatsApp call answering local to linked devices
-          - Clean up duplicate flow and retain internet sharing docs
-          - Explain Gateway and Remote roles with a flow diagram
-          - Document Bluetooth tethering limitations and setup
-          - Add Bluetooth internet sharing setup guidance
-          CHANGELOG
+            echo "$changes"
             echo
             echo "### Install"
             echo "Download the APK below and install it on both phones."
+            echo
+            echo "_Built from ${GITHUB_SHA::7} ${prev:+· changes since $prev}_"
           } > release-notes.md
           cat release-notes.md
 
