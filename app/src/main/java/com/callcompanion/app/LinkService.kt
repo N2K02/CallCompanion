@@ -243,6 +243,14 @@ class LinkService : Service() {
         return listOf("answer", "accept", "pick up", "rispondi", "contestar", "responder", "décrocher", "annehmen", "接听", "接聽", "応答").any(lower::contains)
     }
 
+    /**
+     * Suppress the Gateway's WhatsApp call copy whenever Remote has already
+     * detected its own native WhatsApp call notification. Native WhatsApp UI
+     * takes priority; mirroring remains a fallback if Remote has no detected call.
+     */
+    fun shouldSuppressWhatsAppMirror(pkg: String): Boolean =
+        isWhatsAppPackage(pkg) && peerWhatsappCallStates[pkg] in setOf("RINGING", "ACTIVE")
+
     /** Observe and relay call state only; never auto-answer, reject, or mute a call. */
     fun updateLocalWhatsappCallState(pkg: String, state: String) {
         if (!isWhatsAppPackage(pkg) || state !in setOf("IDLE", "RINGING", "ACTIVE")) return
@@ -611,7 +619,16 @@ class LinkService : Service() {
                 val pkg = decodeText(arg1)
                 val state = p.getOrNull(2).orEmpty()
                 if (isWhatsAppPackage(pkg) && state in setOf("IDLE", "RINGING", "ACTIVE")) {
-                    if (state == "IDLE") peerWhatsappCallStates.remove(pkg) else peerWhatsappCallStates[pkg] = state
+                    if (state == "IDLE") {
+                        peerWhatsappCallStates.remove(pkg)
+                    } else {
+                        peerWhatsappCallStates[pkg] = state
+                        if (role == ROLE_GATEWAY) {
+                            // Remote may detect its native notification after the Gateway
+                            // already mirrored one. Remove all WhatsApp call copies now.
+                            NotifListener.instance?.suppressWhatsAppCallMirrors(pkg)
+                        }
+                    }
                     Hub.log("Peer WhatsApp call state for $pkg: $state")
                 }
             }
