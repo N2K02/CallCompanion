@@ -89,31 +89,6 @@ Install the same app on both phones and select a role:
 CallCompanion's Bluetooth control link does **not** itself share internet. If you want the Remote to use the Gateway's mobile data for all apps, enable a supported Android tethering feature separately. See [Sharing the Gateway's internet with the Remote](#sharing-the-gateways-internet-with-the-remote). Bluetooth tethering client support varies by phone model.
 
 
-### Incoming or outgoing SIM call
-
-1. Android on the Gateway reports the call state to CallCompanion.
-2. CallCompanion sends the state and available caller details to the Remote over the paired-phone Bluetooth link.
-3. Tap **Answer**, **Reject**, or **End** on the Remote. The Gateway receives the request and asks Android Telecom to perform it.
-4. The Gateway's Bluetooth speakerphone handles the actual conversation audio. The Remote is a control screen, not the call's audio device.
-
-### Third-party app call (for example, WhatsApp)
-
-1. The third-party app posts a call notification on the Gateway.
-2. After Notification Access is enabled, CallCompanion forwards the notification and up to three actions exposed by that app.
-3. Tap an action on the Remote. CallCompanion asks the Gateway to invoke the original notification action.
-4. The third-party app decides whether that action succeeds. If it does not expose an Answer/Decline action in its notification, CallCompanion cannot manufacture one.
-
-### Starting an outgoing WhatsApp call
-
-1. On the Remote, choose a synced contact or enter a phone number in international format.
-2. Tap **WhatsApp chat on Gateway**.
-3. The Gateway displays a **Continue in WhatsApp** notification. Tap it on the Gateway to open the chat; Android may use WhatsApp or a browser depending on installed apps and link settings.
-4. Start the voice call using WhatsApp's own call button. The Gateway's Android audio routing determines whether the call uses its paired hands-free speakerphone.
-
-WhatsApp does not expose a stable public Android API for third-party apps to place arbitrary outgoing voice calls directly. CallCompanion therefore does not pretend the chat handoff is a direct call, and does not use brittle private WhatsApp intents or simulated taps.
-
-The phones communicate locally over Bluetooth; no CallCompanion cloud server is involved. The Gateway itself still needs whatever internet connection the third-party calling app requires. This app mirrors call status and controls only—it does not forward call audio.
-
 ## Sharing the Gateway's internet with the Remote
 
 CallCompanion's Bluetooth RFCOMM link is for call status and control; it does **not** automatically provide internet access to the Remote. To try sharing the Gateway's mobile data for all apps on the Remote:
