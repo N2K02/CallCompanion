@@ -1172,15 +1172,15 @@ class LinkService : Service() {
                 hotspotEnabledByPcl = false
             }
             nm.cancel(ID_HOTSPOT)
-        } else if (hotspotTargetEnabled && hotspotToggleRequested) {
-            // A tap succeeded but the OEM UI did not confirm the final state.
-            // Remember ownership so PCL can still attempt cleanup when the call ends.
-            hotspotEnabledByPcl = true
             if (hotspotTargetEnabled) {
                 Hub.log("If the Remote is not already connected to Gateway Wi-Fi, connect it before expecting WhatsApp to use that route")
             } else {
                 Hub.log("PCL-enabled Gateway hotspot is now off; Android/OEM must restore the Remote's Bluetooth internet route if supported")
             }
+        } else if (hotspotTargetEnabled && hotspotToggleRequested) {
+            // A tap succeeded but the OEM UI did not confirm the final state.
+            // Remember ownership so PCL can still attempt cleanup when the call ends.
+            hotspotEnabledByPcl = true
         }
     }
 
