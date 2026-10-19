@@ -11,9 +11,9 @@ import android.view.accessibility.AccessibilityNodeInfo
 /**
  * Opt-in accessibility helper:
  * - Remote: observes WhatsApp call-button clicks and relays a hint over PCL Bluetooth.
- * - Gateway: while a hotspot attempt is pending, makes a best-effort attempt to
- *   navigate/toggle the hotspot control in Android Settings. OEM settings layouts vary,
- *   so it never clicks unrelated controls and leaves a manual settings notification.
+ * - Gateway: while a hotspot change is pending, makes a best-effort attempt to
+ *   navigate/toggle the hotspot control in Android Settings. OEM layouts vary, so it
+ *   only acts on a labelled hotspot control and leaves a manual settings notification.
  */
 class WhatsappCallAccessibilityService : AccessibilityService() {
 
@@ -86,8 +86,9 @@ class WhatsappCallAccessibilityService : AccessibilityService() {
         val control = findHotspotControl(root) ?: return
 
         if (control.isCheckable) {
-            if (control.isChecked) {
-                service.finishHotspotAutomation(true, "Hotspot was already enabled")
+            if (control.isChecked == service.hotspotTargetEnabled) {
+                val state = if (service.hotspotTargetEnabled) "enabled" else "disabled"
+                service.finishHotspotAutomation(true, "Hotspot is $state")
             } else {
                 if (now - lastToggleTapAt < 2_000L) return
                 lastToggleTapAt = now
@@ -95,7 +96,8 @@ class WhatsappCallAccessibilityService : AccessibilityService() {
                 if (!clicked) {
                     service.finishHotspotAutomation(false, "Android Settings did not allow the hotspot switch to be tapped")
                 } else {
-                    Hub.log("Hotspot switch tapped; waiting to verify that Android enabled it")
+                    service.noteHotspotToggleRequested()
+                    Hub.log("Hotspot switch tapped; waiting to verify the requested state")
                 }
             }
             return
