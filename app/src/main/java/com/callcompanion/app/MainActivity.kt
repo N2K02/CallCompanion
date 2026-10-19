@@ -435,7 +435,7 @@ class MainActivity : ComponentActivity() {
                                 catch (_: Exception) { toast("Open Android Settings → Bluetooth") }
                             }, modifier = Modifier.fillMaxWidth()) { Text("Bluetooth settings") }
                         }
-                        Text("With optional WhatsApp call detection enabled on Remote, PCL can alert the Gateway when a call button is tapped. Android still requires the user to enable the hotspot and connect Remote Wi-Fi; PCL cannot silently toggle hotspot or force WhatsApp to switch networks. This does not relay call audio. Mobile-data charges may apply.", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                        Text("Enable WhatsApp call detection on Remote and hotspot automation on Gateway. PCL will try to switch on the hotspot through Android Settings accessibility; stock/OEM layouts and confirmation prompts can block it, so a manual settings shortcut remains available. Remote must connect to Gateway Wi-Fi before WhatsApp can use it. This does not relay call audio. Mobile-data charges may apply.", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                     }
                     Row(horizontalArrangement = Arrangement.spacedBy(12.dp), modifier = Modifier.fillMaxWidth()) {
                         RoleChoiceCard("Gateway", "SIM phone and call controller", Icons.Default.Radio, roleSelected && role == LinkService.ROLE_GATEWAY, Modifier.weight(1f)) {
@@ -583,6 +583,11 @@ class MainActivity : ComponentActivity() {
                             PermissionSetupRow("Place calls", "Place calls through the gateway SIM", granted(Manifest.permission.CALL_PHONE)) { requestPermissions(arrayOf(Manifest.permission.CALL_PHONE), 1) }
                             PermissionSetupRow("Contacts (for sync)", "Send Gateway contacts to the Remote and resolve caller names", granted(Manifest.permission.READ_CONTACTS)) { requestPermissions(arrayOf(Manifest.permission.READ_CONTACTS), 1) }
                             PermissionSetupRow("Notification access", "Mirror notifications and detect WhatsApp call state", notificationAccess, actionLabel = "Open settings") { runCatching { startActivity(Intent(Settings.ACTION_NOTIFICATION_LISTENER_SETTINGS)) }.onFailure { toast("Open Android Settings → Notifications → Notification access") } }
+                            val hotspotAccessibilityEnabled = WhatsappCallAccessibilityService.isEnabled(this@MainActivity)
+                            PermissionSetupRow("Hotspot automation (optional)", "Let PCL try to enable the Gateway hotspot through Android Settings during a WhatsApp call", hotspotAccessibilityEnabled, actionLabel = "Open settings") {
+                                runCatching { startActivity(Intent(Settings.ACTION_ACCESSIBILITY_SETTINGS)) }
+                                    .onFailure { toast("Open Android Settings → Accessibility → Installed apps → PCL WhatsApp call detection") }
+                            }
                             if (Build.VERSION.SDK_INT >= 31) PermissionSetupRow("Bluetooth connection", "Connect to the paired remote phone", granted(Manifest.permission.BLUETOOTH_CONNECT)) { requestPermissions(arrayOf(Manifest.permission.BLUETOOTH_CONNECT), 1) }
                         } else if (roleSelected) {
                             PermissionSetupRow("Notification access", "Detect local WhatsApp call state", notificationAccess, actionLabel = "Open settings") { runCatching { startActivity(Intent(Settings.ACTION_NOTIFICATION_LISTENER_SETTINGS)) }.onFailure { toast("Open Android Settings → Notifications → Notification access") } }
