@@ -90,8 +90,8 @@ class LinkService : Service() {
         private set
     @Volatile var callControlError: String? = null
         private set
-    @Volatile private var localWhatsappCallState: String = "IDLE"
-    @Volatile private var peerWhatsappCallState: String = "IDLE"
+    private val localWhatsappCallStates = java.util.concurrent.ConcurrentHashMap<String, String>()
+    private val peerWhatsappCallStates = java.util.concurrent.ConcurrentHashMap<String, String>()
 
     @Volatile private var running = false
     @Volatile private var generation = 0
@@ -163,9 +163,9 @@ class LinkService : Service() {
                 val label = intent.getStringExtra(EXTRA_ACTION_LABEL).orEmpty()
                 val notifPackage = intent.getStringExtra(EXTRA_NOTIF_PACKAGE).orEmpty()
                 if (running && role == ROLE_REMOTE && connected && key != null && index >= 0 &&
-                    !((localWhatsappCallState == "ACTIVE" || peerWhatsappCallState == "ACTIVE") && isWhatsAppPackage(notifPackage) && isAnswerActionLabel(label))) {
+                    !((localWhatsappCallStates[notifPackage] == "ACTIVE" || peerWhatsappCallStates[notifPackage] == "ACTIVE") && isWhatsAppPackage(notifPackage) && isAnswerActionLabel(label))) {
                     send("NOTIF_ACTION", key, index.toString(), encodeText(label))
-                } else if ((localWhatsappCallState == "ACTIVE" || peerWhatsappCallState == "ACTIVE") && isWhatsAppPackage(notifPackage) && isAnswerActionLabel(label)) {
+                } else if ((localWhatsappCallStates[notifPackage] == "ACTIVE" || peerWhatsappCallStates[notifPackage] == "ACTIVE") && isWhatsAppPackage(notifPackage) && isAnswerActionLabel(label)) {
                     Hub.log("Ignored stale WhatsApp Answer action: a WhatsApp call is already active on Remote")
                 } else {
                     Hub.log("Third-party call action unavailable: Bluetooth link is not connected")
@@ -244,11 +244,11 @@ class LinkService : Service() {
     }
 
     /** Observe and relay call state only; never auto-answer, reject, or mute a call. */
-    fun updateLocalWhatsappCallState(state: String) {
-        if (state !in setOf("IDLE", "RINGING", "ACTIVE") || localWhatsappCallState == state) return
-        localWhatsappCallState = state
-        Hub.log("Local WhatsApp call state detected: $state")
-        if (connected) send("WHATSAPP_CALL_STATE", state)
+    fun updateLocalWhatsappCallState(pkg: String, state: String) {
+        if (!isWhatsAppPackage(pkg) || state !in setOf("IDLE", "RINGING", "ACTIVE")) return
+        if (state == "IDLE") localWhatsappCallStates.remove(pkg) else localWhatsappCallStates[pkg] = state
+        Hub.log("Local WhatsApp call state detected for $pkg: $state")
+        if (connected) send("WHATSAPP_CALL_STATE", encodeText(pkg), state)
         Hub.notifyUi()
     }
 
@@ -396,7 +396,7 @@ class LinkService : Service() {
         setConn(true, "Connected to $peer")
         NotifListener.instance?.syncActiveNotifications()
         send("HELLO", role)
-        if (localWhatsappCallState != "IDLE") send("WHATSAPP_CALL_STATE", localWhatsappCallState)
+        localWhatsappCallStates.forEach { (pkg, state) -> send("WHATSAPP_CALL_STATE", encodeText(pkg), state) }
         if (role == ROLE_GATEWAY) {
             sendCallState()
             sendContacts()
@@ -598,17 +598,22 @@ class LinkService : Service() {
                     val key = decodeKey(arg1)
                     val index = p.getOrNull(2)?.toIntOrNull() ?: -1
                     val label = decodeText(p.getOrNull(3).orEmpty())
-                    val duplicateWhatsappAnswer = peerWhatsappCallState == "ACTIVE" &&
-                        key != null && NotifListener.instance?.isWhatsAppNotification(key) == true && isAnswerActionLabel(label)
+                    val notifPackage = key?.let { NotifListener.instance?.notificationPackage(it) }.orEmpty()
+                    val duplicateWhatsappAnswer = isWhatsAppPackage(notifPackage) &&
+                        peerWhatsappCallStates[notifPackage] == "ACTIVE" && isAnswerActionLabel(label)
                     val ok = !duplicateWhatsappAnswer && key != null && index >= 0 && (NotifListener.instance?.performAction(key, index) == true)
-                    if (duplicateWhatsappAnswer) Hub.log("Ignored stale WhatsApp Answer action: Remote already has an active WhatsApp call")
+                    if (duplicateWhatsappAnswer) Hub.log("Ignored stale WhatsApp Answer action: Remote already has an active WhatsApp call in $notifPackage")
                     else if (!ok) Hub.log("Third-party call action failed or is no longer available")
                     send("NOTIF_ACTION_RESULT", if (ok) "OK" else "FAILED")
                 }
             }
             "WHATSAPP_CALL_STATE" -> {
-                peerWhatsappCallState = arg1.takeIf { it in setOf("IDLE", "RINGING", "ACTIVE") } ?: "IDLE"
-                Hub.log("Peer WhatsApp call state: $peerWhatsappCallState")
+                val pkg = decodeText(arg1)
+                val state = p.getOrNull(2).orEmpty()
+                if (isWhatsAppPackage(pkg) && state in setOf("IDLE", "RINGING", "ACTIVE")) {
+                    if (state == "IDLE") peerWhatsappCallStates.remove(pkg) else peerWhatsappCallStates[pkg] = state
+                    Hub.log("Peer WhatsApp call state for $pkg: $state")
+                }
             }
             "NOTIF_ACTION_RESULT" -> Hub.log(if (arg1 == "OK") "Third-party call action sent to the app" else "Third-party call action failed")
             else -> Hub.log("Unknown command: ${p[0]}")
