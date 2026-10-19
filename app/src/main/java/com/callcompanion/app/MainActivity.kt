@@ -412,7 +412,7 @@ class MainActivity : ComponentActivity() {
                     ) {
                         Text("Current network on this phone: ${internetStatus()}", style = MaterialTheme.typography.bodyMedium, fontWeight = FontWeight.SemiBold)
                         if (role == LinkService.ROLE_GATEWAY) {
-                            Text("Recommended for WhatsApp voice/video: use Wi-Fi hotspot as the primary internet-sharing option. Bluetooth tethering can remain available as a slower fallback. Android controls tethering, so PCL cannot toggle it silently.", style = MaterialTheme.typography.bodyMedium)
+                            Text("For WhatsApp calls handled on Remote, PCL can try to enable the Gateway Wi-Fi hotspot, then try to turn it off when the Remote call ends. This needs the optional PCL accessibility service on Gateway; Android/OEM restrictions may still require manual action.", style = MaterialTheme.typography.bodyMedium)
                             Button(onClick = {
                                 try { startActivity(Intent("android.settings.TETHER_SETTINGS")) }
                                 catch (_: Exception) {
@@ -425,7 +425,7 @@ class MainActivity : ComponentActivity() {
                                 catch (_: Exception) { toast("Open Android Settings → Bluetooth") }
                             }, modifier = Modifier.fillMaxWidth()) { Text("Bluetooth tethering settings") }
                         } else {
-                            Text("Bluetooth tethering is useful as a fallback but may be too slow for video calls. For best WhatsApp quality, enable Wi-Fi hotspot on the Gateway, then connect this Remote to its Wi-Fi network. Bluetooth PAN client support varies by phone.", style = MaterialTheme.typography.bodyMedium)
+                            Text("Bluetooth internet remains the standby route where supported. When a WhatsApp call is actually handled on Remote, PCL asks Gateway to enable its Wi-Fi hotspot; connect to the saved Gateway Wi-Fi profile if Android does not connect automatically. A call answered on Gateway should not trigger hotspot automation.", style = MaterialTheme.typography.bodyMedium)
                             Button(onClick = {
                                 try { startActivity(Intent(Settings.ACTION_WIFI_SETTINGS)) }
                                 catch (_: Exception) { toast("Open Android Settings → Wi-Fi") }
@@ -435,7 +435,7 @@ class MainActivity : ComponentActivity() {
                                 catch (_: Exception) { toast("Open Android Settings → Bluetooth") }
                             }, modifier = Modifier.fillMaxWidth()) { Text("Bluetooth settings") }
                         }
-                        Text("Enable WhatsApp call detection on Remote and hotspot automation on Gateway. PCL will try to switch on the hotspot through Android Settings accessibility; stock/OEM layouts and confirmation prompts can block it, so a manual settings shortcut remains available. Remote must connect to Gateway Wi-Fi before WhatsApp can use it. This does not relay call audio. Mobile-data charges may apply.", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                        Text("Enable Notification access on both phones, WhatsApp call detection on Remote, and hotspot automation on Gateway. PCL only manages the hotspot for calls handled on Remote and tries to turn off only a hotspot it enabled. Android/OEM layouts may block automation; Remote must connect to Gateway Wi-Fi before WhatsApp can use it, and Bluetooth internet fallback depends on device support. PCL does not relay call audio. Mobile-data charges may apply.", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                     }
                     Row(horizontalArrangement = Arrangement.spacedBy(12.dp), modifier = Modifier.fillMaxWidth()) {
                         RoleChoiceCard("Gateway", "SIM phone and call controller", Icons.Default.Radio, roleSelected && role == LinkService.ROLE_GATEWAY, Modifier.weight(1f)) {
