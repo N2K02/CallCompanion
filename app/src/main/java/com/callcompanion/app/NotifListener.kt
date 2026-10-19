@@ -148,8 +148,8 @@ class NotifListener : NotificationListenerService() {
         }
     }
 
-    fun isWhatsAppNotification(key: String): Boolean =
-        synchronized(actionPackagesByKey) { isWhatsAppPackage(actionPackagesByKey[key].orEmpty()) }
+    fun notificationPackage(key: String): String? =
+        synchronized(actionPackagesByKey) { actionPackagesByKey[key] }
 
     /** Invoke only an action supplied by the original app notification. */
     fun performAction(key: String, index: Int): Boolean {
