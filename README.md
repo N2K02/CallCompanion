@@ -4,8 +4,32 @@ Use a second Android phone as a Bluetooth remote for a Gateway phone that has th
 
 Install the same app on both phones and select a role:
 
-- **Gateway**: phone with the SIM and Bluetooth speakerphone. It monitors SIM call state and mirrors third-party notifications.
-- **Remote**: companion phone. It displays mirrored notifications and sends call-control requests over Bluetooth.
+- **Gateway** — the main phone. It has the SIM (for cellular calls), runs CallCompanion's Gateway role, monitors call state, and forwards supported notifications and commands. Keep it connected to the Bluetooth hands-free speakerphone if that is how you want to hear and speak during calls.
+- **Remote** — the companion phone. It runs CallCompanion's Remote role, shows information received from the Gateway, and sends user actions back over Bluetooth. It is a control screen, not automatically a second handset for the Gateway's cellular-call audio.
+
+### At a glance: how the two phones work together
+
+```text
+                 CALL STATUS, NOTIFICATIONS
+                 AND CONTROL COMMANDS
+       ┌─────────────────────────────────────┐
+       │                                     ⇅
+┌────────────────────┐  paired Bluetooth  ┌────────────────────┐
+│ GATEWAY PHONE      │◄──── RFCOMM link ──►│ REMOTE PHONE       │
+│                    │                     │                    │
+│ • SIM / Phone app  │                     │ • CallCompanion UI │
+│ • WhatsApp apps    │                     │ • Mirrored alerts  │
+│ • CallCompanion    │                     │ • Answer/reject or │
+│   Gateway role     │                     │   other available  │
+│ • Mobile data/Wi-Fi│                     │   notification acts│
+└─────────┬──────────┘                     └────────────────────┘
+          │
+          ⇄ Bluetooth hands-free speakerphone
+            (when configured for call audio)
+```
+
+**What the diagram means:** the Bluetooth link carries call state, notification information, and control requests. It does not carry the Gateway's cellular-call audio, clone app sessions, or automatically share internet. The Gateway needs internet for its own internet-calling apps. Remote internet access requires a separate working connection (for example, a supported Android tethering/hotspot setup).
+
 
 ## Features
 
@@ -22,14 +46,48 @@ Install the same app on both phones and select a role:
 | Bluetooth transport | Call state, notification details, and commands travel over the existing Bluetooth RFCOMM connection. |
 | Call audio | The Gateway remains paired to the Bluetooth speakerphone, so the conversation audio stays between the Gateway and that device. CallCompanion does not relay cellular-call audio to the Remote. |
 
-## How the call flow works
+## How the app works — step by step
 
-```text
-Remote phone (screen and buttons)
-        ⇅ Bluetooth RFCOMM
-Gateway phone (SIM, mobile data/Wi-Fi, CallCompanion)
-        ⇄ Bluetooth hands-free speakerphone (call microphone + speaker)
-```
+### 1. Initial setup
+
+1. Install CallCompanion on both Android phones.
+2. Pair the Gateway and Remote in Android **Settings → Bluetooth**.
+3. On the Gateway, choose **Gateway**, grant the required phone/Bluetooth permissions, and enable **Notification access**. Grant Contacts permission if you want contact sync and caller-name lookup.
+4. On the Remote, choose **Remote**, select the paired Gateway, and start the link.
+5. Keep CallCompanion running on both phones. The app uses a paired Bluetooth RFCOMM connection; it does not need a CallCompanion cloud server.
+
+### 2. Incoming or outgoing SIM call
+
+1. The SIM call happens on the Gateway.
+2. Android reports call-state information that is available to CallCompanion.
+3. The Gateway sends the state and any available caller details to the Remote over Bluetooth.
+4. The Remote can send **Answer**, **Reject**, or **End** requests back to the Gateway. Whether Android accepts each request depends on the phone, OS version, permissions, and exposed call controls.
+5. The Gateway's Android audio route handles the conversation. If paired and selected, the Bluetooth hands-free speakerphone carries the call audio; the Remote does not receive that audio through CallCompanion.
+
+### 3. Third-party call notifications (for example, WhatsApp)
+
+1. The app posts a notification on the Gateway.
+2. If Notification Access is enabled, CallCompanion forwards the supported notification details and any action buttons the original app exposes.
+3. The Remote displays the notification and can send an available action back to the Gateway.
+4. The Gateway attempts to invoke that original notification action. Some apps do not expose Answer/Decline actions, and CallCompanion cannot create actions that the app does not provide.
+
+### 4. Starting a WhatsApp chat/call from the Remote
+
+1. Choose a synced contact or enter a phone number on the Remote.
+2. Use **WhatsApp chat on Gateway**.
+3. The Gateway receives a **Continue in WhatsApp** notification. Tap it on the Gateway to open the chat.
+4. Start the call using WhatsApp on the Gateway. This is a chat handoff, not a remote direct-call API or automated call placement.
+
+### 5. Contacts and notifications
+
+- The Gateway can send its contacts to the Remote, which keeps an offline copy for searching.
+- Notification mirroring can be turned on or off in the Gateway's settings.
+- Only notification actions exposed by the original app can be relayed.
+
+### 6. Internet sharing is separate
+
+CallCompanion's Bluetooth control link does **not** itself share internet. If you want the Remote to use the Gateway's mobile data for all apps, enable a supported Android tethering feature separately. See [Sharing the Gateway's internet with the Remote](#sharing-the-gateways-internet-with-the-remote). Bluetooth tethering client support varies by phone model.
+
 
 ### Incoming or outgoing SIM call
 
