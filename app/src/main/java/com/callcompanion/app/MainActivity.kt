@@ -435,7 +435,7 @@ class MainActivity : ComponentActivity() {
                                 catch (_: Exception) { toast("Open Android Settings → Bluetooth") }
                             }, modifier = Modifier.fillMaxWidth()) { Text("Bluetooth settings") }
                         }
-                        Text("Internet sharing does not copy WhatsApp accounts or relay call audio. Android chooses the active route; PCL cannot automatically switch WhatsApp between transports. Mobile-data charges may apply.", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                        Text("With optional WhatsApp call detection enabled on Remote, PCL can alert the Gateway when a call button is tapped. Android still requires the user to enable the hotspot and connect Remote Wi-Fi; PCL cannot silently toggle hotspot or force WhatsApp to switch networks. This does not relay call audio. Mobile-data charges may apply.", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                     }
                     Row(horizontalArrangement = Arrangement.spacedBy(12.dp), modifier = Modifier.fillMaxWidth()) {
                         RoleChoiceCard("Gateway", "SIM phone and call controller", Icons.Default.Radio, roleSelected && role == LinkService.ROLE_GATEWAY, Modifier.weight(1f)) {
@@ -586,6 +586,11 @@ class MainActivity : ComponentActivity() {
                             if (Build.VERSION.SDK_INT >= 31) PermissionSetupRow("Bluetooth connection", "Connect to the paired remote phone", granted(Manifest.permission.BLUETOOTH_CONNECT)) { requestPermissions(arrayOf(Manifest.permission.BLUETOOTH_CONNECT), 1) }
                         } else if (roleSelected) {
                             PermissionSetupRow("Notification access", "Detect local WhatsApp call state", notificationAccess, actionLabel = "Open settings") { runCatching { startActivity(Intent(Settings.ACTION_NOTIFICATION_LISTENER_SETTINGS)) }.onFailure { toast("Open Android Settings → Notifications → Notification access") } }
+                            val accessibilityEnabled = WhatsappCallAccessibilityService.isEnabled(this@MainActivity)
+                            PermissionSetupRow("WhatsApp call detection", "Detect when you tap voice/video call or answer in WhatsApp, then alert the Gateway", accessibilityEnabled, actionLabel = "Open settings") {
+                                runCatching { startActivity(Intent(Settings.ACTION_ACCESSIBILITY_SETTINGS)) }
+                                    .onFailure { toast("Open Android Settings → Accessibility → Installed apps → PCL WhatsApp call detection") }
+                            }
                             PermissionSetupRow("Local contacts (optional)", "Include this phone's contacts in Remote search", granted(Manifest.permission.READ_CONTACTS)) { requestPermissions(arrayOf(Manifest.permission.READ_CONTACTS), 1) }
                             if (Build.VERSION.SDK_INT >= 31) PermissionSetupRow("Bluetooth connection", "Find and connect to the paired gateway phone", granted(Manifest.permission.BLUETOOTH_CONNECT)) { requestPermissions(arrayOf(Manifest.permission.BLUETOOTH_CONNECT), 1) }
                             if (Build.VERSION.SDK_INT >= 33) PermissionSetupRow("Notifications", "Show the ongoing PCL status", granted(Manifest.permission.POST_NOTIFICATIONS)) { requestPermissions(arrayOf(Manifest.permission.POST_NOTIFICATIONS), 1) }
