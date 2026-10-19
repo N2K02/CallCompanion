@@ -577,15 +577,16 @@ class LinkService : Service() {
             "NOTIF" -> showMirrored(arg1, p.getOrElse(2) { "" }, p.getOrElse(3) { "" }, p.drop(4).joinToString("/"))
             "NOTIF_V2" -> showMirrored(arg1, decodeText(p.getOrElse(2) { "" }), decodeText(p.getOrElse(3) { "" }), decodeText(p.getOrElse(4) { "" }))
             "CALL_NOTIF" -> {
-                val count = (p.getOrElse(6) { "0" }.toIntOrNull() ?: 0).coerceIn(0, 3)
+                val count = (p.getOrElse(5) { "0" }.toIntOrNull() ?: 0).coerceIn(0, 3)
                 val indices = ArrayList<Int>()
                 val labels = ArrayList<String>()
                 for (i in 0 until count) {
-                    val index = p.getOrNull(7 + i * 2)?.toIntOrNull() ?: continue
-                    val label = decodeText(p.getOrNull(8 + i * 2).orEmpty()).take(40)
+                    val index = p.getOrNull(6 + i * 2)?.toIntOrNull() ?: continue
+                    val label = decodeText(p.getOrNull(7 + i * 2).orEmpty()).take(40)
                     if (label.isNotBlank()) { indices.add(index); labels.add(label) }
                 }
-                showMirroredCall(arg1, decodeText(p.getOrElse(2) { "" }), decodeText(p.getOrElse(3) { "" }), decodeText(p.getOrElse(4) { "" }), decodeText(p.getOrElse(5) { "" }), indices, labels)
+                val pkg = decodeText(p.getOrElse(6 + count * 2) { "" })
+                showMirroredCall(arg1, pkg, decodeText(p.getOrElse(2) { "" }), decodeText(p.getOrElse(3) { "" }), decodeText(p.getOrElse(4) { "" }), indices, labels)
             }
             "NOTIF_REMOVE" -> nm.cancel(TAG_MIRROR, arg1.hashCode())
             "NOTIF_DISMISS" -> {
@@ -981,10 +982,12 @@ class LinkService : Service() {
 
     /** Gateway: forward a third-party call notification and its available action buttons. */
     fun mirrorCallPosted(key: String, pkg: String, app: String, title: String, text: String, actionIndices: List<Int>, actionLabels: List<String>) {
-        val fields = mutableListOf("CALL_NOTIF", encodeKey(key), encodeText(pkg), encodeText(app), encodeText(title), encodeText(text.take(1200)))
+        // Keep the original field order; append the package so older peers can still parse actions.
+        val fields = mutableListOf("CALL_NOTIF", encodeKey(key), encodeText(app), encodeText(title), encodeText(text.take(1200)))
         val count = minOf(3, actionIndices.size, actionLabels.size)
         fields += count.toString()
         for (i in 0 until count) { fields += actionIndices[i].toString(); fields += encodeText(actionLabels[i].take(40)) }
+        fields += encodeText(pkg)
         send(*fields.toTypedArray())
     }
 
