@@ -42,8 +42,12 @@ class WhatsappCallAccessibilityService : AccessibilityService() {
         if (label.isBlank()) return
 
         val action = when {
-            listOf("video call", "voice call", "start call", "answer", "accept", "join call")
-                .any { label.contains(it) } -> "START"
+            listOf(
+                "video call", "voice call", "start call", "answer", "accept", "join call",
+                "appel vidéo", "appel video", "appel vocal", "répondre", "repondre", "décrocher", "decrocher",
+                "llamada de video", "llamada de voz", "responder", "videochiamata", "chiamata vocale",
+                "rispondi", "contestar", "接听", "接聽", "応答"
+            ).any { label.contains(it) } -> "START"
             else -> return
         }
 
