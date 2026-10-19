@@ -1040,7 +1040,7 @@ class LinkService : Service() {
             PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT
         )
         val n = Notification.Builder(this, CH_HOTSPOT)
-            .setSmallIcon(android.R.drawable.stat_sys_wifi)
+            .setSmallIcon(android.R.drawable.sym_action_call)
             .setContentTitle("WhatsApp call detected")
             .setContentText("Enable the Gateway Wi-Fi hotspot for better call quality.")
             .setStyle(Notification.BigTextStyle().bigText(
@@ -1048,7 +1048,7 @@ class LinkService : Service() {
             ))
             .setAutoCancel(true)
             .setContentIntent(pending)
-            .addAction(action(android.R.drawable.stat_sys_wifi, "Open hotspot settings", pending))
+            .addAction(action(android.R.drawable.sym_action_call, "Open hotspot settings", pending))
             .build()
         nm.notify(ID_HOTSPOT, n)
         Hub.log("WhatsApp call detected on Remote; Gateway hotspot prompt posted")
