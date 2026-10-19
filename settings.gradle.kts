@@ -14,5 +14,5 @@ dependencyResolutionManagement {
     }
 }
 
-rootProject.name = "CallCompanion"
+rootProject.name = "PCL"
 include(":app")
