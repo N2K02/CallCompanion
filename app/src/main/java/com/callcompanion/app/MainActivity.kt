@@ -7,6 +7,8 @@ import androidx.core.view.WindowCompat
 import androidx.core.view.WindowInsetsCompat
 import androidx.core.view.WindowInsetsControllerCompat
 import android.bluetooth.BluetoothManager
+import android.net.ConnectivityManager
+import android.net.NetworkCapabilities
 import android.content.Intent
 import android.content.ClipData
 import android.content.ClipboardManager
@@ -204,6 +206,24 @@ class MainActivity : ComponentActivity() {
         if (currentRole() == LinkService.ROLE_REMOTE && loadedContactsVersion != Hub.contactsVersion) loadContacts()
     }
 
+    private fun internetStatus(): String {
+        val manager = getSystemService(ConnectivityManager::class.java)
+        val network = manager?.activeNetwork ?: return "No active network"
+        val caps = manager.getNetworkCapabilities(network) ?: return "Checking network"
+        val transport = when {
+            caps.hasTransport(NetworkCapabilities.TRANSPORT_WIFI) -> "Wi-Fi"
+            caps.hasTransport(NetworkCapabilities.TRANSPORT_CELLULAR) -> "Mobile data"
+            caps.hasTransport(NetworkCapabilities.TRANSPORT_BLUETOOTH) -> "Bluetooth"
+            caps.hasTransport(NetworkCapabilities.TRANSPORT_ETHERNET) -> "Ethernet"
+            else -> "Other network"
+        }
+        return if (caps.hasCapability(NetworkCapabilities.NET_CAPABILITY_VALIDATED)) {
+            "$transport · internet verified by Android"
+        } else {
+            "$transport · internet not verified"
+        }
+    }
+
     private fun formatTrafficRate(bytesPerSecond: Long): String = when {
         bytesPerSecond >= 1024L * 1024L -> String.format(java.util.Locale.US, "%.1f MB/s", bytesPerSecond / (1024.0 * 1024.0))
         bytesPerSecond >= 1024L -> String.format(java.util.Locale.US, "%.1f KB/s", bytesPerSecond / 1024.0)
@@ -390,6 +410,7 @@ class MainActivity : ComponentActivity() {
                         title = "Internet sharing",
                         subtitle = "Share the Gateway phone's mobile data with the Remote so its own apps, including WhatsApp Business, can use the internet."
                     ) {
+                        Text("Current network on this phone: ${internetStatus()}", style = MaterialTheme.typography.bodyMedium, fontWeight = FontWeight.SemiBold)
                         if (role == LinkService.ROLE_GATEWAY) {
                             Text("Recommended for WhatsApp voice/video: use Wi-Fi hotspot as the primary internet-sharing option. Bluetooth tethering can remain available as a slower fallback. Android controls tethering, so PCL cannot toggle it silently.", style = MaterialTheme.typography.bodyMedium)
                             Button(onClick = {
