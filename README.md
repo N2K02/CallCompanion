@@ -40,8 +40,8 @@ Install the same app on both phones and select a role:
 | Contact sync | Contacts can be synced from Gateway to Remote at connection time or manually with **Sync contacts from Gateway**. The Remote keeps a local offline copy. Gateway Contacts permission is required; Remote Contacts permission is optional for merging its own contacts into search. |
 | WhatsApp outgoing handoff | Remote can ask Gateway to post a notification that opens a WhatsApp chat for the entered number. Tap that notification on Gateway, then place the voice call inside WhatsApp. This is a chat handoff, not an automated call-placement API. |
 | Answer/reject/end SIM calls | Remote sends a command to the Gateway. Actual success depends on Android/OEM telephony permissions and API behaviour; a normal app cannot guarantee all call controls on every device. |
-| Third-party call notifications | Supported third-party call notifications can be mirrored to Remote. WhatsApp call notifications are deliberately not mirrored as CallCompanion actions; WhatsApp linked devices must handle ringing and answering natively. |
-| Third-party call actions | For supported non-WhatsApp call notifications, CallCompanion can relay actions exposed by the original app. WhatsApp call-answer actions are not relayed over Bluetooth, to avoid answering on the wrong device or racing WhatsApp linked-device state. |
+| Third-party call notifications | Supported third-party call notifications, including WhatsApp when Android exposes suitable notification actions, can be mirrored to Remote. |
+| Third-party call actions | CallCompanion can relay actions exposed by the original notification. It detects WhatsApp call state on both phones when Notification Access exposes recognizable Answer/Decline or End-call actions, and blocks stale WhatsApp Answer actions when either phone is already in an active WhatsApp call. It never auto-answers or rejects a call. |
 | Other notifications | Non-ongoing notifications can be mirrored to the Remote. Persistent non-call notifications are ignored. |
 | Bluetooth transport | Call state, notification details, and commands travel over the existing Bluetooth RFCOMM connection. |
 | Call audio | The Gateway remains paired to the Bluetooth speakerphone, so the conversation audio stays between the Gateway and that device. CallCompanion does not relay cellular-call audio to the Remote. |
@@ -53,7 +53,7 @@ Install the same app on both phones and select a role:
 1. Install CallCompanion on both Android phones.
 2. Pair the Gateway and Remote in Android **Settings → Bluetooth**.
 3. On the Gateway, choose **Gateway**, grant the required phone/Bluetooth permissions, and enable **Notification access**. Grant Contacts permission if you want contact sync and caller-name lookup.
-4. On the Remote, choose **Remote**, select the paired Gateway, and start the link.
+4. On the Remote, choose **Remote**, enable **Notification access** as well, select the paired Gateway, and start the link. Remote notification access is used to observe its local WhatsApp call state.
 5. Keep CallCompanion running on both phones. The app uses a paired Bluetooth RFCOMM connection; it does not need a CallCompanion cloud server.
 
 ### 2. Incoming or outgoing SIM call
@@ -66,10 +66,10 @@ Install the same app on both phones and select a role:
 
 ### 3. Third-party call notifications
 
-1. With Notification Access enabled on the Gateway, CallCompanion can mirror supported third-party call notifications and available actions.
-2. **WhatsApp calls are intentionally excluded from CallCompanion action mirroring.** If both phones are set up as WhatsApp linked devices for the same account, let WhatsApp ring each eligible device and manage answering natively.
-3. Answer the call in WhatsApp on whichever phone you choose. WhatsApp, not CallCompanion, is responsible for stopping the ringing on the other linked device and keeping the call session consistent.
-4. CallCompanion cannot guarantee that both phones ring: that depends on WhatsApp account/linked-device setup, app versions, network connectivity, and WhatsApp behaviour. This feature does not create a WhatsApp link or transfer call audio.
+1. Enable **Notification access on both phones**. Gateway mirrors the WhatsApp call notification and any action buttons that WhatsApp exposes to Remote.
+2. You can tap **Answer** on the mirrored notification on Remote; CallCompanion forwards the original notification action to the Gateway. Or answer in WhatsApp directly on either phone.
+3. CallCompanion observes notification-based call state and refuses a stale mirrored **Answer** action if it can already see an active WhatsApp call on either phone. It does not automatically answer, reject, mute, or end calls.
+4. When both installations use the same WhatsApp account through official linked-device mode, WhatsApp itself should coordinate which device has answered. CallCompanion cannot guarantee that both devices ring or that every call state is visible; this depends on WhatsApp, notification actions, account setup, Android version, and device vendor. Separate WhatsApp accounts/profiles are separate call sessions and are not merged by CallCompanion.
 
 ### 4. Starting a WhatsApp chat/call from the Remote
 
@@ -121,7 +121,7 @@ The app's minimum supported Android version is Android 8.0 (API 26), so the moni
 
 ## Important Android limitations
 
-- NotificationListenerService requires user-granted Notification Access. It can invoke only actions supplied by the originating notification; it cannot universally answer or end every third-party app call. WhatsApp call actions are intentionally not forwarded, because WhatsApp linked devices should handle call-answer state natively and stop ringing on the other device themselves.
+- NotificationListenerService requires user-granted Notification Access on both phones for WhatsApp call-state observation. It can invoke only actions supplied by the originating notification; it cannot universally answer or end every third-party app call. WhatsApp call-state detection depends on recognizable notification actions and is best-effort. CallCompanion does not change ringtone volume or automatically answer/reject calls. WhatsApp linked-device mode, not CallCompanion, coordinates the underlying WhatsApp call across linked devices.
 - SIM-call answer/end APIs are restricted by Android and vary by OS version and device vendor. ANSWER_PHONE_CALLS does not guarantee identical behaviour on all devices. The Gateway first uses the public Telecom API when available; if it throws, reports failure, the required permission is unavailable, or the Android version lacks the call-control API, it can try a matching action exposed by the system Phone app's call notification. This cannot help if no suitable action is exposed or Notification Access is disabled.
 - Phone-state broadcasts may indicate an outgoing call started without exposing its number. Caller/dialled number availability varies by Android version, permissions, and device. On startup, CallCompanion also queries the current call state as a snapshot, but this cannot reliably recover caller number or call direction.
 - Cellular call audio is managed by Android Telecom/Bluetooth. An ordinary app cannot capture and inject cellular-call audio, so keep the Gateway connected to the Bluetooth speakerphone.
