@@ -1,4 +1,4 @@
-name: Build APK
+name: Build PCL APK
 
 on:
   push:
@@ -19,7 +19,7 @@ concurrency:
   cancel-in-progress: false
 
 env:
-  APP: CallCompanion
+  APP: PCL
 
 jobs:
   build:
