@@ -335,7 +335,7 @@ class MainActivity : ComponentActivity() {
                             Column(Modifier.weight(1f)) {
                                 Text(if (running) service?.connectionState ?: "Starting" else "Ready to connect",
                                     style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold)
-                                Text(if (!running) "Bluetooth link is stopped" else if (connected) "Connected to the other phone" else "Waiting for Bluetooth connection",
+                                Text(if (!running) "Press Start to connect" else if (connected) "Link active" else "Connecting to paired phone",
                                     style = MaterialTheme.typography.bodyMedium)
                             }
                             Icon(if (connected) Icons.Default.CheckCircle else Icons.Default.Sync,
@@ -355,8 +355,8 @@ class MainActivity : ComponentActivity() {
                         Text(
                             if (remote) {
                                 val peer = devices.firstOrNull { it.second == selectedDevice }
-                                if (peer != null) "Gateway: ${peer.first} (${peer.second})" else "Select a paired Gateway above."
-                            } else "Gateway role · cellular calls use this phone's SIM and Android's native earpiece, speaker or connected hands-free device.",
+                                if (peer != null) "Gateway: ${peer.first}" else "Select a paired Gateway above."
+                            } else "Gateway · SIM calls use this phone.",
                             style = MaterialTheme.typography.bodySmall,
                             color = MaterialTheme.colorScheme.onSurfaceVariant
                         )
@@ -420,7 +420,7 @@ class MainActivity : ComponentActivity() {
 
 
                 if (screen == MainTab.HOME && setupReady && running) {
-                    SectionCard(title = "Phone call", subtitle = if (remote) "Gateway SIM call · audio stays on Gateway" else "This phone’s SIM call status and controls") {
+                    SectionCard(title = "Phone call", subtitle = if (remote) "Gateway SIM call status and controls" else "This phone’s SIM call status and controls") {
                         Text(
                             when (callState) {
                                 LinkService.CALL_RINGING -> "Incoming SIM call"
