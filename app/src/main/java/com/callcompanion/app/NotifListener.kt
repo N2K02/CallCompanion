@@ -30,26 +30,32 @@ class NotifListener : NotificationListenerService() {
     private val actionsByKey = HashMap<String, Array<Notification.Action>>()
     private val actionPackagesByKey = HashMap<String, String>()
     private val whatsappCallStates = HashMap<String, String>()
+    private val whatsappCallPackages = HashMap<String, String>()
 
     private fun isWhatsAppPackage(pkg: String): Boolean =
         pkg == "com.whatsapp" || pkg == "com.whatsapp.w4b"
 
-    private fun reportWhatsAppState() {
+    private fun reportWhatsAppState(pkg: String) {
         val state = synchronized(whatsappCallStates) {
+            val states = whatsappCallStates.filterKeys { whatsappCallPackages[it] == pkg }.values
             when {
-                whatsappCallStates.values.any { it == "ACTIVE" } -> "ACTIVE"
-                whatsappCallStates.values.any { it == "RINGING" } -> "RINGING"
+                states.any { it == "ACTIVE" } -> "ACTIVE"
+                states.any { it == "RINGING" } -> "RINGING"
                 else -> "IDLE"
             }
         }
-        Hub.service?.updateLocalWhatsappCallState(state)
+        Hub.service?.updateLocalWhatsappCallState(pkg, state)
     }
 
     private fun updateWhatsappCallNotification(sbn: StatusBarNotification, removed: Boolean) {
         if (!isWhatsAppPackage(sbn.packageName)) return
         if (removed) {
-            val changed = synchronized(whatsappCallStates) { whatsappCallStates.remove(sbn.key) != null }
-            if (changed) reportWhatsAppState()
+            val changed = synchronized(whatsappCallStates) {
+                val removed = whatsappCallStates.remove(sbn.key) != null
+                whatsappCallPackages.remove(sbn.key)
+                removed
+            }
+            if (changed) reportWhatsAppState(sbn.packageName)
             return
         }
         val n = sbn.notification ?: return
@@ -62,8 +68,11 @@ class NotifListener : NotificationListenerService() {
             hasAnswer && hasDecline -> "RINGING"
             else -> null // Do not guess when WhatsApp/OEM exposes no recognizable call actions.
         } ?: return
-        val changed = synchronized(whatsappCallStates) { whatsappCallStates.put(sbn.key, state) != state }
-        if (changed) reportWhatsAppState()
+        val changed = synchronized(whatsappCallStates) {
+            whatsappCallPackages[sbn.key] = sbn.packageName
+            whatsappCallStates.put(sbn.key, state) != state
+        }
+        if (changed) reportWhatsAppState(sbn.packageName)
     }
 
     override fun onListenerConnected() {
