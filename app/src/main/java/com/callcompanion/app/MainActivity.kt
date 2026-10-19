@@ -333,7 +333,7 @@ class MainActivity : ComponentActivity() {
 
 
                 if (screen == MainTab.HOME && setupReady && running) {
-                    SectionCard(title = "Phone call", subtitle = "Call controls are available while the link is running.") {
+                    SectionCard(title = "Phone call", subtitle = if (remote) "SIM call on the Gateway · audio stays on the Gateway" else "SIM call status and controls for this phone") {
                         Text(
                             when (callState) {
                                 LinkService.CALL_RINGING -> "Incoming SIM call"
@@ -379,6 +379,9 @@ class MainActivity : ComponentActivity() {
 
                 if (screen == MainTab.HOME && setupReady && running && remote) {
                     SectionCard(title = "Make a call", subtitle = "Type a number or search synced contacts.") {
+                        Text("The Gateway places the SIM call and handles its audio. The Remote is a controller, not the call's microphone or speaker.",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant)
                         var suggestionsExpanded by remember { mutableStateOf(false) }
                         OutlinedTextField(
                             value = dialInput,
