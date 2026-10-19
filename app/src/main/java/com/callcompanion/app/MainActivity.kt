@@ -34,7 +34,6 @@ import androidx.compose.material.icons.filled.ContentCopy
 import androidx.compose.material.icons.filled.DeleteSweep
 import androidx.compose.material.icons.filled.Download
 import androidx.compose.material.icons.filled.Hub
-import androidx.compose.material.icons.filled.Mic
 import androidx.compose.material.icons.filled.PhoneAndroid
 import androidx.compose.material.icons.filled.Radio
 import androidx.compose.material.icons.filled.Wifi
@@ -43,7 +42,6 @@ import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material.icons.filled.Smartphone
 import androidx.compose.material.icons.filled.Stop
 import androidx.compose.material.icons.filled.Sync
-import androidx.compose.material.icons.filled.VolumeUp
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
@@ -65,7 +63,6 @@ class MainActivity : ComponentActivity() {
     private var devices by mutableStateOf<List<Pair<String, String>>>(emptyList())
     private var selectedDevice by mutableStateOf<String?>(null)
     private var contacts by mutableStateOf<List<Contact>>(emptyList())
-    private var gatewaySpeaker by mutableStateOf(false)
     private var dialInput by mutableStateOf("")
     private var selectedContact by mutableStateOf<Contact?>(null)
     private var loadedContactsVersion = -1
@@ -111,9 +108,7 @@ class MainActivity : ComponentActivity() {
     }
 
     private fun corePerms(): List<String> {
-        // Microphone access is optional: SIM calls stay routed through Android and the
-        // Gateway's paired hands-free device. Ask for mic only if the separate app
-        // microphone-to-speaker voice-link feature is explicitly started.
+        // PCL relays call control and status; Android manages cellular-call audio.
         val l = mutableListOf<String>()
         if (Build.VERSION.SDK_INT >= 31) l.add(Manifest.permission.BLUETOOTH_CONNECT)
         if (Build.VERSION.SDK_INT >= 33) l.add(Manifest.permission.POST_NOTIFICATIONS)
@@ -209,6 +204,12 @@ class MainActivity : ComponentActivity() {
         if (currentRole() == LinkService.ROLE_REMOTE && loadedContactsVersion != Hub.contactsVersion) loadContacts()
     }
 
+    private fun formatTrafficRate(bytesPerSecond: Long): String = when {
+        bytesPerSecond >= 1024L * 1024L -> String.format(java.util.Locale.US, "%.1f MB/s", bytesPerSecond / (1024.0 * 1024.0))
+        bytesPerSecond >= 1024L -> String.format(java.util.Locale.US, "%.1f KB/s", bytesPerSecond / 1024.0)
+        else -> "$bytesPerSecond B/s"
+    }
+
     private fun toast(msg: String) = Toast.makeText(this, msg, Toast.LENGTH_LONG).show()
 
     @OptIn(ExperimentalMaterial3Api::class)
@@ -259,7 +260,68 @@ class MainActivity : ComponentActivity() {
                     .padding(horizontal = 18.dp, vertical = 12.dp),
                 verticalArrangement = Arrangement.spacedBy(14.dp)
             ) {
-                if (screen == MainTab.HOME && setupReady) Text("Your relay workspace", style = MaterialTheme.typography.headlineMedium, fontWeight = FontWeight.Bold)
+                if (screen == MainTab.HOME && setupReady && remote) {
+                    SectionCard(title = "Bluetooth device", subtitle = "Select the paired Gateway phone.") {
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            Text("${devices.size} paired", modifier = Modifier.weight(1f), style = MaterialTheme.typography.titleMedium)
+                            OutlinedButton(onClick = { loadDevices(); refresh() }) {
+                                Icon(Icons.Default.Refresh, null)
+                                Spacer(Modifier.width(5.dp))
+                                Text("Refresh")
+                            }
+                        }
+                        if (devices.isEmpty()) {
+                            Text("No paired devices. Pair the phones in Bluetooth settings, then refresh.", color = MaterialTheme.colorScheme.onSurfaceVariant)
+                            OutlinedButton(
+                                onClick = { runCatching { startActivity(Intent(Settings.ACTION_BLUETOOTH_SETTINGS)) } },
+                                modifier = Modifier.fillMaxWidth()
+                            ) {
+                                Text("Open Bluetooth settings")
+                            }
+                        } else {
+                            devices.forEach { device ->
+                                Card(
+                                    onClick = {
+                                        if (!running) {
+                                            selectedDevice = device.second
+                                            prefs.edit().putString("device", device.second).apply()
+                                            refresh()
+                                        }
+                                    },
+                                    colors = CardDefaults.cardColors(
+                                        containerColor = if (device.second == selectedDevice)
+                                            MaterialTheme.colorScheme.secondaryContainer
+                                        else MaterialTheme.colorScheme.surfaceContainerLow
+                                    )
+                                ) {
+                                    Row(
+                                        Modifier.fillMaxWidth().padding(14.dp),
+                                        verticalAlignment = Alignment.CenterVertically
+                                    ) {
+                                        Icon(Icons.Default.Smartphone, null, tint = MaterialTheme.colorScheme.primary)
+                                        Spacer(Modifier.width(12.dp))
+                                        Column(
+                                            Modifier.weight(1f),
+                                            verticalArrangement = Arrangement.spacedBy(3.dp)
+                                        ) {
+                                            Text(device.first, fontWeight = FontWeight.SemiBold)
+                                            Text(
+                                                device.second,
+                                                style = MaterialTheme.typography.bodySmall,
+                                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                                            )
+                                        }
+                                        if (device.second == selectedDevice) {
+                                            Icon(Icons.Default.CheckCircle, null, tint = MaterialTheme.colorScheme.primary)
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+
+                if (screen == MainTab.HOME && setupReady) Text("Connection", style = MaterialTheme.typography.headlineMedium, fontWeight = FontWeight.Bold)
                 if (screen == MainTab.HOME && setupReady) Card(
                     colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.primaryContainer),
                     modifier = Modifier.fillMaxWidth()
@@ -273,7 +335,7 @@ class MainActivity : ComponentActivity() {
                             Column(Modifier.weight(1f)) {
                                 Text(if (running) service?.connectionState ?: "Starting" else "Ready to connect",
                                     style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold)
-                                Text(if (!running) "Bluetooth link is stopped" else if (connected) "Connected to the other phone" else "Waiting for Bluetooth connection",
+                                Text(if (!running) "Press Start to connect" else if (connected) "Link active" else "Connecting to paired phone",
                                     style = MaterialTheme.typography.bodyMedium)
                             }
                             Icon(if (connected) Icons.Default.CheckCircle else Icons.Default.Sync,
@@ -289,6 +351,34 @@ class MainActivity : ComponentActivity() {
                                 Icon(Icons.Default.Stop, contentDescription = null)
                                 Spacer(Modifier.width(8.dp)); Text("Stop")
                             }
+                        }
+                        Text(
+                            if (remote) {
+                                val peer = devices.firstOrNull { it.second == selectedDevice }
+                                if (peer != null) "Gateway: ${peer.first}" else "Select a paired Gateway above."
+                            } else "Gateway · SIM calls use this phone.",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                    }
+                }
+
+                if (screen == MainTab.HOME && setupReady) {
+                    val traffic = service
+                    SectionCard(title = "Network speed", subtitle = "PCL traffic over Bluetooth · not internet speed") {
+                        if (connected && traffic != null) {
+                            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                                Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                                    Text("Download", style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                                    Text(formatTrafficRate(traffic.downloadBytesPerSecond), style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.SemiBold)
+                                }
+                                Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                                    Text("Upload", style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                                    Text(formatTrafficRate(traffic.uploadBytesPerSecond), style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.SemiBold)
+                                }
+                            }
+                        } else {
+                            Text("Connect to view app traffic rates.", style = MaterialTheme.typography.bodyMedium)
                         }
                     }
                 }
@@ -330,7 +420,7 @@ class MainActivity : ComponentActivity() {
 
 
                 if (screen == MainTab.HOME && setupReady && running) {
-                    SectionCard(title = "Phone call", subtitle = "Call controls are available while the link is running.") {
+                    SectionCard(title = "Phone call", subtitle = if (remote) "Gateway SIM call status and controls" else "This phone’s SIM call status and controls") {
                         Text(
                             when (callState) {
                                 LinkService.CALL_RINGING -> "Incoming SIM call"
@@ -342,8 +432,17 @@ class MainActivity : ComponentActivity() {
                         if (callState == LinkService.CALL_RINGING || callState == LinkService.CALL_OFFHOOK) {
                             Text(service?.display().orEmpty(), style = MaterialTheme.typography.bodyLarge)
                         }
+                        val callError = service?.callControlError
+                        if (callError?.startsWith("FAILED:") == true || callError?.startsWith("PENDING:") == true) {
+                            Text(
+                                callError.substringAfter(": ").ifBlank { "Call-control request status unavailable." },
+                                style = MaterialTheme.typography.bodyMedium,
+                                color = if (callError.startsWith("FAILED:")) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+                        }
                         if (callState == LinkService.CALL_OFFHOOK && remote) {
-                            Text("Audio is handled by the gateway phone.", style = MaterialTheme.typography.bodySmall,
+                            Text("Call audio stays on the Gateway. Use its earpiece, loudspeaker or connected Bluetooth hands-free device.",
+                                style = MaterialTheme.typography.bodySmall,
                                 color = MaterialTheme.colorScheme.onSurfaceVariant)
                         }
                         Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.fillMaxWidth()) {
@@ -366,7 +465,7 @@ class MainActivity : ComponentActivity() {
                 }
 
                 if (screen == MainTab.HOME && setupReady && running && remote) {
-                    SectionCard(title = "Make a call", subtitle = "Type a number or search synced contacts.") {
+                    SectionCard(title = "Make a call", subtitle = "Dial through the Gateway SIM or search synced contacts.") {
                         var suggestionsExpanded by remember { mutableStateOf(false) }
                         OutlinedTextField(
                             value = dialInput,
@@ -425,111 +524,6 @@ class MainActivity : ComponentActivity() {
                             style = MaterialTheme.typography.bodySmall,
                             color = MaterialTheme.colorScheme.onSurfaceVariant
                         )
-                        FilledTonalButton(onClick = {
-                            gatewaySpeaker = !gatewaySpeaker
-                            service?.setGatewaySpeaker(gatewaySpeaker)
-                            refresh()
-                        }, modifier = Modifier.fillMaxWidth()) {
-                            Icon(Icons.Default.VolumeUp, null); Spacer(Modifier.width(8.dp))
-                            Text("Gateway speaker: " + if (gatewaySpeaker) "ON" else "OFF")
-                        }
-                    }
-                }
-
-                if (screen == MainTab.HOME && setupReady) {
-                    val connectionText = service?.connectionState.orEmpty()
-                    val bluetoothStatus = when {
-                        connected -> "Connected"
-                        !running -> "Disconnected"
-                        connectionText.contains("retry", ignoreCase = true) ||
-                            connectionText.contains("connect", ignoreCase = true) -> "Reconnecting"
-                        else -> "Waiting for peer"
-                    }
-                    SectionCard(title = "Bluetooth", subtitle = "Connection to the other PCL phone.") {
-                        Text(bluetoothStatus, style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold,
-                            color = if (connected) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurface)
-                        Text(if (running) connectionText else "Start the relay to connect.",
-                            style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                        Text(if (remote) {
-                            val peer = devices.firstOrNull { it.second == selectedDevice }
-                            if (peer != null) "Gateway: ${peer.first} (${peer.second})" else "No Gateway phone selected. Pair in Android Bluetooth settings."
-                        } else "This Gateway phone manages calls through its own SIM.",
-                            style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                    }
-
-                    val callError = service?.callControlError
-                    val callFailed = callError?.startsWith("FAILED:") == true
-                    val callPending = callError?.startsWith("PENDING:") == true
-                    val callControlLabel = when {
-                        callFailed -> "Failed"
-                        callPending -> "Waiting for Gateway"
-                        callState == LinkService.CALL_RINGING -> "Ringing"
-                        callState == LinkService.CALL_OFFHOOK -> "Active"
-                        else -> "Idle"
-                    }
-                    SectionCard(title = "Call control", subtitle = "Status of the SIM call on the Gateway phone.") {
-                        Text(callControlLabel, style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold,
-                            color = if (callFailed) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.onSurface)
-                        Text(when {
-                            callFailed -> callError?.removePrefix("FAILED: ") ?: "The Gateway could not complete the request."
-                            callPending -> callError?.removePrefix("PENDING: ") ?: "Waiting for a response from the Gateway."
-                            callState == LinkService.CALL_RINGING -> "An incoming SIM call is ringing."
-                            callState == LinkService.CALL_OFFHOOK && service?.callDirection == "OUTGOING" -> "The Gateway reports an outgoing SIM call. The dialled number may not be available to a normal app."
-                            callState == LinkService.CALL_OFFHOOK -> "The Gateway reports a call in progress."
-                            else -> "No active SIM call is reported by the Gateway."
-                        }, style = MaterialTheme.typography.bodyMedium)
-                        if (remote && !connected) Text("Call status may be out of date while Bluetooth is disconnected.",
-                            style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                    }
-
-                    val voiceState = service?.voiceState ?: "STOPPED"
-                    SectionCard(title = "Voice link", subtitle = "App microphone-to-speaker audio over Bluetooth; this is separate from SIM-call audio.") {
-                        Text(when (voiceState) {
-                            "STARTING" -> "Starting"
-                            "RUNNING" -> "Running"
-                            "FAILED" -> "Failed"
-                            else -> "Stopped"
-                        }, style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold,
-                            color = if (voiceState == "FAILED") MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.onSurface)
-                        Text(when (voiceState) {
-                            "STARTING" -> "Waiting for microphone capture and audio playback to initialize."
-                            "RUNNING" -> "Microphone capture and playback have initialized. This does not confirm SIM-call audio is relayed."
-                            "FAILED" -> "Audio capture or playback failed. Check Activity logs, microphone permission and audio availability."
-                            else -> "The app voice link is not running."
-                        }, style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                    }
-
-                    SectionCard(title = "SIM-call audio limitation", subtitle = "Important compatibility information.") {
-                        Text("PCL can send call-control commands to the Gateway's existing SIM phone. The Voice link uses the phones' app microphones and speakers; it does not directly capture or inject the cellular call's audio.",
-                            style = MaterialTheme.typography.bodyMedium)
-                        Text("On ordinary Android phones, direct access to SIM-call audio is generally restricted. Do not assume the remote phone can hear the caller or that the caller can hear the remote phone until this is verified on your exact devices.",
-                            style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                    }
-                }
-
-                if (screen == MainTab.HOME && setupReady) SectionCard(title = "Voice link controls", subtitle = "Start or stop the app microphone link and choose this phone’s speaker route.") {
-                    if (callState != LinkService.CALL_IDLE) Text(
-                        "Voice link is disabled during a SIM call to preserve Android's call-audio routing.",
-                        style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant
-                    )
-                    Button(onClick = {
-                        if (service != null && !service.voiceActive && !granted(Manifest.permission.RECORD_AUDIO)) {
-                            requestPermissions(arrayOf(Manifest.permission.RECORD_AUDIO), 3)
-                            toast("Microphone permission is only needed for the separate voice-link feature")
-                        } else {
-                            service?.toggleVoice()
-                            refresh()
-                        }
-                    }, enabled = running && (callState == LinkService.CALL_IDLE || service?.voiceActive == true), modifier = Modifier.fillMaxWidth()) {
-                        Icon(Icons.Default.Mic, null); Spacer(Modifier.width(8.dp))
-                        Text(if (service?.voiceActive == true) "End voice link" else "Start voice link")
-                    }
-                    FilledTonalButton(onClick = {
-                        service?.let { it.setLocalSpeaker(!it.speakerOn); refresh() }
-                    }, enabled = running, modifier = Modifier.fillMaxWidth()) {
-                        Icon(Icons.Default.VolumeUp, null); Spacer(Modifier.width(8.dp))
-                        Text("This phone loudspeaker: " + if (service?.speakerOn != false) "ON" else "OFF")
                     }
                 }
 
@@ -560,12 +554,10 @@ class MainActivity : ComponentActivity() {
                             PermissionSetupRow("Place calls", "Place calls through the gateway SIM", granted(Manifest.permission.CALL_PHONE)) { requestPermissions(arrayOf(Manifest.permission.CALL_PHONE), 1) }
                             PermissionSetupRow("Contacts (for sync)", "Send Gateway contacts to the Remote and resolve caller names", granted(Manifest.permission.READ_CONTACTS)) { requestPermissions(arrayOf(Manifest.permission.READ_CONTACTS), 1) }
                             PermissionSetupRow("Notification access", "Mirror notifications and detect WhatsApp call state", notificationAccess, actionLabel = "Open settings") { runCatching { startActivity(Intent(Settings.ACTION_NOTIFICATION_LISTENER_SETTINGS)) }.onFailure { toast("Open Android Settings → Notifications → Notification access") } }
-                            PermissionSetupRow("Microphone (optional)", "Only for the separate app voice-link feature", granted(Manifest.permission.RECORD_AUDIO)) { requestPermissions(arrayOf(Manifest.permission.RECORD_AUDIO), 1) }
                             if (Build.VERSION.SDK_INT >= 31) PermissionSetupRow("Bluetooth connection", "Connect to the paired remote phone", granted(Manifest.permission.BLUETOOTH_CONNECT)) { requestPermissions(arrayOf(Manifest.permission.BLUETOOTH_CONNECT), 1) }
                         } else if (roleSelected) {
-                            PermissionSetupRow("Notification access", "Detect local WhatsApp call state and prevent stale duplicate Answer actions", notificationAccess, actionLabel = "Open settings") { runCatching { startActivity(Intent(Settings.ACTION_NOTIFICATION_LISTENER_SETTINGS)) }.onFailure { toast("Open Android Settings → Notifications → Notification access") } }
+                            PermissionSetupRow("Notification access", "Detect local WhatsApp call state", notificationAccess, actionLabel = "Open settings") { runCatching { startActivity(Intent(Settings.ACTION_NOTIFICATION_LISTENER_SETTINGS)) }.onFailure { toast("Open Android Settings → Notifications → Notification access") } }
                             PermissionSetupRow("Local contacts (optional)", "Include this phone's contacts in Remote search", granted(Manifest.permission.READ_CONTACTS)) { requestPermissions(arrayOf(Manifest.permission.READ_CONTACTS), 1) }
-                            PermissionSetupRow("Microphone (optional)", "Only for the separate voice-link feature", granted(Manifest.permission.RECORD_AUDIO)) { requestPermissions(arrayOf(Manifest.permission.RECORD_AUDIO), 1) }
                             if (Build.VERSION.SDK_INT >= 31) PermissionSetupRow("Bluetooth connection", "Find and connect to the paired gateway phone", granted(Manifest.permission.BLUETOOTH_CONNECT)) { requestPermissions(arrayOf(Manifest.permission.BLUETOOTH_CONNECT), 1) }
                             if (Build.VERSION.SDK_INT >= 33) PermissionSetupRow("Notifications", "Show the ongoing PCL status", granted(Manifest.permission.POST_NOTIFICATIONS)) { requestPermissions(arrayOf(Manifest.permission.POST_NOTIFICATIONS), 1) }
                         } else {
@@ -614,35 +606,6 @@ class MainActivity : ComponentActivity() {
                     }
                 }
 
-                    if (remote) SectionCard(title = "Bluetooth devices", subtitle = "Choose the paired gateway phone by its device name. The address is shown underneath to distinguish similarly named devices.") {
-                        Row(verticalAlignment = Alignment.CenterVertically) {
-                            Text("Paired devices: ${devices.size}", modifier = Modifier.weight(1f), style = MaterialTheme.typography.titleMedium)
-                            OutlinedButton(onClick = { loadDevices(); refresh() }) {
-                                Icon(Icons.Default.Refresh, null); Spacer(Modifier.width(5.dp)); Text("Refresh")
-                            }
-                        }
-                        if (devices.isEmpty()) {
-                            Text("No paired Bluetooth devices found. Pair the two phones in Android Bluetooth settings, then refresh.", color = MaterialTheme.colorScheme.onSurfaceVariant)
-                            OutlinedButton(onClick = { runCatching { startActivity(Intent(Settings.ACTION_BLUETOOTH_SETTINGS)) } }, modifier = Modifier.fillMaxWidth()) { Text("Open Bluetooth settings") }
-                        } else {
-                            devices.forEach { device ->
-                                Card(
-                                    onClick = { if (!running) { selectedDevice = device.second; prefs.edit().putString("device", device.second).apply(); refresh() } },
-                                    colors = CardDefaults.cardColors(containerColor = if (device.second == selectedDevice) MaterialTheme.colorScheme.secondaryContainer else MaterialTheme.colorScheme.surfaceContainerLow)
-                                ) {
-                                    Row(Modifier.fillMaxWidth().padding(14.dp), verticalAlignment = Alignment.CenterVertically) {
-                                        Icon(Icons.Default.Smartphone, null, tint = MaterialTheme.colorScheme.primary)
-                                        Spacer(Modifier.width(12.dp))
-                                        Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(3.dp)) {
-                                            Text(device.first, fontWeight = FontWeight.SemiBold)
-                                            Text(device.second, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                                        }
-                                        if (device.second == selectedDevice) Icon(Icons.Default.CheckCircle, null, tint = MaterialTheme.colorScheme.primary)
-                                    }
-                                }
-                            }
-                        }
-                    }
                     Text("PCL • Material 3 Expressive", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.align(Alignment.CenterHorizontally))
                 }
             }
@@ -674,10 +637,14 @@ private fun ActivityLogCard() {
                 Text("Clear all")
             }
         }
-        HorizontalDivider()
-        if (lines.isEmpty()) {
+        var expanded by remember { mutableStateOf(false) }
+        TextButton(onClick = { expanded = !expanded }, modifier = Modifier.fillMaxWidth()) {
+            Text(if (expanded) "Hide log entries" else "Show log entries")
+        }
+        if (expanded) HorizontalDivider()
+        if (expanded && lines.isEmpty()) {
             Text("No activity recorded yet.", style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
-        } else {
+        } else if (expanded) {
             Column(
                 Modifier.fillMaxWidth().heightIn(max = 280.dp).verticalScroll(rememberScrollState())
                     .background(MaterialTheme.colorScheme.surfaceContainerLow, RoundedCornerShape(18.dp)).padding(12.dp),
@@ -713,7 +680,7 @@ private fun PermissionSetupRow(title: String, description: String, ready: Boolea
                 Text(if (ready) "Granted" else "Not granted", style = MaterialTheme.typography.labelMedium, color = if (ready) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.error)
             }
             Spacer(Modifier.width(8.dp))
-            Button(onClick = action, enabled = !ready || actionLabel != null) { Text(actionLabel ?: if (ready) "Granted" else "Allow") }
+            Button(onClick = action, enabled = actionLabel != null || !ready) { Text(actionLabel ?: if (ready) "Granted" else "Allow") }
         }
     }
 }
