@@ -6,7 +6,7 @@ on:
   workflow_dispatch:
     inputs:
       version:
-        description: 'Version to release, one decimal place (e.g. 6.0). Leave empty to add 0.1 to the last release.'
+        description: 'Version to release, one decimal place (e.g. 1.0). Defaults to 1.0 for the initial PCL release.'
         required: false
         default: '1.0'
 
@@ -38,12 +38,13 @@ jobs:
         env:
           REQUESTED: ${{ github.event.inputs.version }}
         run: |
-          # PCL starts a fresh v1.x release line; ignore legacy CallCompanion v5.x tags.\n          last=$(git tag -l 'v1.*' | grep -E '^v1\.[0-9]
+          # PCL starts a fresh v1.x release line; ignore legacy CallCompanion v5.x tags.
+          last=$(git tag -l 'v1.*' | grep -E '^v1\.[0-9]$' | sort -V | tail -1 || true)
           if [ -n "$REQUESTED" ]; then
-            echo "$REQUESTED" | grep -Eq '^[0-9]+\.[0-9]$' || { echo "::error::Version must look like 5.7"; exit 1; }
+            echo "$REQUESTED" | grep -Eq '^[0-9]+\.[0-9]$' || { echo "::error::Version must look like 1.0"; exit 1; }
             ver="$REQUESTED"
           elif [ -z "$last" ]; then
-            ver="5.7"
+            ver="1.0"
           else
             t=${last#v}
             n=$(( ${t%.*} * 10 + ${t#*.} + 1 ))
