@@ -56,6 +56,18 @@ WhatsApp does not expose a stable public Android API for third-party apps to pla
 
 The phones communicate locally over Bluetooth; no CallCompanion cloud server is involved. The Gateway itself still needs whatever internet connection the third-party calling app requires. This app mirrors call status and controls only—it does not forward call audio.
 
+## Sharing the Gateway's internet with the Remote
+
+CallCompanion's Bluetooth RFCOMM link is for call status and control; it does **not** automatically provide internet access to the Remote. To try sharing the Gateway's mobile data for all apps on the Remote:
+
+1. On the Gateway, open **Settings → Hotspot & tethering** (the menu name varies) and enable **Bluetooth tethering**. Keep mobile data and Bluetooth enabled.
+2. On the Remote, pair with the Gateway in Android Bluetooth settings. Some Android phone models support connecting to another phone's Bluetooth PAN internet connection; others expose no client option. If the Remote does not obtain internet, this is an Android/OEM limitation rather than a CallCompanion relay failure.
+3. In CallCompanion → **Settings → Internet sharing**, use the shortcut to open the relevant Android settings and follow the on-screen guidance.
+
+Android does not allow an ordinary app to silently enable system Bluetooth tethering on all devices, so CallCompanion guides you to the system setting instead of claiming to toggle it automatically. Bluetooth tethering can be slower than Wi-Fi hotspot and mobile-data charges may apply.
+
+Once the Remote has a working internet connection, its own WhatsApp or WhatsApp Business installation can use its signed-in account to make calls. Internet sharing does not clone the Gateway's WhatsApp account, transfer account sessions, or relay call audio. To use the same WhatsApp account on both phones, use WhatsApp's official linked-device/companion mode; for a separate WhatsApp Business account, sign in to that account on the Remote.
+
 ## Android compatibility and setup
 
 The app's minimum supported Android version is Android 8.0 (API 26), so the monitoring and Bluetooth flow covers Android 10 and newer. Android 12+ requires the Nearby devices/Bluetooth Connect runtime permission. Android 13+ also requires notification permission for CallCompanion's own notifications. Microphone permission is optional and is requested only for the separate app voice-link feature; it is not needed for SIM call status or remote call controls. Contacts permission is requested separately for contact sync/search and is not needed to keep the Bluetooth relay running.
