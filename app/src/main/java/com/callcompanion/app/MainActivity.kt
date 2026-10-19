@@ -85,8 +85,8 @@ class MainActivity : ComponentActivity() {
         selectedDevice = prefs.getString("device", null)
         Hub.clearLog()
         CallLogger.init(this)
-        AppUpdater.init(this, "N2K02/CallCompanion", "CallCompanion")
-        setContent { CallCompanionTheme { AppScreen() } }
+        AppUpdater.init(this, "N2K02/CallCompanion", "PCL")
+        setContent { PCLTheme { AppScreen() } }
         loadDevices()
         refresh()
     }
@@ -233,7 +233,7 @@ class MainActivity : ComponentActivity() {
                 TopAppBar(
                     title = {
                         Column {
-                            Text("CallCompanion", fontWeight = FontWeight.Bold)
+                            Text("PCL", fontWeight = FontWeight.Bold)
                             Text("Bluetooth Call Relay", style = MaterialTheme.typography.labelMedium,
                                 color = MaterialTheme.colorScheme.onSurfaceVariant)
                         }
@@ -301,7 +301,7 @@ class MainActivity : ComponentActivity() {
                         subtitle = "Share the Gateway phone's mobile data with the Remote so its own apps, including WhatsApp Business, can use the internet."
                     ) {
                         if (role == LinkService.ROLE_GATEWAY) {
-                            Text("On this phone (Gateway): enable Bluetooth tethering in Android settings. Keep mobile data enabled and Bluetooth on. Android controls this setting, so CallCompanion cannot switch it on silently.", style = MaterialTheme.typography.bodyMedium)
+                            Text("On this phone (Gateway): enable Bluetooth tethering in Android settings. Keep mobile data enabled and Bluetooth on. Android controls this setting, so PCL cannot switch it on silently.", style = MaterialTheme.typography.bodyMedium)
                             Button(onClick = {
                                 try { startActivity(Intent("android.settings.TETHER_SETTINGS")) }
                                 catch (_: Exception) {
@@ -445,7 +445,7 @@ class MainActivity : ComponentActivity() {
                             connectionText.contains("connect", ignoreCase = true) -> "Reconnecting"
                         else -> "Waiting for peer"
                     }
-                    SectionCard(title = "Bluetooth", subtitle = "Connection to the other CallCompanion phone.") {
+                    SectionCard(title = "Bluetooth", subtitle = "Connection to the other PCL phone.") {
                         Text(bluetoothStatus, style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold,
                             color = if (connected) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurface)
                         Text(if (running) connectionText else "Start the relay to connect.",
@@ -500,7 +500,7 @@ class MainActivity : ComponentActivity() {
                     }
 
                     SectionCard(title = "SIM-call audio limitation", subtitle = "Important compatibility information.") {
-                        Text("CallCompanion can send call-control commands to the Gateway's existing SIM phone. The Voice link uses the phones' app microphones and speakers; it does not directly capture or inject the cellular call's audio.",
+                        Text("PCL can send call-control commands to the Gateway's existing SIM phone. The Voice link uses the phones' app microphones and speakers; it does not directly capture or inject the cellular call's audio.",
                             style = MaterialTheme.typography.bodyMedium)
                         Text("On ordinary Android phones, direct access to SIM-call audio is generally restricted. Do not assume the remote phone can hear the caller or that the caller can hear the remote phone until this is verified on your exact devices.",
                             style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
@@ -542,7 +542,7 @@ class MainActivity : ComponentActivity() {
                 }
                 if (screen == MainTab.UPDATE) {
                     Text("App updates", style = MaterialTheme.typography.headlineMedium, fontWeight = FontWeight.Bold)
-                    SectionCard(title = "CallCompanion", subtitle = "Keep the app updated from the latest GitHub release.") {
+                    SectionCard(title = "PCL", subtitle = "Keep the app updated from the latest GitHub release.") {
                         Text("Installed version: ${AppUpdater.installedVersionName}")
                         Text("Updates are checked against the latest GitHub release. APK verification and Android installation are handled by the updater.")
                         Button(onClick = { AppUpdater.check(manual = true) }, modifier = Modifier.fillMaxWidth()) {
@@ -554,7 +554,7 @@ class MainActivity : ComponentActivity() {
                 if (screen == MainTab.SETTINGS) {
                     SectionCard(title = "Permissions", subtitle = if (roleSelected) "Required access for the selected phone role." else "Select a role above to see its setup checklist.") {
                         if (roleSelected && role == LinkService.ROLE_GATEWAY) {
-                            if (Build.VERSION.SDK_INT >= 33) PermissionSetupRow("Notifications", "Show the ongoing CallCompanion status", granted(Manifest.permission.POST_NOTIFICATIONS)) { requestPermissions(arrayOf(Manifest.permission.POST_NOTIFICATIONS), 1) }
+                            if (Build.VERSION.SDK_INT >= 33) PermissionSetupRow("Notifications", "Show the ongoing PCL status", granted(Manifest.permission.POST_NOTIFICATIONS)) { requestPermissions(arrayOf(Manifest.permission.POST_NOTIFICATIONS), 1) }
                             PermissionSetupRow("Phone state", "Detect incoming and active SIM calls", granted(Manifest.permission.READ_PHONE_STATE)) { requestPermissions(arrayOf(Manifest.permission.READ_PHONE_STATE), 1) }
                             PermissionSetupRow("Answer calls", "Allow call answering requests", granted(Manifest.permission.ANSWER_PHONE_CALLS)) { requestPermissions(arrayOf(Manifest.permission.ANSWER_PHONE_CALLS), 1) }
                             PermissionSetupRow("Place calls", "Place calls through the gateway SIM", granted(Manifest.permission.CALL_PHONE)) { requestPermissions(arrayOf(Manifest.permission.CALL_PHONE), 1) }
@@ -567,7 +567,7 @@ class MainActivity : ComponentActivity() {
                             PermissionSetupRow("Local contacts (optional)", "Include this phone's contacts in Remote search", granted(Manifest.permission.READ_CONTACTS)) { requestPermissions(arrayOf(Manifest.permission.READ_CONTACTS), 1) }
                             PermissionSetupRow("Microphone (optional)", "Only for the separate voice-link feature", granted(Manifest.permission.RECORD_AUDIO)) { requestPermissions(arrayOf(Manifest.permission.RECORD_AUDIO), 1) }
                             if (Build.VERSION.SDK_INT >= 31) PermissionSetupRow("Bluetooth connection", "Find and connect to the paired gateway phone", granted(Manifest.permission.BLUETOOTH_CONNECT)) { requestPermissions(arrayOf(Manifest.permission.BLUETOOTH_CONNECT), 1) }
-                            if (Build.VERSION.SDK_INT >= 33) PermissionSetupRow("Notifications", "Show the ongoing CallCompanion status", granted(Manifest.permission.POST_NOTIFICATIONS)) { requestPermissions(arrayOf(Manifest.permission.POST_NOTIFICATIONS), 1) }
+                            if (Build.VERSION.SDK_INT >= 33) PermissionSetupRow("Notifications", "Show the ongoing PCL status", granted(Manifest.permission.POST_NOTIFICATIONS)) { requestPermissions(arrayOf(Manifest.permission.POST_NOTIFICATIONS), 1) }
                         } else {
                             Text("Choose Gateway or Remote above to load the matching permission checklist.")
                         }
@@ -582,7 +582,7 @@ class MainActivity : ComponentActivity() {
                         }
                         HorizontalDivider()
                         Text("Privacy", style = MaterialTheme.typography.titleMedium)
-                        Text("CallCompanion uses permissions for the selected phone role. Grant only the access needed for the features you want to use.", style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                        Text("PCL uses permissions for the selected phone role. Grant only the access needed for the features you want to use.", style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
                         OutlinedButton(onClick = { roleSelected = false; prefs.edit().remove("role").apply(); screen = MainTab.SETTINGS; refresh() }, modifier = Modifier.fillMaxWidth()) { Text("Reset device role") }
                     }
                     
@@ -601,7 +601,7 @@ class MainActivity : ComponentActivity() {
                         }
                         OutlinedButton(onClick = {
                             try { startActivity(Intent(Settings.ACTION_NOTIFICATION_LISTENER_SETTINGS)) }
-                            catch (_: Exception) { toast("Open Settings → Notifications → Notification access, and allow CallCompanion") }
+                            catch (_: Exception) { toast("Open Settings → Notifications → Notification access, and allow PCL") }
                         }, modifier = Modifier.fillMaxWidth()) { Text("Open notification access settings") }
                         var mirror by remember { mutableStateOf(prefs.getBoolean("mirror", true)) }
                         Row(verticalAlignment = Alignment.CenterVertically) {
@@ -643,7 +643,7 @@ class MainActivity : ComponentActivity() {
                             }
                         }
                     }
-                    Text("CallCompanion • Material 3 Expressive", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.align(Alignment.CenterHorizontally))
+                    Text("PCL • Material 3 Expressive", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.align(Alignment.CenterHorizontally))
                 }
             }
         }
@@ -659,7 +659,7 @@ private fun ActivityLogCard() {
             OutlinedButton(
                 onClick = {
                     val clipboard = context.getSystemService(android.content.Context.CLIPBOARD_SERVICE) as ClipboardManager
-                    clipboard.setPrimaryClip(ClipData.newPlainText("CallCompanion activity logs", lines.asReversed().joinToString("\n")))
+                    clipboard.setPrimaryClip(ClipData.newPlainText("PCL activity logs", lines.asReversed().joinToString("\n")))
                     CallLogger.log("Activity logs copied")
                 },
                 modifier = Modifier.weight(1f)
@@ -732,7 +732,7 @@ private fun SectionCard(title: String, subtitle: String, content: @Composable Co
 }
 
 @Composable
-private fun CallCompanionTheme(content: @Composable () -> Unit) {
+private fun PCLTheme(content: @Composable () -> Unit) {
     val context = LocalContext.current
     val dark = isSystemInDarkTheme()
     val scheme = when {

@@ -386,7 +386,7 @@ class LinkService : Service() {
         try {
             s.connect()
         } catch (e: IOException) {
-            throw IOException("Can't reach gateway (is CallCompanion started there?)")
+            throw IOException("Can't reach gateway (is PCL started there?)")
         }
         return s
     }
@@ -816,7 +816,7 @@ class LinkService : Service() {
         val digits = number.filter { it.isDigit() }
         if (!nm.areNotificationsEnabled() ||
             nm.getNotificationChannel(CH_MIRROR)?.importance == NotificationManager.IMPORTANCE_NONE) {
-            Hub.log("WhatsApp handoff failed: enable CallCompanion notifications on Gateway")
+            Hub.log("WhatsApp handoff failed: enable PCL notifications on Gateway")
             return false
         }
         if (digits.length !in 7..15) {
@@ -839,7 +839,7 @@ class LinkService : Service() {
                 .setContentTitle("Continue in WhatsApp")
                 .setContentText("Tap to open chat with $display, then start the voice call in WhatsApp.")
                 .setStyle(Notification.BigTextStyle().bigText(
-                    "Tap to open the WhatsApp chat with $display. Start the voice call from WhatsApp; CallCompanion cannot place that call directly."
+                    "Tap to open the WhatsApp chat with $display. Start the voice call from WhatsApp; PCL cannot place that call directly."
                 ))
                 .setAutoCancel(true)
                 .setContentIntent(pending)
@@ -1091,7 +1091,7 @@ class LinkService : Service() {
         val text = if (audio.isRunning) "$connectionState · voice link ON" else connectionState
         return Notification.Builder(this, CH_STATUS)
             .setSmallIcon(android.R.drawable.sym_action_call)
-            .setContentTitle(if (role == ROLE_GATEWAY) "CallCompanion · Gateway" else "CallCompanion · Remote")
+            .setContentTitle(if (role == ROLE_GATEWAY) "PCL · Gateway" else "PCL · Remote")
             .setContentText(text)
             .setOngoing(true)
             .setContentIntent(openAppPi())

@@ -1,11 +1,11 @@
-# CallCompanion
+# PCL
 
 Use a second Android phone as a Bluetooth remote for a Gateway phone that has the SIM and remains connected to a Bluetooth hands-free speakerphone. Open Headunit is not required.
 
 Install the same app on both phones and select a role:
 
-- **Gateway** — the main phone. It has the SIM (for cellular calls), runs CallCompanion's Gateway role, monitors call state, and forwards supported notifications and commands. Keep it connected to the Bluetooth hands-free speakerphone if that is how you want to hear and speak during calls.
-- **Remote** — the companion phone. It runs CallCompanion's Remote role, shows information received from the Gateway, and sends user actions back over Bluetooth. It is a control screen, not automatically a second handset for the Gateway's cellular-call audio.
+- **Gateway** — the main phone. It has the SIM (for cellular calls), runs PCL's Gateway role, monitors call state, and forwards supported notifications and commands. Keep it connected to the Bluetooth hands-free speakerphone if that is how you want to hear and speak during calls.
+- **Remote** — the companion phone. It runs PCL's Remote role, shows information received from the Gateway, and sends user actions back over Bluetooth. It is a control screen, not automatically a second handset for the Gateway's cellular-call audio.
 
 ### At a glance: how the two phones work together
 
@@ -17,9 +17,9 @@ Install the same app on both phones and select a role:
 ┌────────────────────┐  paired Bluetooth  ┌────────────────────┐
 │ GATEWAY PHONE      │◄──── RFCOMM link ──►│ REMOTE PHONE       │
 │                    │                     │                    │
-│ • SIM / Phone app  │                     │ • CallCompanion UI │
+│ • SIM / Phone app  │                     │ • PCL UI │
 │ • WhatsApp apps    │                     │ • Mirrored alerts  │
-│ • CallCompanion    │                     │ • Answer/reject or │
+│ • PCL    │                     │ • Answer/reject or │
 │   Gateway role     │                     │   other available  │
 │ • Mobile data/Wi-Fi│                     │   notification acts│
 └─────────┬──────────┘                     └────────────────────┘
@@ -41,36 +41,36 @@ Install the same app on both phones and select a role:
 | WhatsApp outgoing handoff | Remote can ask Gateway to post a notification that opens a WhatsApp chat for the entered number. Tap that notification on Gateway, then place the voice call inside WhatsApp. This is a chat handoff, not an automated call-placement API. |
 | Answer/reject/end SIM calls | Remote sends a command to the Gateway. Actual success depends on Android/OEM telephony permissions and API behaviour; a normal app cannot guarantee all call controls on every device. |
 | Third-party call notifications | Supported third-party call notifications can be mirrored to Remote. WhatsApp call notifications are suppressed when Remote has already detected its own native WhatsApp call as ringing or active; Gateway mirroring is a fallback when Remote has no detected local call. |
-| Third-party call actions | CallCompanion can relay actions exposed by the original notification. It detects WhatsApp call state on both phones when Notification Access exposes recognizable Answer/Decline or End-call actions, and blocks stale WhatsApp Answer actions when either phone is already in an active WhatsApp call. It never auto-answers or rejects a call. |
+| Third-party call actions | PCL can relay actions exposed by the original notification. It detects WhatsApp call state on both phones when Notification Access exposes recognizable Answer/Decline or End-call actions, and blocks stale WhatsApp Answer actions when either phone is already in an active WhatsApp call. It never auto-answers or rejects a call. |
 | Other notifications | Non-ongoing notifications can be mirrored to the Remote. Persistent non-call notifications are ignored. |
 | Bluetooth transport | Call state, notification details, and commands travel over the existing Bluetooth RFCOMM connection. |
-| Call audio | The Gateway remains paired to the Bluetooth speakerphone, so the conversation audio stays between the Gateway and that device. CallCompanion does not relay cellular-call audio to the Remote. |
+| Call audio | The Gateway remains paired to the Bluetooth speakerphone, so the conversation audio stays between the Gateway and that device. PCL does not relay cellular-call audio to the Remote. |
 
 ## How the app works — step by step
 
 ### 1. Initial setup
 
-1. Install CallCompanion on both Android phones.
+1. Install PCL on both Android phones.
 2. Pair the Gateway and Remote in Android **Settings → Bluetooth**.
 3. On the Gateway, choose **Gateway**, grant the required phone/Bluetooth permissions, and enable **Notification access**. Grant Contacts permission if you want contact sync and caller-name lookup.
 4. On the Remote, choose **Remote**, enable **Notification access** as well, select the paired Gateway, and start the link. Remote notification access is used to observe its local WhatsApp call state.
-5. Keep CallCompanion running on both phones. The app uses a paired Bluetooth RFCOMM connection; it does not need a CallCompanion cloud server.
+5. Keep PCL running on both phones. The app uses a paired Bluetooth RFCOMM connection; it does not need a PCL cloud server.
 
 ### 2. Incoming or outgoing SIM call
 
 1. The SIM call happens on the Gateway.
-2. Android reports call-state information that is available to CallCompanion.
+2. Android reports call-state information that is available to PCL.
 3. The Gateway sends the state and any available caller details to the Remote over Bluetooth.
 4. The Remote can send **Answer**, **Reject**, or **End** requests back to the Gateway. Whether Android accepts each request depends on the phone, OS version, permissions, and exposed call controls.
-5. The Gateway's Android audio route handles the conversation. If paired and selected, the Bluetooth hands-free speakerphone carries the call audio; the Remote does not receive that audio through CallCompanion.
+5. The Gateway's Android audio route handles the conversation. If paired and selected, the Bluetooth hands-free speakerphone carries the call audio; the Remote does not receive that audio through PCL.
 
 ### 3. Third-party call notifications
 
 1. Enable **Notification access on both phones**. Remote observes its own WhatsApp call notification, while Gateway can mirror a WhatsApp call notification only when Remote has not reported a native WhatsApp call as ringing or active.
-2. **Native WhatsApp takes priority.** If Remote is already ringing in WhatsApp, CallCompanion suppresses the Gateway copy. If a mirrored copy was shown first and Remote subsequently reports its own call, CallCompanion removes the mirrored copy. A Gateway copy remains a fallback when Remote has no detectable native call notification.
-3. If a fallback mirrored notification is shown, you can tap an exposed **Answer** action on Remote; CallCompanion forwards the original notification action to Gateway. Otherwise answer directly in WhatsApp on the phone where the native call is ringing.
-4. CallCompanion observes notification-based call state and blocks stale mirrored **Answer** actions when either phone is already observed to have an active WhatsApp call. It does not automatically answer, reject, mute, or end calls. Detection is best-effort: there can be a brief duplicate before Remote's state reaches Gateway, and some WhatsApp/OEM versions expose no recognizable notification actions.
-5. When both installations use the same WhatsApp account through official linked-device mode, WhatsApp itself coordinates the actual call across devices. Separate WhatsApp accounts/profiles are separate call sessions and are not merged by CallCompanion. Android notifications do not reliably identify the signed-in account, so duplicate suppression is conservative per WhatsApp app package and may also suppress a separate account's mirrored call in the same package.
+2. **Native WhatsApp takes priority.** If Remote is already ringing in WhatsApp, PCL suppresses the Gateway copy. If a mirrored copy was shown first and Remote subsequently reports its own call, PCL removes the mirrored copy. A Gateway copy remains a fallback when Remote has no detectable native call notification.
+3. If a fallback mirrored notification is shown, you can tap an exposed **Answer** action on Remote; PCL forwards the original notification action to Gateway. Otherwise answer directly in WhatsApp on the phone where the native call is ringing.
+4. PCL observes notification-based call state and blocks stale mirrored **Answer** actions when either phone is already observed to have an active WhatsApp call. It does not automatically answer, reject, mute, or end calls. Detection is best-effort: there can be a brief duplicate before Remote's state reaches Gateway, and some WhatsApp/OEM versions expose no recognizable notification actions.
+5. When both installations use the same WhatsApp account through official linked-device mode, WhatsApp itself coordinates the actual call across devices. Separate WhatsApp accounts/profiles are separate call sessions and are not merged by PCL. Android notifications do not reliably identify the signed-in account, so duplicate suppression is conservative per WhatsApp app package and may also suppress a separate account's mirrored call in the same package.
 
 ### 4. Starting a WhatsApp chat/call from the Remote
 
@@ -87,31 +87,31 @@ Install the same app on both phones and select a role:
 
 ### 6. Internet sharing is separate
 
-CallCompanion's Bluetooth control link does **not** itself share internet. If you want the Remote to use the Gateway's mobile data for all apps, enable a supported Android tethering feature separately. See [Sharing the Gateway's internet with the Remote](#sharing-the-gateways-internet-with-the-remote). Bluetooth tethering client support varies by phone model.
+PCL's Bluetooth control link does **not** itself share internet. If you want the Remote to use the Gateway's mobile data for all apps, enable a supported Android tethering feature separately. See [Sharing the Gateway's internet with the Remote](#sharing-the-gateways-internet-with-the-remote). Bluetooth tethering client support varies by phone model.
 
 
 ## Sharing the Gateway's internet with the Remote
 
-CallCompanion's Bluetooth RFCOMM link is for call status and control; it does **not** automatically provide internet access to the Remote. To try sharing the Gateway's mobile data for all apps on the Remote:
+PCL's Bluetooth RFCOMM link is for call status and control; it does **not** automatically provide internet access to the Remote. To try sharing the Gateway's mobile data for all apps on the Remote:
 
 1. On the Gateway, open **Settings → Hotspot & tethering** (the menu name varies) and enable **Bluetooth tethering**. Keep mobile data and Bluetooth enabled.
-2. On the Remote, pair with the Gateway in Android Bluetooth settings. Some Android phone models support connecting to another phone's Bluetooth PAN internet connection; others expose no client option. If the Remote does not obtain internet, this is an Android/OEM limitation rather than a CallCompanion relay failure.
-3. In CallCompanion → **Settings → Internet sharing**, use the shortcut to open the relevant Android settings and follow the on-screen guidance.
+2. On the Remote, pair with the Gateway in Android Bluetooth settings. Some Android phone models support connecting to another phone's Bluetooth PAN internet connection; others expose no client option. If the Remote does not obtain internet, this is an Android/OEM limitation rather than a PCL relay failure.
+3. In PCL → **Settings → Internet sharing**, use the shortcut to open the relevant Android settings and follow the on-screen guidance.
 
-Android does not allow an ordinary app to silently enable system Bluetooth tethering on all devices, so CallCompanion guides you to the system setting instead of claiming to toggle it automatically. Bluetooth tethering can be slower than Wi-Fi hotspot and mobile-data charges may apply.
+Android does not allow an ordinary app to silently enable system Bluetooth tethering on all devices, so PCL guides you to the system setting instead of claiming to toggle it automatically. Bluetooth tethering can be slower than Wi-Fi hotspot and mobile-data charges may apply.
 
 Once the Remote has a working internet connection, its own WhatsApp or WhatsApp Business installation can use its signed-in account to make calls. Internet sharing does not clone the Gateway's WhatsApp account, transfer account sessions, or relay call audio. To use the same WhatsApp account on both phones, use WhatsApp's official linked-device/companion mode; for a separate WhatsApp Business account, sign in to that account on the Remote.
 
 ## Android compatibility and setup
 
-The app's minimum supported Android version is Android 8.0 (API 26), so the monitoring and Bluetooth flow covers Android 10 and newer. Android 12+ requires the Nearby devices/Bluetooth Connect runtime permission. Android 13+ also requires notification permission for CallCompanion's own notifications. Microphone permission is optional and is requested only for the separate app voice-link feature; it is not needed for SIM call status or remote call controls. Contacts permission is requested separately for contact sync/search and is not needed to keep the Bluetooth relay running.
+The app's minimum supported Android version is Android 8.0 (API 26), so the monitoring and Bluetooth flow covers Android 10 and newer. Android 12+ requires the Nearby devices/Bluetooth Connect runtime permission. Android 13+ also requires notification permission for PCL's own notifications. Microphone permission is optional and is requested only for the separate app voice-link feature; it is not needed for SIM call status or remote call controls. Contacts permission is requested separately for contact sync/search and is not needed to keep the Bluetooth relay running.
 
 1. Install the same APK on both phones.
 2. Pair the two phones in Android **Settings → Bluetooth**.
 3. Pair the Gateway phone with your Bluetooth speakerphone.
 4. On the Gateway, choose **Gateway**, grant Phone and Nearby devices permissions, grant **Contacts** if you want contact sync, and enable **Notification access** in Android settings.
 5. On the Remote, choose **Remote**, select the paired Gateway, and start the connection.
-6. Keep CallCompanion running on both phones. In the Remote's **Make a call** section, use **Sync contacts from Gateway** whenever you want to refresh the offline contact cache. On Xiaomi/Redmi/POCO, Huawei/Honor, OPPO/realme/OnePlus, vivo, and some Samsung builds, set CallCompanion battery usage to **Unrestricted** / **Allow background activity**, allow auto-start if offered, and lock the app in Recents if available. Menu names vary. Enable notifications for the system Phone app if you want the call-notification fallback.
+6. Keep PCL running on both phones. In the Remote's **Make a call** section, use **Sync contacts from Gateway** whenever you want to refresh the offline contact cache. On Xiaomi/Redmi/POCO, Huawei/Honor, OPPO/realme/OnePlus, vivo, and some Samsung builds, set PCL battery usage to **Unrestricted** / **Allow background activity**, allow auto-start if offered, and lock the app in Recents if available. Menu names vary. Enable notifications for the system Phone app if you want the call-notification fallback.
 
 ## Battery and background reliability
 
@@ -122,12 +122,12 @@ The app's minimum supported Android version is Android 8.0 (API 26), so the moni
 
 ## Important Android limitations
 
-- NotificationListenerService requires user-granted Notification Access on both phones for WhatsApp call-state observation and duplicate-notification suppression. Suppression is best-effort and depends on recognizable notification actions and Bluetooth state reporting; a short-lived duplicate may appear before Remote state arrives. Native WhatsApp notifications take priority once Remote reports RINGING or ACTIVE; Gateway mirroring is retained as a fallback when no local Remote call is detected. The state is tracked per WhatsApp app package, not per account. CallCompanion does not change ringtone volume or automatically answer/reject calls. WhatsApp linked-device mode, not CallCompanion, coordinates the underlying WhatsApp call across linked devices.
+- NotificationListenerService requires user-granted Notification Access on both phones for WhatsApp call-state observation and duplicate-notification suppression. Suppression is best-effort and depends on recognizable notification actions and Bluetooth state reporting; a short-lived duplicate may appear before Remote state arrives. Native WhatsApp notifications take priority once Remote reports RINGING or ACTIVE; Gateway mirroring is retained as a fallback when no local Remote call is detected. The state is tracked per WhatsApp app package, not per account. PCL does not change ringtone volume or automatically answer/reject calls. WhatsApp linked-device mode, not PCL, coordinates the underlying WhatsApp call across linked devices.
 - SIM-call answer/end APIs are restricted by Android and vary by OS version and device vendor. ANSWER_PHONE_CALLS does not guarantee identical behaviour on all devices. The Gateway first uses the public Telecom API when available; if it throws, reports failure, the required permission is unavailable, or the Android version lacks the call-control API, it can try a matching action exposed by the system Phone app's call notification. This cannot help if no suitable action is exposed or Notification Access is disabled.
-- Phone-state broadcasts may indicate an outgoing call started without exposing its number. Caller/dialled number availability varies by Android version, permissions, and device. On startup, CallCompanion also queries the current call state as a snapshot, but this cannot reliably recover caller number or call direction.
+- Phone-state broadcasts may indicate an outgoing call started without exposing its number. Caller/dialled number availability varies by Android version, permissions, and device. On startup, PCL also queries the current call state as a snapshot, but this cannot reliably recover caller number or call direction.
 - Cellular call audio is managed by Android Telecom/Bluetooth. An ordinary app cannot capture and inject cellular-call audio, so keep the Gateway connected to the Bluetooth speakerphone.
 - The call-notification fallback invokes only an action supplied by the OEM Phone app. It does not use hidden APIs, reflection, root, ADB grants, or private broadcasts. If the manufacturer exposes no action and blocks Telecom control, Android offers no universal app-level workaround.
-- Bluetooth uses the secure paired RFCOMM socket. CallCompanion intentionally does not silently downgrade to an insecure socket or bypass pairing. If connection fails, remove and re-pair both phones in Android Bluetooth settings, then restart both relays.
+- Bluetooth uses the secure paired RFCOMM socket. PCL intentionally does not silently downgrade to an insecure socket or bypass pairing. If connection fails, remove and re-pair both phones in Android Bluetooth settings, then restart both relays.
 
 ## Build
 

@@ -58,8 +58,8 @@ class AudioBridge(
         previousAudioMode = am.mode
         am.mode = AudioManager.MODE_IN_COMMUNICATION
         AudioRoute.setSpeaker(context, speakerOn)
-        recordThread = Thread({ recordLoop() }, "callcompanion-record").also { it.start() }
-        playThread = Thread({ playLoop() }, "callcompanion-play").also { it.start() }
+        recordThread = Thread({ recordLoop() }, "pcl-record").also { it.start() }
+        playThread = Thread({ playLoop() }, "pcl-play").also { it.start() }
         Hub.log("Voice link ON")
     }
 
