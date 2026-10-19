@@ -110,6 +110,14 @@ class NotifListener : NotificationListenerService() {
             (sbn.isOngoing && listOf("answer", "accept", "decline", "reject", "hang up", "end call").any { lowerActions.contains(it) })
 
         if (callNotification) {
+            // Prefer the Remote phone's native WhatsApp notification when its own
+            // call-state observer already sees the same app ringing or active.
+            // The Gateway copy is only a fallback when Remote has no local call state.
+            if (isWhatsAppPackage(sbn.packageName) && svc.shouldSuppressWhatsAppMirror(sbn.packageName)) {
+                suppressWhatsAppCallMirrors(sbn.packageName)
+                Hub.log("Suppressed duplicate WhatsApp call notification: Remote already reports a native ringing/active call")
+                return
+            }
             synchronized(actionsByKey) {
                 actionsByKey[sbn.key] = actions
                 actionPackagesByKey[sbn.key] = sbn.packageName
@@ -150,6 +158,24 @@ class NotifListener : NotificationListenerService() {
 
     fun notificationPackage(key: String): String? =
         synchronized(actionPackagesByKey) { actionPackagesByKey[key] }
+
+    /**
+     * Remove already mirrored WhatsApp call notifications when Remote's native
+     * WhatsApp call is detected. This is deliberately package-level because
+     * Android notifications do not reliably identify the signed-in account.
+     */
+    fun suppressWhatsAppCallMirrors(pkg: String) {
+        if (!isWhatsAppPackage(pkg)) return
+        val keys = synchronized(actionPackagesByKey) {
+            actionPackagesByKey.filterValues { it == pkg }.keys.toList()
+        }
+        keys.forEach { key ->
+            synchronized(actionsByKey) { actionsByKey.remove(key) }
+            synchronized(actionPackagesByKey) { actionPackagesByKey.remove(key) }
+            synchronized(lastSent) { lastSent.remove(key) }
+            Hub.service?.mirrorRemoved(key)
+        }
+    }
 
     /** Invoke only an action supplied by the original app notification. */
     fun performAction(key: String, index: Int): Boolean {
