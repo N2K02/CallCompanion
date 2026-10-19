@@ -76,6 +76,12 @@ object ContactStore {
         return chunks
     }
 
+    /** Short fingerprint of serialized contacts, so the phones can tell whether a resync is needed. */
+    fun fingerprint(data: String): String =
+        java.security.MessageDigest.getInstance("SHA-256")
+            .digest(data.toByteArray(Charsets.UTF_8))
+            .joinToString("") { "%02x".format(it) }
+
     fun parse(data: String): List<Contact> =
         data.split('\n').mapNotNull { line ->
             val i = line.indexOf('\t')

@@ -24,6 +24,9 @@ class NotifListener : NotificationListenerService() {
                 ?: return false
             return flat.contains(ComponentName(ctx, NotifListener::class.java).flattenToString())
         }
+
+        /** Action labels that mark an ongoing non-WhatsApp notification as a call. */
+        private val GENERIC_CALL_ACTIONS = listOf("answer", "accept", "decline", "reject", "hang up", "end call")
     }
 
     private val lastSent = HashMap<String, String>()
@@ -32,63 +35,80 @@ class NotifListener : NotificationListenerService() {
     private val whatsappCallStates = HashMap<String, String>()
     private val whatsappCallPackages = HashMap<String, String>()
 
-    private fun isWhatsAppPackage(pkg: String): Boolean =
-        pkg == "com.whatsapp" || pkg == "com.whatsapp.w4b"
-
     private fun reportWhatsAppState(pkg: String) {
         val state = synchronized(whatsappCallStates) {
             val states = whatsappCallStates.filterKeys { whatsappCallPackages[it] == pkg }.values
             when {
-                states.any { it == "ACTIVE" } -> "ACTIVE"
-                states.any { it == "RINGING" } -> "RINGING"
-                else -> "IDLE"
+                states.any { it == WhatsAppCalls.ACTIVE } -> WhatsAppCalls.ACTIVE
+                states.any { it == WhatsAppCalls.RINGING } -> WhatsAppCalls.RINGING
+                else -> WhatsAppCalls.IDLE
             }
         }
+        // LinkService ignores repeats, so reporting an unchanged state is harmless.
         Hub.service?.updateLocalWhatsappCallState(pkg, state)
     }
 
-    private fun updateWhatsappCallNotification(sbn: StatusBarNotification, removed: Boolean) {
-        if (!isWhatsAppPackage(sbn.packageName)) return
+    private fun updateWhatsappCallNotification(sbn: StatusBarNotification, removed: Boolean, report: Boolean = true) {
+        if (!WhatsAppCalls.isWhatsApp(sbn.packageName)) return
         if (removed) {
             val changed = synchronized(whatsappCallStates) {
-                val removed = whatsappCallStates.remove(sbn.key) != null
+                val wasTracked = whatsappCallStates.remove(sbn.key) != null
                 whatsappCallPackages.remove(sbn.key)
-                removed
+                wasTracked
             }
-            if (changed) reportWhatsAppState(sbn.packageName)
+            if (changed && report) reportWhatsAppState(sbn.packageName)
             return
         }
         val n = sbn.notification ?: return
-        val labels = (n.actions ?: emptyArray()).mapNotNull { it.title?.toString()?.trim()?.lowercase() }
-        val hasAnswer = labels.any { label -> listOf("answer", "accept", "pick up", "rispondi", "contestar", "responder", "décrocher", "annehmen", "接听", "接聽", "応答").any(label::contains) }
-        val hasDecline = labels.any { label -> listOf("decline", "reject", "ignore", "rifiuta", "rechazar", "refuser", "ablehnen", "拒绝", "拒接", "拒否").any(label::contains) }
-        val hasEnd = labels.any { label -> listOf("hang up", "end call", "disconnect", "terminate", "riaggancia", "colgar", "raccrocher", "auflegen", "終了", "切断").any(label::contains) }
-        val state = when {
-            hasEnd -> "ACTIVE"
-            hasAnswer && hasDecline -> "RINGING"
-            else -> null // Do not guess when WhatsApp/OEM exposes no recognizable call actions.
-        } ?: return
+        val labels = (n.actions ?: emptyArray()).mapNotNull { it.title?.toString() }
+        // Do not guess when WhatsApp/OEM exposes no recognizable call actions.
+        val state = WhatsAppCalls.stateFromActionLabels(labels) ?: return
         val changed = synchronized(whatsappCallStates) {
             whatsappCallPackages[sbn.key] = sbn.packageName
             whatsappCallStates.put(sbn.key, state) != state
         }
-        if (changed) reportWhatsAppState(sbn.packageName)
+        if (changed && report) reportWhatsAppState(sbn.packageName)
     }
 
     override fun onListenerConnected() {
         instance = this
         Hub.log("Notification access active")
+        rebuildWhatsAppState()
         syncActiveNotifications()
     }
 
     override fun onListenerDisconnected() {
         instance = null
+        // Keep the last known call state: losing the listener doesn't mean a call ended.
+        // It is rebuilt from the live notifications when Android reconnects the listener.
+        Hub.log("Notification access disconnected by Android; asking it to reconnect")
+        try {
+            NotificationListenerService.requestRebind(ComponentName(this, NotifListener::class.java))
+        } catch (e: Exception) {
+            Hub.log("Could not ask Android to reconnect notification access: ${e.message ?: e.javaClass.simpleName}")
+        }
+    }
+
+    /**
+     * Calls can start or end while Android has the listener disconnected, so rebuild the
+     * WhatsApp call state from what is showing now instead of trusting the old map.
+     */
+    private fun rebuildWhatsAppState() {
+        val active = try { activeNotifications } catch (e: Exception) { null } ?: return
+        synchronized(whatsappCallStates) {
+            whatsappCallStates.clear()
+            whatsappCallPackages.clear()
+        }
+        active.filter { WhatsAppCalls.isWhatsApp(it.packageName) }
+            .forEach { updateWhatsappCallNotification(it, removed = false, report = false) }
+        WhatsAppCalls.PACKAGES.forEach(::reportWhatsAppState)
     }
 
     override fun onNotificationPosted(sbn: StatusBarNotification) {
         val svc = Hub.service ?: return
         if (sbn.packageName == packageName) return
-        if (isWhatsAppPackage(sbn.packageName)) updateWhatsappCallNotification(sbn, removed = false)
+        val isWhatsApp = WhatsAppCalls.isWhatsApp(sbn.packageName)
+        if (isWhatsApp) updateWhatsappCallNotification(sbn, removed = false)
         // Notification access on Remote is used only for local WhatsApp call-state detection.
         if (svc.role == LinkService.ROLE_REMOTE || !svc.shouldMirror()) return
         val n = sbn.notification ?: return
@@ -103,17 +123,15 @@ class NotifListener : NotificationListenerService() {
         val available = actions.withIndex().filter { it.value.actionIntent != null && !it.value.title.isNullOrBlank() }.take(3)
         val indices = available.map { it.index }
         val labels = available.map { it.value.title.toString().take(40) }
-        val lowerActions = labels.joinToString(" ").lowercase()
-        val whatsappCallAction = isWhatsAppPackage(sbn.packageName) &&
-            listOf("answer", "accept", "decline", "reject", "pick up", "rispondi", "contestar", "responder", "décrocher", "annehmen", "rifiuta", "rechazar", "refuser", "ablehnen", "接听", "接聽", "拒绝", "拒接", "応答", "拒否").any { lowerActions.contains(it) }
+        val whatsappCallAction = isWhatsApp && labels.any { WhatsAppCalls.isAnswer(it) || WhatsAppCalls.isDecline(it) }
         val callNotification = n.category == Notification.CATEGORY_CALL || whatsappCallAction ||
-            (sbn.isOngoing && listOf("answer", "accept", "decline", "reject", "hang up", "end call").any { lowerActions.contains(it) })
+            (sbn.isOngoing && labels.any { WhatsAppCalls.containsAny(it, GENERIC_CALL_ACTIONS) })
 
         if (callNotification) {
             // Prefer the Remote phone's native WhatsApp notification when its own
             // call-state observer already sees the same app ringing or active.
             // The Gateway copy is only a fallback when Remote has no local call state.
-            if (isWhatsAppPackage(sbn.packageName) && svc.shouldSuppressWhatsAppMirror(sbn.packageName)) {
+            if (isWhatsApp && svc.shouldSuppressWhatsAppMirror(sbn.packageName)) {
                 suppressWhatsAppCallMirrors(sbn.packageName)
                 Hub.log("Suppressed duplicate WhatsApp call notification: Remote already reports a native ringing/active call")
                 return
@@ -134,7 +152,7 @@ class NotifListener : NotificationListenerService() {
     }
 
     override fun onNotificationRemoved(sbn: StatusBarNotification) {
-        if (isWhatsAppPackage(sbn.packageName)) updateWhatsappCallNotification(sbn, removed = true)
+        if (WhatsAppCalls.isWhatsApp(sbn.packageName)) updateWhatsappCallNotification(sbn, removed = true)
         synchronized(lastSent) { lastSent.remove(sbn.key) }
         synchronized(actionsByKey) {
             actionsByKey.remove(sbn.key)
@@ -157,7 +175,7 @@ class NotifListener : NotificationListenerService() {
     }
 
     fun notificationPackage(key: String): String? =
-        synchronized(actionPackagesByKey) { actionPackagesByKey[key] }
+        synchronized(actionsByKey) { actionPackagesByKey[key] }
 
     /**
      * Remove already mirrored WhatsApp call notifications when Remote's native
@@ -165,13 +183,15 @@ class NotifListener : NotificationListenerService() {
      * Android notifications do not reliably identify the signed-in account.
      */
     fun suppressWhatsAppCallMirrors(pkg: String) {
-        if (!isWhatsAppPackage(pkg)) return
-        val keys = synchronized(actionPackagesByKey) {
+        if (!WhatsAppCalls.isWhatsApp(pkg)) return
+        val keys = synchronized(actionsByKey) {
             actionPackagesByKey.filterValues { it == pkg }.keys.toList()
         }
         keys.forEach { key ->
-            synchronized(actionsByKey) { actionsByKey.remove(key) }
-            synchronized(actionPackagesByKey) { actionPackagesByKey.remove(key) }
+            synchronized(actionsByKey) {
+                actionsByKey.remove(key)
+                actionPackagesByKey.remove(key)
+            }
             synchronized(lastSent) { lastSent.remove(key) }
             Hub.service?.mirrorRemoved(key)
         }
@@ -196,11 +216,12 @@ class NotifListener : NotificationListenerService() {
                 .flatMap { it.value.asList() }
         }
         val matching = actions.firstOrNull { action ->
-            val label = action.title?.toString()?.trim()?.lowercase().orEmpty()
+            val label = action.title?.toString().orEmpty()
             when (kind) {
-                "answer" -> listOf("answer", "accept", "pick up", "接听", "接聽", "応答", "rispondi", "contestar", "responder", "décrocher", "annehmen").any(label::contains)
-                "reject" -> listOf("decline", "reject", "ignore", "拒绝", "拒接", "拒否", "rifiuta", "rechazar", "refuser", "ablehnen").any(label::contains)
-                "end" -> listOf("hang up", "end call", "disconnect", "terminate", "end", "終了", "切断", "riaggancia", "colgar", "raccrocher", "auflegen").any(label::contains)
+                "answer" -> WhatsAppCalls.isAnswer(label)
+                "reject" -> WhatsAppCalls.isDecline(label)
+                // System dialers often label the button just "End".
+                "end" -> WhatsAppCalls.isEnd(label) || WhatsAppCalls.containsAny(label, listOf("end"))
                 else -> false
             }
         } ?: return false

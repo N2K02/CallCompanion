@@ -7,7 +7,7 @@ import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
 
-/** Private diagnostics for update activity. Each launch starts a fresh session. */
+/** In-app activity log shown on Home. Kept in memory only; each launch starts a fresh session. */
 object CallLogger {
     private val lock = Any()
     private lateinit var appContext: Context
@@ -18,6 +18,7 @@ object CallLogger {
         appContext = context.applicationContext
         synchronized(lock) {
             _lines.value = emptyList()
+            // Older versions stored logs on disk; remove anything they left behind.
             appContext.getSharedPreferences("call_activity_logs", Context.MODE_PRIVATE)
                 .edit().remove("lines").apply()
         }
