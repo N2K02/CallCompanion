@@ -66,10 +66,6 @@ class NotifListener : NotificationListenerService() {
         if (changed) reportWhatsAppState()
     }
 
-    /** WhatsApp linked devices manage VoIP ringing and answer state themselves. */
-    private fun isWhatsAppPackage(pkg: String): Boolean =
-        pkg == "com.whatsapp" || pkg == "com.whatsapp.w4b"
-
     override fun onListenerConnected() {
         instance = this
         Hub.log("Notification access active")
