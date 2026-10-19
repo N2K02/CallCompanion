@@ -41,7 +41,6 @@ import java.util.concurrent.Executors
  *    SIM call state, answers/rejects/dials on request.
  *  - REMOTE (watch-mode phone): connects to the gateway, rings on incoming calls,
  *    sends answer/reject/dial commands.
- * Both sides can open a two-way voice link (mic <-> speaker) over the same socket.
  */
 class LinkService : Service() {
 
@@ -106,16 +105,6 @@ class LinkService : Service() {
     private var contactBuf: StringBuilder? = null
 
     val isActive: Boolean get() = running
-    val voiceActive: Boolean get() = audio.isRunning
-    val voiceState: String get() = audio.state
-    val speakerOn: Boolean get() = audio.speakerOn
-
-    private val audio: AudioBridge by lazy {
-        AudioBridge(this) { buf, n ->
-            val w = writer ?: throw IOException("not connected")
-            w.writeAudio(buf, n)
-        }
-    }
 
     private val nm: NotificationManager by lazy { getSystemService(NotificationManager::class.java)!! }
 
@@ -260,45 +249,6 @@ class LinkService : Service() {
         Hub.notifyUi()
     }
 
-    fun setGatewaySpeaker(on: Boolean) {
-        send("SPEAKER", if (on) "1" else "0")
-    }
-
-    fun setLocalSpeaker(on: Boolean) {
-        audio.setSpeaker(on)
-        Hub.notifyUi()
-    }
-
-    fun toggleVoice() {
-        if (audio.isRunning) {
-            audio.stop()
-            setForegroundAudioActive(false)
-            send("VOICE_STOP")
-        } else {
-            if (callState != CALL_IDLE) {
-                Hub.log("Voice link unavailable during a SIM call; preserving Android call-audio routing")
-                return
-            }
-            if (!connected) {
-                Hub.log("Not connected yet")
-                return
-            }
-            if (!has(Manifest.permission.RECORD_AUDIO)) {
-                Hub.log("Microphone permission missing")
-                return
-            }
-            try {
-                setForegroundAudioActive(true)
-                audio.start()
-                if (audio.state == "STARTING") send("VOICE_START")
-            } catch (e: Exception) {
-                Hub.log("Could not start voice link: ${e.message ?: e.javaClass.simpleName}")
-                runCatching { setForegroundAudioActive(false) }
-            }
-        }
-        updateStatus()
-    }
-
     // ---------------------------------------------------------------- connection
 
     private fun startWorker() {
@@ -419,7 +369,6 @@ class LinkService : Service() {
                 input.readFully(data)
                 when (type) {
                     Protocol.TYPE_CMD -> handleCommand(String(data, Charsets.UTF_8))
-                    Protocol.TYPE_AUDIO -> audio.onAudio(data)
                 }
             }
         } finally {
@@ -427,8 +376,6 @@ class LinkService : Service() {
             if (socket === s) socket = null
             connected = false
             peerWhatsappCallStates.clear()
-            audio.stop()
-            setForegroundAudioActive(false)
             if (role == ROLE_REMOTE) {
                 if (callControlError?.startsWith("PENDING:") == true) callControlError = "FAILED: Connection lost before Gateway confirmation"
                 stopRinging()
@@ -459,7 +406,6 @@ class LinkService : Service() {
         worker = null
         writer = null
         connected = false
-        audio.stop()
         stopRinging()
         if (receiverRegistered) {
             try {
@@ -502,11 +448,7 @@ class LinkService : Service() {
             "HELLO" -> Hub.log("Peer is the $arg1 phone")
             // gateway -> remote
             "CALL" -> {
-                val previousCallState = callState
                 callState = arg1.ifEmpty { CALL_IDLE }
-                if (previousCallState == CALL_IDLE && callState != CALL_IDLE) {
-                    stopVoiceLinkForPhoneCall()
-                }
                 if (role == ROLE_REMOTE && callState == CALL_RINGING) callControlError = null
                 callNumber = p.getOrElse(2) { "" }
                 callName = p.getOrElse(3) { "" }
@@ -538,33 +480,6 @@ class LinkService : Service() {
                 val detail = p.drop(2).joinToString("|")
                 callControlError = if (result == "FAILED") "FAILED: $detail" else null
                 Hub.log(if (result == "FAILED") "Gateway call control failed: $detail" else "Gateway accepted call-control request")
-            }
-            "SPEAKER" -> {
-                AudioRoute.setSpeaker(this, arg1 == "1")
-                Hub.log("Speaker ${if (arg1 == "1") "ON" else "OFF"} (requested by remote)")
-            }
-            // both directions
-            "VOICE_START" -> {
-                if (callState != CALL_IDLE) {
-                    Hub.log("Rejected voice link request during a SIM call to preserve Android call-audio routing")
-                    send("VOICE_STOP")
-                } else if (has(Manifest.permission.RECORD_AUDIO)) {
-                    try {
-                        setForegroundAudioActive(true)
-                        audio.start()
-                    } catch (e: Exception) {
-                        Hub.log("Could not start received voice link request: ${e.message}")
-                        runCatching { setForegroundAudioActive(false) }
-                    }
-                } else {
-                    Hub.log("Peer started voice link but microphone permission is missing")
-                }
-                updateStatus()
-            }
-            "VOICE_STOP" -> {
-                audio.stop()
-                setForegroundAudioActive(false)
-                updateStatus()
             }
             // contacts: gateway -> remote
             "CONTACTS_BEGIN" -> contactBuf = StringBuilder()
@@ -674,9 +589,6 @@ class LinkService : Service() {
             val changed = newState != callState
             if (changed && newState == CALL_RINGING) callControlError = null
             callState = newState
-            if (previousState == CALL_IDLE && newState != CALL_IDLE) {
-                stopVoiceLinkForPhoneCall()
-            }
             if (changed || gotNumber) {
                 Hub.log("Phone call: $newState ${display()}")
                 sendCallState()
@@ -789,18 +701,6 @@ class LinkService : Service() {
             Hub.log(if (fallbackWorked) "Call control used the Phone notification action fallback"
                 else "End call failed: ${e.message ?: e.javaClass.simpleName}")
         }
-    }
-
-    private fun stopVoiceLinkForPhoneCall() {
-        val wasRunning = audio.isRunning
-        if (wasRunning) {
-            audio.stop()
-            runCatching { setForegroundAudioActive(false) }
-            Hub.log("Voice link stopped to preserve Android-managed call audio")
-        }
-        // Stop the peer too, even if this side was not streaming when the call arrived.
-        // If disconnected, neither side can be streaming through this socket.
-        if (connected) send("VOICE_STOP")
     }
 
     private fun tryCallNotificationFallback(kind: String): Boolean {
@@ -1088,7 +988,7 @@ class LinkService : Service() {
         Notification.Action.Builder(Icon.createWithResource(this, icon), title, pi).build()
 
     private fun statusNotification(): Notification {
-        val text = if (audio.isRunning) "$connectionState · voice link ON" else connectionState
+        val text = connectionState
         return Notification.Builder(this, CH_STATUS)
             .setSmallIcon(android.R.drawable.sym_action_call)
             .setContentTitle(if (role == ROLE_GATEWAY) "PCL · Gateway" else "PCL · Remote")
@@ -1097,17 +997,6 @@ class LinkService : Service() {
             .setContentIntent(openAppPi())
             .addAction(action(android.R.drawable.ic_menu_close_clear_cancel, "Quit", actionPi(ACTION_STOP, 10)))
             .build()
-    }
-
-    private fun setForegroundAudioActive(active: Boolean) {
-        if (!running) return
-        if (Build.VERSION.SDK_INT >= 29) {
-            var type = ServiceInfo.FOREGROUND_SERVICE_TYPE_CONNECTED_DEVICE
-            if (active) type = type or ServiceInfo.FOREGROUND_SERVICE_TYPE_MICROPHONE
-            startForeground(ID_STATUS, statusNotification(), type)
-        } else {
-            updateStatus()
-        }
     }
 
     private fun goForeground() {
