@@ -10,8 +10,8 @@ import android.service.notification.StatusBarNotification
 import android.telecom.TelecomManager
 
 /**
- * Runs on the GATEWAY phone (needs "Notification access" in Android settings).
- * Every new notification is forwarded to the remote phone over the Bluetooth link.
+ * Runs on both phones and requires user-granted Notification Access.
+ * Gateway mirrors supported notifications/actions; Remote observes its local WhatsApp call state.
  */
 class NotifListener : NotificationListenerService() {
 
