@@ -407,27 +407,35 @@ class MainActivity : ComponentActivity() {
                     Text("Setup & settings", style = MaterialTheme.typography.headlineMedium, fontWeight = FontWeight.Bold)
                     Text("Choose a role and grant every required permission. Home unlocks when setup is complete.", style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
                     SectionCard(
-                        title = "On-demand WhatsApp hotspot",
-                        subtitle = "Gateway shares its internet over Wi-Fi only while a linked Remote WhatsApp call needs it."
+                        title = "Bluetooth internet & on-demand Wi-Fi",
+                        subtitle = "Use Bluetooth tethering as the low-power, always-on internet path; keep Wi-Fi hotspot as an optional call-time fallback."
                     ) {
                         Text("Current network on this phone: ${internetStatus()}", style = MaterialTheme.typography.bodyMedium, fontWeight = FontWeight.SemiBold)
                         if (role == LinkService.ROLE_GATEWAY) {
-                            Text("When an incoming WhatsApp call is detected, PCL requests the built-in hotspot and sends the Remote a Bluetooth trigger to prepare Wi-Fi. The hotspot stays on while Remote reports RINGING or ACTIVE, then PCL requests shutdown after Remote reports IDLE. Enable PCL hotspot automation in Accessibility settings; Android/OEM restrictions may still require manual action.", style = MaterialTheme.typography.bodyMedium)
+                            Text("Enable Bluetooth tethering in Android Settings and leave it enabled. Pair the Remote phone, then allow internet access for the Gateway Bluetooth connection on Remote. PCL cannot silently enable Bluetooth tethering on all Android versions. When a WhatsApp call is detected, PCL can also request the Wi-Fi hotspot; it stays on while Remote reports RINGING or ACTIVE and PCL requests shutdown after Remote reports IDLE.", style = MaterialTheme.typography.bodyMedium)
                             Button(onClick = {
                                 try { startActivity(Intent("android.settings.TETHER_SETTINGS")) }
                                 catch (_: Exception) {
-                                    try { startActivity(Intent(Settings.ACTION_WIFI_SETTINGS)) }
+                                    try { startActivity(Intent(Settings.ACTION_BLUETOOTH_SETTINGS)) }
                                     catch (_: Exception) { toast("Open Android Settings → Hotspot & tethering") }
                                 }
-                            }, modifier = Modifier.fillMaxWidth()) { Text("Open hotspot settings") }
+                            }, modifier = Modifier.fillMaxWidth()) { Text("Bluetooth tethering & hotspot settings") }
+                            OutlinedButton(onClick = {
+                                try { startActivity(Intent(Settings.ACTION_BLUETOOTH_SETTINGS)) }
+                                catch (_: Exception) { toast("Open Android Settings → Bluetooth") }
+                            }, modifier = Modifier.fillMaxWidth()) { Text("Open Bluetooth settings") }
                         } else {
-                            Text("PCL waits for the Gateway's Bluetooth call trigger, then asks Android to reconnect to a saved Wi-Fi network if Wi-Fi is enabled and disconnected. Save the Gateway hotspot and enable automatic connection. Android chooses the actual network; if it does not connect, open Wi-Fi settings and select Gateway hotspot.", style = MaterialTheme.typography.bodyMedium)
+                            Text("Pair with Gateway in Android Bluetooth settings, connect to its Bluetooth device, and enable Internet access for that device if Android offers the option. Keep Bluetooth on. This is the preferred always-on internet path. PCL also listens for Gateway's call trigger and prepares Wi-Fi as a fallback; if needed, save Gateway's Wi-Fi hotspot and enable automatic connection.", style = MaterialTheme.typography.bodyMedium)
                             Button(onClick = {
+                                try { startActivity(Intent(Settings.ACTION_BLUETOOTH_SETTINGS)) }
+                                catch (_: Exception) { toast("Open Android Settings → Bluetooth") }
+                            }, modifier = Modifier.fillMaxWidth()) { Text("Open Bluetooth settings") }
+                            OutlinedButton(onClick = {
                                 try { startActivity(Intent(Settings.ACTION_WIFI_SETTINGS)) }
                                 catch (_: Exception) { toast("Open Android Settings → Wi-Fi") }
-                            }, modifier = Modifier.fillMaxWidth()) { Text("Open Wi-Fi settings") }
+                            }, modifier = Modifier.fillMaxWidth()) { Text("Wi-Fi hotspot fallback settings") }
                         }
-                        Text("Enable Notification access on both phones and hotspot automation on Gateway. PCL turns off the hotspot only if it enabled it. Gateway must have internet access. Bluetooth carries control messages only; it does not carry internet or call audio. Android/OEM automation and Wi-Fi auto-join are best-effort. Mobile-data charges may apply.", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                        Text("Enable Notification access on both phones and hotspot automation on Gateway. PCL turns off the Wi-Fi hotspot only if it enabled it. Android/OEM tethering controls and network failover vary; PCL does not silently toggle Bluetooth tethering or guarantee seamless switching between Bluetooth and Wi-Fi. Bluetooth tethering carries internet at the Android system level; PCL's Bluetooth control messages do not carry call audio. Mobile-data charges may apply.", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                     }
                     Row(horizontalArrangement = Arrangement.spacedBy(12.dp), modifier = Modifier.fillMaxWidth()) {
                         RoleChoiceCard("Gateway", "SIM phone and call controller", Icons.Default.Radio, roleSelected && role == LinkService.ROLE_GATEWAY, Modifier.weight(1f)) {
