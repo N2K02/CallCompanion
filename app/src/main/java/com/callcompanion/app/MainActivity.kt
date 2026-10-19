@@ -296,6 +296,28 @@ class MainActivity : ComponentActivity() {
                 if (screen == MainTab.SETTINGS) {
                     Text("Setup & settings", style = MaterialTheme.typography.headlineMedium, fontWeight = FontWeight.Bold)
                     Text("Choose a role and grant every required permission. Home unlocks when setup is complete.", style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    SectionCard(
+                        title = "Internet sharing",
+                        subtitle = "Share the Gateway phone's mobile data with the Remote so its own apps, including WhatsApp Business, can use the internet."
+                    ) {
+                        if (role == LinkService.ROLE_GATEWAY) {
+                            Text("On this phone (Gateway): enable Bluetooth tethering in Android settings. Keep mobile data enabled and Bluetooth on. Android controls this setting, so CallCompanion cannot switch it on silently.", style = MaterialTheme.typography.bodyMedium)
+                            Button(onClick = {
+                                try { startActivity(Intent("android.settings.TETHER_SETTINGS")) }
+                                catch (_: Exception) {
+                                    try { startActivity(Intent(Settings.ACTION_BLUETOOTH_SETTINGS)) }
+                                    catch (_: Exception) { toast("Open Android Settings → Connections/Network → Hotspot & tethering → Bluetooth tethering") }
+                                }
+                            }, modifier = Modifier.fillMaxWidth()) { Text("Open tethering settings") }
+                        } else {
+                            Text("On the Gateway phone, enable Bluetooth tethering first. Then pair the phones and check whether this Remote phone supports using a Bluetooth PAN internet connection. Some Android models do not offer Bluetooth tethering as a client.", style = MaterialTheme.typography.bodyMedium)
+                            OutlinedButton(onClick = {
+                                try { startActivity(Intent(Settings.ACTION_BLUETOOTH_SETTINGS)) }
+                                catch (_: Exception) { toast("Open Android Settings → Bluetooth") }
+                            }, modifier = Modifier.fillMaxWidth()) { Text("Open Bluetooth settings") }
+                        }
+                        Text("This shares internet only; it does not copy WhatsApp accounts or relay call audio. Calls use the account signed in on the phone placing the call, and mobile-data charges may apply.", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    }
                     Row(horizontalArrangement = Arrangement.spacedBy(12.dp), modifier = Modifier.fillMaxWidth()) {
                         RoleChoiceCard("Gateway", "SIM phone and call controller", Icons.Default.Radio, roleSelected && role == LinkService.ROLE_GATEWAY, Modifier.weight(1f)) {
                             if (!running) { role = LinkService.ROLE_GATEWAY; roleSelected = true; prefs.edit().putString("role", role).apply(); refresh() }
