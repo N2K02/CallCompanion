@@ -10,7 +10,7 @@ Use a second Android phone as a Bluetooth remote for a Gateway phone that has th
 
 Install the same app on both phones and select a role:
 
-- **Gateway** — the main phone. It has the SIM (for cellular calls), runs PCL's Gateway role, monitors call state, and forwards supported notifications and commands. Keep it connected to the Bluetooth hands-free speakerphone if that is how you want to hear and speak during calls.
+- **Gateway** — the main phone. It has the SIM (for cellular calls), runs PCL's Gateway role, monitors call state, and forwards supported notifications and commands. Android handles conversation audio through the Gateway's earpiece, loudspeaker, or an optional connected Bluetooth hands-free device.
 - **Remote** — the companion phone. It runs PCL's Remote role, shows information received from the Gateway, and sends user actions back over Bluetooth. It is a control screen, not automatically a second handset for the Gateway's cellular-call audio.
 
 ### At a glance: how the two phones work together
@@ -114,7 +114,7 @@ The app's minimum supported Android version is Android 8.0 (API 26). Android 12+
 
 1. Install the same APK on both phones.
 2. Pair the two phones in Android **Settings → Bluetooth**.
-3. Pair the Gateway phone with your Bluetooth speakerphone.
+3. Optional: pair a Bluetooth hands-free device with the Gateway if you prefer it over the Gateway's earpiece or loudspeaker.
 4. On the Gateway, choose **Gateway**, grant Phone and Nearby devices permissions, grant **Contacts** if you want contact sync, and enable **Notification access** in Android settings.
 5. On the Remote, choose **Remote**, select the paired Gateway, and start the connection.
 6. Keep PCL running on both phones. In the Remote's **Make a call** section, use **Sync contacts from Gateway** whenever you want to refresh the offline contact cache. On Xiaomi/Redmi/POCO, Huawei/Honor, OPPO/realme/OnePlus, vivo, and some Samsung builds, set PCL battery usage to **Unrestricted** / **Allow background activity**, allow auto-start if offered, and lock the app in Recents if available. Menu names vary. Enable notifications for the system Phone app if you want the call-notification fallback.
