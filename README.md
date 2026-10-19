@@ -6,7 +6,7 @@
 
 **[⬇ Download the latest APK](https://github.com/N2K02/PCL/releases/latest)** · [All releases](https://github.com/N2K02/PCL/releases)
 
-Use a second Android phone as a Bluetooth remote for a Gateway phone that has the SIM and remains connected to a Bluetooth hands-free speakerphone.
+Use a second Android phone as a Bluetooth remote for a Gateway phone that has the SIM. Android on the Gateway handles call audio through its earpiece, loudspeaker, or a connected Bluetooth hands-free device.
 
 Install the same app on both phones and select a role:
 
@@ -50,7 +50,7 @@ Install the same app on both phones and select a role:
 | Third-party call actions | PCL can relay actions exposed by the original notification. It detects WhatsApp call state on both phones when Notification Access exposes recognizable Answer/Decline or End-call actions, and blocks stale WhatsApp Answer actions when either phone is already in an active WhatsApp call. It never auto-answers or rejects a call. |
 | Other notifications | Non-ongoing notifications can be mirrored to the Remote. Persistent non-call notifications are ignored. |
 | Bluetooth transport | Call state, notification details, and commands travel over the existing Bluetooth RFCOMM connection. |
-| Call audio | The Gateway remains paired to the Bluetooth speakerphone, so the conversation audio stays between the Gateway and that device. PCL does not relay cellular-call audio to the Remote. |
+| Call audio | Android manages the Gateway's cellular-call audio route (earpiece, loudspeaker, or a connected Bluetooth hands-free device). PCL relays call control and status only; it does not stream cellular-call audio to the Remote. |
 
 ## How the app works — step by step
 
@@ -68,7 +68,7 @@ Install the same app on both phones and select a role:
 2. Android reports call-state information that is available to PCL.
 3. The Gateway sends the state and any available caller details to the Remote over Bluetooth.
 4. The Remote can send **Answer**, **Reject**, or **End** requests back to the Gateway. Whether Android accepts each request depends on the phone, OS version, permissions, and exposed call controls.
-5. The Gateway's Android audio route handles the conversation. If paired and selected, the Bluetooth hands-free speakerphone carries the call audio; the Remote does not receive that audio through PCL.
+5. Android handles the conversation audio on the Gateway. Use its native earpiece, loudspeaker, or connected Bluetooth hands-free device. The Remote controls the call but does not receive or transmit call audio through PCL.
 
 ### 3. Third-party call notifications
 
@@ -110,7 +110,7 @@ Once the Remote has a working internet connection, its own WhatsApp or WhatsApp 
 
 ## Android compatibility and setup
 
-The app's minimum supported Android version is Android 8.0 (API 26), so the monitoring and Bluetooth flow covers Android 10 and newer. Android 12+ requires the Nearby devices/Bluetooth Connect runtime permission. Android 13+ also requires notification permission for PCL's own notifications. Microphone permission is optional and is requested only for the separate app voice-link feature; it is not needed for SIM call status or remote call controls. Contacts permission is requested separately for contact sync/search and is not needed to keep the Bluetooth relay running.
+The app's minimum supported Android version is Android 8.0 (API 26). Android 12+ requires the Nearby devices/Bluetooth Connect runtime permission. Android 13+ also requires notification permission for PCL's own notifications. PCL does not need microphone permission for SIM call status or remote call controls. Contacts permission is requested separately for contact sync/search and is not needed to keep the Bluetooth relay running.
 
 1. Install the same APK on both phones.
 2. Pair the two phones in Android **Settings → Bluetooth**.
@@ -123,15 +123,15 @@ The app's minimum supported Android version is Android 8.0 (API 26), so the moni
 
 - When Bluetooth connection attempts fail, the reconnect loop increases the retry interval from 3 seconds up to 30 seconds. A session that stays connected for at least 15 seconds resets the retry delay, so normal reconnects stay quick without repeatedly waking the radio during a prolonged outage.
 - The app does not continuously scan for nearby Bluetooth devices; it connects to the selected, already-paired device. Keep the relay foreground service running for call notifications and controls.
-- The two audio capture/playback threads run only while the optional **Voice link** is active. The audio capture loop backs off briefly if an OEM audio driver returns zero bytes, rather than spinning continuously. The Voice link automatically stops when a SIM call starts and cannot be started during an active SIM call, to avoid competing with Android's call-audio routing.
-- For best standby life, leave Voice link off when not needed, disable notification mirroring if you do not use it, and allow the OS/OEM background setting described above. Battery optimisation exceptions improve reliability but may increase standby power use.
+- PCL does not capture or stream call audio. Android manages the Gateway's call-audio route; use the Gateway's native in-call controls to choose earpiece, loudspeaker, or a connected Bluetooth hands-free device.
+- For best standby life, disable notification mirroring if you do not use it and allow the OS/OEM background setting described above. Battery optimisation exceptions improve reliability but may increase standby power use.
 
 ## Important Android limitations
 
 - NotificationListenerService requires user-granted Notification Access on both phones for WhatsApp call-state observation and duplicate-notification suppression. Suppression is best-effort and depends on recognizable notification actions and Bluetooth state reporting; a short-lived duplicate may appear before Remote state arrives. Native WhatsApp notifications take priority once Remote reports RINGING or ACTIVE; Gateway mirroring is retained as a fallback when no local Remote call is detected. The state is tracked per WhatsApp app package, not per account. PCL does not change ringtone volume or automatically answer/reject calls. WhatsApp linked-device mode, not PCL, coordinates the underlying WhatsApp call across linked devices.
 - SIM-call answer/end APIs are restricted by Android and vary by OS version and device vendor. ANSWER_PHONE_CALLS does not guarantee identical behaviour on all devices. The Gateway first uses the public Telecom API when available; if it throws, reports failure, the required permission is unavailable, or the Android version lacks the call-control API, it can try a matching action exposed by the system Phone app's call notification. This cannot help if no suitable action is exposed or Notification Access is disabled.
 - Phone-state broadcasts may indicate an outgoing call started without exposing its number. Caller/dialled number availability varies by Android version, permissions, and device. On startup, PCL also queries the current call state as a snapshot, but this cannot reliably recover caller number or call direction.
-- Cellular call audio is managed by Android Telecom/Bluetooth. An ordinary app cannot capture and inject cellular-call audio, so keep the Gateway connected to the Bluetooth speakerphone.
+- Cellular call audio is managed by Android Telecom. PCL only sends call-control commands and receives call-state updates; it does not relay audio to the Remote. The user must hear and speak through the Gateway's earpiece, loudspeaker, or a connected Bluetooth hands-free device.
 - The call-notification fallback invokes only an action supplied by the OEM Phone app. It does not use hidden APIs, reflection, root, ADB grants, or private broadcasts. If the manufacturer exposes no action and blocks Telecom control, Android offers no universal app-level workaround.
 - Bluetooth uses the secure paired RFCOMM socket. PCL intentionally does not silently downgrade to an insecure socket or bypass pairing. If connection fails, remove and re-pair both phones in Android Bluetooth settings, then restart both relays.
 
