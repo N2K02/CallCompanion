@@ -1,4 +1,10 @@
-# PCL
+# PCL — Android Bluetooth Call Companion
+
+[![Latest release](https://img.shields.io/github/v/release/N2K02/PCL?label=download)](https://github.com/N2K02/PCL/releases/latest) ![Android](https://img.shields.io/badge/platform-Android-3DDC84?logo=android&logoColor=white) ![Kotlin](https://img.shields.io/badge/language-Kotlin-7F52FF?logo=kotlin&logoColor=white)
+
+**Android Bluetooth call companion app:** use a second Android phone as a remote control for a SIM-equipped gateway phone. The app relays supported call status, notifications, and commands over a paired Bluetooth connection; cellular call audio is not relayed by the app.
+
+**[⬇ Download the latest APK](https://github.com/N2K02/PCL/releases/latest)** · [All releases](https://github.com/N2K02/PCL/releases)
 
 Use a second Android phone as a Bluetooth remote for a Gateway phone that has the SIM and remains connected to a Bluetooth hands-free speakerphone.
 
@@ -132,3 +138,14 @@ The app's minimum supported Android version is Android 8.0 (API 26), so the moni
 ## Build
 
 Every push to main triggers GitHub Actions to build and publish an APK release. Local build: ./gradlew assembleDebug (JDK 17 and Android SDK required).
+
+
+## Official download and project links
+
+Bluetooth call companion for Android: use a second Android phone as a remote control for a SIM-equipped gateway phone.
+
+- **Latest Android APK:** [Download the latest release](https://github.com/N2K02/PCL/releases/latest)
+- **All releases and version history:** [GitHub Releases](https://github.com/N2K02/PCL/releases)
+- **Source code and issue reporting:** [PCL repository](https://github.com/N2K02/PCL)
+
+The APK is distributed through GitHub Releases. If no release is available, check the repository's Releases page for future published builds. Google indexing is not guaranteed; this section provides clear crawlable links for visitors and search engines.
