@@ -1,6 +1,6 @@
 # PCL
 
-Use a second Android phone as a Bluetooth remote for a Gateway phone that has the SIM and remains connected to a Bluetooth hands-free speakerphone. Open Headunit is not required.
+Use a second Android phone as a Bluetooth remote for a Gateway phone that has the SIM and remains connected to a Bluetooth hands-free speakerphone.
 
 Install the same app on both phones and select a role:
 
