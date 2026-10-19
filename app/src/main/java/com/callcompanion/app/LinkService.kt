@@ -1025,7 +1025,7 @@ class LinkService : Service() {
     }
 
     private fun statusNotification(): Notification {
-        val text = if (connected) "$connectionState · ↓ ${formatTrafficRate(downloadBytesPerSecond)}  ↑ ${formatTrafficRate(uploadBytesPerSecond)}" else "$connectionState · PCL traffic rate unavailable while disconnected"
+        val text = if (connected) "$connectionState · Down ${formatTrafficRate(downloadBytesPerSecond)} / Up ${formatTrafficRate(uploadBytesPerSecond)}" else "$connectionState · Down/Up rates unavailable while disconnected"
         return Notification.Builder(this, CH_STATUS)
             .setSmallIcon(android.R.drawable.sym_action_call)
             .setContentTitle(if (role == ROLE_GATEWAY) "PCL · Gateway" else "PCL · Remote")
