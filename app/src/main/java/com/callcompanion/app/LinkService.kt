@@ -298,10 +298,29 @@ class LinkService : Service() {
         Hub.log("Local WhatsApp call state detected for $pkg: $state")
         if (connected) send("WHATSAPP_CALL_STATE", encodeText(pkg), state)
 
-        // Only an actually active native Remote call (or an outgoing call-button tap)
-        // requests Wi-Fi. A ringing notification alone may belong to a call answered
-        // on Gateway, in which case it should disappear without enabling the hotspot.
-        if (role == ROLE_REMOTE && state == "ACTIVE") onWhatsAppCallUiAction("START")
+        if (role == ROLE_GATEWAY) {
+            when (state) {
+                // Start as soon as Gateway sees an incoming WhatsApp call so the
+                // linked Remote can reconnect before the caller gives up.
+                "RINGING" -> beginHotspotAutomation(enable = true)
+                "IDLE" -> {
+                    // Give Remote time to report RINGING/ACTIVE before treating this
+                    // as a call that never reached Remote. Remote IDLE owns normal cleanup.
+                    trafficHandler.postDelayed({
+                        if (running && role == ROLE_GATEWAY &&
+                            localWhatsappCallStates.values.none { it == "RINGING" || it == "ACTIVE" } &&
+                            peerWhatsappCallStates.values.none { it == "RINGING" || it == "ACTIVE" }) {
+                            Hub.log("Gateway WhatsApp call ended before Remote reported a ringing/active call; cleaning up hotspot")
+                            stopHotspotForRemoteCall()
+                        }
+                    }, 5_000L)
+                }
+            }
+        } else if (role == ROLE_REMOTE && state in setOf("RINGING", "ACTIVE")) {
+            // Also covers outgoing Remote calls and devices where Gateway cannot
+            // recognize the WhatsApp notification actions.
+            onWhatsAppCallUiAction("START")
+        }
         Hub.notifyUi()
     }
 
@@ -618,12 +637,13 @@ class LinkService : Service() {
 
                     if (role == ROLE_GATEWAY) {
                         when (state) {
-                            "ACTIVE" -> {
+                            "RINGING", "ACTIVE" -> {
+                                // Gateway normally starts the hotspot on its own incoming
+                                // call notification. This also covers Remote-originated calls.
                                 beginHotspotAutomation(enable = true)
                             }
                             "IDLE" -> {
-                                // Keep the hotspot while any other Remote WhatsApp call
-                                // remains active; never react to Gateway's own call state.
+                                // Remote state is authoritative for normal shutdown.
                                 if (peerWhatsappCallStates.values.none { it == "ACTIVE" || it == "RINGING" }) {
                                     stopHotspotForRemoteCall()
                                 }
@@ -1170,7 +1190,7 @@ class LinkService : Service() {
             if (hotspotTargetEnabled) {
                 Hub.log("If the Remote is not already connected to Gateway Wi-Fi, connect it before expecting WhatsApp to use that route")
             } else {
-                Hub.log("PCL-enabled Gateway hotspot is now off; Android/OEM must restore the Remote's Bluetooth internet route if supported")
+                Hub.log("PCL-enabled Gateway hotspot is now off")
             }
         } else if (hotspotTargetEnabled && hotspotToggleRequested) {
             // A tap succeeded but the OEM UI did not confirm the final state.
