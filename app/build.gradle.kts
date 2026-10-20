@@ -3,7 +3,9 @@ plugins {
     id("org.jetbrains.kotlin.android")
 }
 
-val appVersion = (findProperty("appVersion") as String?) ?: "5.6"
+// Release builds get their version from CI (-PappVersion=1.x). Local builds default to 0.1,
+// below every release, so the in-app updater and Android can install releases over them.
+val appVersion = (findProperty("appVersion") as String?) ?: "0.1"
 require(Regex("""\d+\.\d""").matches(appVersion)) {
     "appVersion must look like 5.7, got $appVersion"
 }

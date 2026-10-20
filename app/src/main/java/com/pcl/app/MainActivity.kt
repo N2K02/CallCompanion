@@ -77,14 +77,13 @@ class MainActivity : ComponentActivity() {
             hide(WindowInsetsCompat.Type.systemBars())
             systemBarsBehavior = WindowInsetsControllerCompat.BEHAVIOR_SHOW_TRANSIENT_BARS_BY_SWIPE
         }
-        prefs = getSharedPreferences("callcompanion", MODE_PRIVATE)
-        role = prefs.getString("role", LinkService.ROLE_GATEWAY) ?: LinkService.ROLE_GATEWAY
+        prefs = Prefs.of(this)
+        role = prefs.getString(Prefs.ROLE, LinkService.ROLE_GATEWAY) ?: LinkService.ROLE_GATEWAY
         roleSelected = true
-        if (!prefs.contains("role")) prefs.edit().putString("role", LinkService.ROLE_GATEWAY).apply()
-        selectedDevice = prefs.getString("device", null)
-        Hub.clearLog()
+        if (!prefs.contains(Prefs.ROLE)) prefs.edit().putString(Prefs.ROLE, LinkService.ROLE_GATEWAY).apply()
+        selectedDevice = prefs.getString(Prefs.PEER_DEVICE, null)
         CallLogger.init(this)
-        AppUpdater.init(this, "N2K02/CallCompanion", "PCL")
+        AppUpdater.init(this, "N2K02/PCL", "PCL")
         setContent { PCLTheme { AppScreen() } }
         loadDevices()
         refresh()
@@ -144,19 +143,21 @@ class MainActivity : ComponentActivity() {
             toast("Please allow the permissions, then press Start again")
             return
         }
+        // Both roles need the other phone: the Remote connects to it, and the Gateway
+        // accepts only it.
+        val addr = selectedDevice
+        if (addr == null || devices.none { it.second == addr }) {
+            toast(
+                if (chosenRole == LinkService.ROLE_REMOTE) "Select the paired Gateway phone on Home first"
+                else "Select the paired Remote phone on Home first"
+            )
+            return
+        }
+        prefs.edit().putString(Prefs.ROLE, chosenRole).putString(Prefs.PEER_DEVICE, addr).apply()
         val i = Intent(this, LinkService::class.java)
             .setAction(LinkService.ACTION_START)
             .putExtra(LinkService.EXTRA_ROLE, chosenRole)
-        if (chosenRole == LinkService.ROLE_REMOTE) {
-            val addr = selectedDevice
-            if (devices.none { it.second == addr } || addr == null) {
-                toast("Pair with the gateway phone in Bluetooth settings first")
-                return
-            }
-            prefs.edit().putString("device", addr).apply()
-            i.putExtra(LinkService.EXTRA_DEVICE, addr)
-        }
-        prefs.edit().putString("role", chosenRole).apply()
+            .putExtra(LinkService.EXTRA_DEVICE, addr)
         startForegroundService(i)
         refresh()
     }
@@ -167,8 +168,9 @@ class MainActivity : ComponentActivity() {
     }
 
     private fun quitApp() {
+        // Quitting also stops PCL from restarting itself after a reboot or update.
+        prefs.edit().putBoolean(Prefs.LINK_ENABLED, false).apply()
         stopService(Intent(this, LinkService::class.java))
-        Hub.clearLog()
         CallLogger.clear()
         finishAndRemoveTask()
     }
@@ -181,7 +183,9 @@ class MainActivity : ComponentActivity() {
         ) emptyList() else try {
             (adapter.bondedDevices ?: emptySet()).map { (it.name?.takeIf(String::isNotBlank) ?: "Unnamed Bluetooth device") to it.address }.sortedBy { it.first.lowercase() }
         } catch (_: SecurityException) { emptyList() }
-        if (devices.none { it.second == selectedDevice }) selectedDevice = devices.firstOrNull()?.second
+        // Never pick a device automatically: on a Gateway the choice decides which phone may connect.
+        val saved = prefs.getString(Prefs.PEER_DEVICE, null)
+        selectedDevice = saved?.takeIf { address -> devices.any { it.second == address } }
         revision++
     }
 
@@ -280,8 +284,12 @@ class MainActivity : ComponentActivity() {
                     .padding(horizontal = 18.dp, vertical = 12.dp),
                 verticalArrangement = Arrangement.spacedBy(14.dp)
             ) {
-                if (screen == MainTab.HOME && setupReady && remote) {
-                    SectionCard(title = "Bluetooth device", subtitle = "Select the paired Gateway phone.") {
+                if (screen == MainTab.HOME && setupReady) {
+                    SectionCard(
+                        title = if (remote) "Gateway phone" else "Remote phone",
+                        subtitle = if (remote) "Select the paired Gateway phone to connect to."
+                            else "Select the paired Remote phone. Only this phone can connect to this Gateway."
+                    ) {
                         Row(verticalAlignment = Alignment.CenterVertically) {
                             Text("${devices.size} paired", modifier = Modifier.weight(1f), style = MaterialTheme.typography.titleMedium)
                             OutlinedButton(onClick = { loadDevices(); refresh() }) {
@@ -304,7 +312,7 @@ class MainActivity : ComponentActivity() {
                                     onClick = {
                                         if (!running) {
                                             selectedDevice = device.second
-                                            prefs.edit().putString("device", device.second).apply()
+                                            prefs.edit().putString(Prefs.PEER_DEVICE, device.second).apply()
                                             refresh()
                                         }
                                     },
@@ -373,10 +381,9 @@ class MainActivity : ComponentActivity() {
                             }
                         }
                         Text(
-                            if (remote) {
-                                val peer = devices.firstOrNull { it.second == selectedDevice }
-                                if (peer != null) "Gateway: ${peer.first}" else "Select a paired Gateway above."
-                            } else "Gateway · SIM calls use this phone.",
+                            devices.firstOrNull { it.second == selectedDevice }?.let { peer ->
+                                if (remote) "Gateway: ${peer.first}" else "Gateway · SIM calls use this phone · Remote: ${peer.first}"
+                            } ?: if (remote) "Select the paired Gateway above." else "Select the paired Remote above.",
                             style = MaterialTheme.typography.bodySmall,
                             color = MaterialTheme.colorScheme.onSurfaceVariant
                         )
@@ -425,7 +432,7 @@ class MainActivity : ComponentActivity() {
                                 catch (_: Exception) { toast("Open Android Settings → Bluetooth") }
                             }, modifier = Modifier.fillMaxWidth()) { Text("Bluetooth tethering settings") }
                         } else {
-                            Text("Bluetooth internet remains the standby route where supported. When a WhatsApp call is actually handled on Remote, PCL asks Gateway to enable its Wi-Fi hotspot; connect to the saved Gateway Wi-Fi profile if Android does not connect automatically. A call answered on Gateway should not trigger hotspot automation.", style = MaterialTheme.typography.bodyMedium)
+                            Text("Bluetooth internet remains the standby route where supported. When a WhatsApp call is actually handled on Remote and Remote isn't already on Wi-Fi, PCL asks Gateway to enable its Wi-Fi hotspot; connect to the saved Gateway Wi-Fi profile if Android does not connect automatically. A call answered on Gateway does not trigger hotspot automation.", style = MaterialTheme.typography.bodyMedium)
                             Button(onClick = {
                                 try { startActivity(Intent(Settings.ACTION_WIFI_SETTINGS)) }
                                 catch (_: Exception) { toast("Open Android Settings → Wi-Fi") }
@@ -435,14 +442,14 @@ class MainActivity : ComponentActivity() {
                                 catch (_: Exception) { toast("Open Android Settings → Bluetooth") }
                             }, modifier = Modifier.fillMaxWidth()) { Text("Bluetooth settings") }
                         }
-                        Text("Enable Notification access on both phones, WhatsApp call detection on Remote, and hotspot automation on Gateway. PCL only manages the hotspot for calls handled on Remote and tries to turn off only a hotspot it enabled. Android/OEM layouts may block automation; Remote must connect to Gateway Wi-Fi before WhatsApp can use it, and Bluetooth internet fallback depends on device support. PCL does not relay call audio. Mobile-data charges may apply.", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                        Text("Enable Notification access on both phones, and the \"PCL call & hotspot helper\" accessibility service on both phones. PCL only manages the hotspot for calls handled on Remote and tries to turn off only a hotspot it enabled. Android/OEM layouts may block automation; Remote must connect to Gateway Wi-Fi before WhatsApp can use it, and Bluetooth internet fallback depends on device support. PCL does not relay call audio. Mobile-data charges may apply.", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                     }
                     Row(horizontalArrangement = Arrangement.spacedBy(12.dp), modifier = Modifier.fillMaxWidth()) {
                         RoleChoiceCard("Gateway", "SIM phone and call controller", Icons.Default.Radio, roleSelected && role == LinkService.ROLE_GATEWAY, Modifier.weight(1f)) {
-                            if (!running) { role = LinkService.ROLE_GATEWAY; roleSelected = true; prefs.edit().putString("role", role).apply(); refresh() }
+                            if (!running) { role = LinkService.ROLE_GATEWAY; roleSelected = true; prefs.edit().putString(Prefs.ROLE, role).apply(); refresh() }
                         }
                         RoleChoiceCard("Remote", "Companion phone over Bluetooth", Icons.Default.Smartphone, roleSelected && role == LinkService.ROLE_REMOTE, Modifier.weight(1f)) {
-                            if (!running) { role = LinkService.ROLE_REMOTE; roleSelected = true; prefs.edit().putString("role", role).apply(); refresh() }
+                            if (!running) { role = LinkService.ROLE_REMOTE; roleSelected = true; prefs.edit().putString(Prefs.ROLE, role).apply(); refresh() }
                         }
                     }
                 }
@@ -584,23 +591,39 @@ class MainActivity : ComponentActivity() {
                             PermissionSetupRow("Contacts (for sync)", "Send Gateway contacts to the Remote and resolve caller names", granted(Manifest.permission.READ_CONTACTS)) { requestPermissions(arrayOf(Manifest.permission.READ_CONTACTS), 1) }
                             PermissionSetupRow("Notification access", "Mirror notifications and detect WhatsApp call state", notificationAccess, actionLabel = "Open settings") { runCatching { startActivity(Intent(Settings.ACTION_NOTIFICATION_LISTENER_SETTINGS)) }.onFailure { toast("Open Android Settings → Notifications → Notification access") } }
                             val hotspotAccessibilityEnabled = WhatsappCallAccessibilityService.isEnabled(this@MainActivity)
-                            PermissionSetupRow("Hotspot automation (optional)", "Let PCL try to enable the Gateway hotspot through Android Settings during a WhatsApp call", hotspotAccessibilityEnabled, actionLabel = "Open settings") {
+                            PermissionSetupRow("Hotspot automation (optional)", "Accessibility service \"PCL call & hotspot helper\": lets PCL try to switch the Gateway hotspot in Android Settings during a Remote WhatsApp call", hotspotAccessibilityEnabled, actionLabel = "Open settings") {
                                 runCatching { startActivity(Intent(Settings.ACTION_ACCESSIBILITY_SETTINGS)) }
-                                    .onFailure { toast("Open Android Settings → Accessibility → Installed apps → PCL WhatsApp call detection") }
+                                    .onFailure { toast("Open Android Settings → Accessibility → Installed apps → PCL call & hotspot helper") }
                             }
                             if (Build.VERSION.SDK_INT >= 31) PermissionSetupRow("Bluetooth connection", "Connect to the paired remote phone", granted(Manifest.permission.BLUETOOTH_CONNECT)) { requestPermissions(arrayOf(Manifest.permission.BLUETOOTH_CONNECT), 1) }
                         } else if (roleSelected) {
                             PermissionSetupRow("Notification access", "Detect local WhatsApp call state", notificationAccess, actionLabel = "Open settings") { runCatching { startActivity(Intent(Settings.ACTION_NOTIFICATION_LISTENER_SETTINGS)) }.onFailure { toast("Open Android Settings → Notifications → Notification access") } }
                             val accessibilityEnabled = WhatsappCallAccessibilityService.isEnabled(this@MainActivity)
-                            PermissionSetupRow("WhatsApp call detection", "Detect when you tap voice/video call or answer in WhatsApp, then alert the Gateway", accessibilityEnabled, actionLabel = "Open settings") {
+                            PermissionSetupRow("WhatsApp call detection (optional)", "Accessibility service \"PCL call & hotspot helper\": detects when you tap voice/video call or answer in WhatsApp, then alerts the Gateway", accessibilityEnabled, actionLabel = "Open settings") {
                                 runCatching { startActivity(Intent(Settings.ACTION_ACCESSIBILITY_SETTINGS)) }
-                                    .onFailure { toast("Open Android Settings → Accessibility → Installed apps → PCL WhatsApp call detection") }
+                                    .onFailure { toast("Open Android Settings → Accessibility → Installed apps → PCL call & hotspot helper") }
                             }
                             PermissionSetupRow("Local contacts (optional)", "Include this phone's contacts in Remote search", granted(Manifest.permission.READ_CONTACTS)) { requestPermissions(arrayOf(Manifest.permission.READ_CONTACTS), 1) }
                             if (Build.VERSION.SDK_INT >= 31) PermissionSetupRow("Bluetooth connection", "Find and connect to the paired gateway phone", granted(Manifest.permission.BLUETOOTH_CONNECT)) { requestPermissions(arrayOf(Manifest.permission.BLUETOOTH_CONNECT), 1) }
                             if (Build.VERSION.SDK_INT >= 33) PermissionSetupRow("Notifications", "Show the ongoing PCL status", granted(Manifest.permission.POST_NOTIFICATIONS)) { requestPermissions(arrayOf(Manifest.permission.POST_NOTIFICATIONS), 1) }
                         } else {
                             Text("Choose Gateway or Remote above to load the matching permission checklist.")
+                        }
+                        // Android 13+ blocks these two for apps installed from an APK file
+                        // until the user allows "restricted settings" in App info.
+                        if (roleSelected && Build.VERSION.SDK_INT >= 33 &&
+                            (!notificationAccess || !WhatsappCallAccessibilityService.isEnabled(this@MainActivity))
+                        ) {
+                            Text(
+                                "Greyed out or \"Restricted setting\"? Android blocks Notification access and Accessibility for apps installed from an APK. Open App info, tap ⋮, choose Allow restricted settings, then try again.",
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+                            OutlinedButton(onClick = {
+                                runCatching {
+                                    startActivity(Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS, android.net.Uri.fromParts("package", packageName, null)))
+                                }.onFailure { toast("Open Android Settings → Apps → PCL") }
+                            }, modifier = Modifier.fillMaxWidth()) { Text("Open App info") }
                         }
                     }
                     if (roleSelected) {
@@ -614,7 +637,7 @@ class MainActivity : ComponentActivity() {
                         HorizontalDivider()
                         Text("Privacy", style = MaterialTheme.typography.titleMedium)
                         Text("PCL uses permissions for the selected phone role. Grant only the access needed for the features you want to use.", style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                        OutlinedButton(onClick = { roleSelected = false; prefs.edit().remove("role").apply(); screen = MainTab.SETTINGS; refresh() }, modifier = Modifier.fillMaxWidth()) { Text("Reset device role") }
+                        OutlinedButton(onClick = { roleSelected = false; prefs.edit().remove(Prefs.ROLE).apply(); screen = MainTab.SETTINGS; refresh() }, modifier = Modifier.fillMaxWidth()) { Text("Reset device role") }
                     }
                     
                 if (roleSelected && role == LinkService.ROLE_GATEWAY) {
@@ -634,12 +657,12 @@ class MainActivity : ComponentActivity() {
                             try { startActivity(Intent(Settings.ACTION_NOTIFICATION_LISTENER_SETTINGS)) }
                             catch (_: Exception) { toast("Open Settings → Notifications → Notification access, and allow PCL") }
                         }, modifier = Modifier.fillMaxWidth()) { Text("Open notification access settings") }
-                        var mirror by remember { mutableStateOf(prefs.getBoolean("mirror", true)) }
+                        var mirror by remember { mutableStateOf(prefs.getBoolean(Prefs.MIRROR, true)) }
                         Row(verticalAlignment = Alignment.CenterVertically) {
                             Text("Send notifications to remote", Modifier.weight(1f))
                             Switch(checked = mirror, onCheckedChange = {
                                 mirror = it
-                                prefs.edit().putBoolean("mirror", it).apply()
+                                prefs.edit().putBoolean(Prefs.MIRROR, it).apply()
                             })
                         }
                     }
