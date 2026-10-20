@@ -12,8 +12,9 @@ import android.service.notification.StatusBarNotification
 import android.telecom.TelecomManager
 
 /**
- * Runs on both phones and requires user-granted Notification Access.
- * Gateway mirrors supported notifications/actions; Remote observes its local WhatsApp call state.
+ * Gateway only (it needs user-granted Notification access): mirrors notifications and call
+ * notifications with their buttons to the Remote, and follows the Gateway's WhatsApp calls.
+ * On the Remote it does nothing; the Remote has no WhatsApp.
  */
 class NotifListener : NotificationListenerService() {
 
@@ -177,11 +178,10 @@ class NotifListener : NotificationListenerService() {
 
     override fun onNotificationPosted(sbn: StatusBarNotification) {
         val svc = Hub.service ?: return
-        if (sbn.packageName == packageName) return
+        if (svc.role != LinkService.ROLE_GATEWAY || sbn.packageName == packageName) return
         val isWhatsApp = WhatsAppCalls.isWhatsApp(sbn.packageName)
         if (isWhatsApp) updateWhatsappCallNotification(sbn, removed = false)
-        // Notification access on Remote is used only for local WhatsApp call-state detection.
-        if (svc.role == LinkService.ROLE_REMOTE || !svc.shouldMirror()) return
+        if (!svc.canRelay()) return
         val n = sbn.notification ?: return
         if ((n.flags and Notification.FLAG_GROUP_SUMMARY) != 0) return
         val ex = n.extras ?: return
@@ -214,14 +214,6 @@ class NotifListener : NotificationListenerService() {
         if (title.isEmpty() && text.isEmpty()) return
 
         if (callNotification) {
-            // Prefer the Remote phone's native WhatsApp notification when its own
-            // call-state observer already sees the same app ringing or active.
-            // The Gateway copy is only a fallback when Remote has no local call state.
-            if (isWhatsApp && svc.shouldSuppressWhatsAppMirror(sbn.packageName)) {
-                suppressWhatsAppCallMirrors(sbn.packageName)
-                Hub.log("Suppressed duplicate WhatsApp call notification: Remote already reports a native ringing/active call")
-                return
-            }
             synchronized(actionsByKey) {
                 actionsByKey[sbn.key] = relays
                 actionPackagesByKey[sbn.key] = sbn.packageName
@@ -234,13 +226,15 @@ class NotifListener : NotificationListenerService() {
             svc.mirrorCallPosted(sbn.key, sbn.packageName, appName(sbn.packageName), title, text, indices, labels)
             return
         }
-        if (sbn.isOngoing) return
+        // Calls always go to the Remote; other notifications only while that's switched on.
+        if (!svc.shouldMirror() || sbn.isOngoing) return
         val signature = title + "\u0000" + text
         synchronized(lastSent) { if (lastSent[sbn.key] == signature) return; lastSent[sbn.key] = signature }
         svc.mirrorPosted(sbn.key, appName(sbn.packageName), title, text)
     }
 
     override fun onNotificationRemoved(sbn: StatusBarNotification) {
+        if (Hub.service?.role != LinkService.ROLE_GATEWAY) return
         if (WhatsAppCalls.isWhatsApp(sbn.packageName)) updateWhatsappCallNotification(sbn, removed = true)
         synchronized(lastSent) { lastSent.remove(sbn.key) }
         synchronized(actionsByKey) {
@@ -265,26 +259,6 @@ class NotifListener : NotificationListenerService() {
 
     fun notificationPackage(key: String): String? =
         synchronized(actionsByKey) { actionPackagesByKey[key] }
-
-    /**
-     * Remove already mirrored WhatsApp call notifications when Remote's native
-     * WhatsApp call is detected. This is deliberately package-level because
-     * Android notifications do not reliably identify the signed-in account.
-     */
-    fun suppressWhatsAppCallMirrors(pkg: String) {
-        if (!WhatsAppCalls.isWhatsApp(pkg)) return
-        val keys = synchronized(actionsByKey) {
-            actionPackagesByKey.filterValues { it == pkg }.keys.toList()
-        }
-        keys.forEach { key ->
-            synchronized(actionsByKey) {
-                actionsByKey.remove(key)
-                actionPackagesByKey.remove(key)
-            }
-            synchronized(lastSent) { lastSent.remove(key) }
-            Hub.service?.mirrorRemoved(key)
-        }
-    }
 
     /** Invoke only an action supplied by the original app notification. */
     fun performAction(key: String, index: Int): Boolean {

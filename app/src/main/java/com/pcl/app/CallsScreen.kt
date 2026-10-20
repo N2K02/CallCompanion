@@ -103,7 +103,11 @@ class CallsUi(
     val callState: String,
     val callDisplay: String,
     val simStatus: String?,
+    /** The SIM call was answered or placed on the Gateway itself. */
+    val simOnGateway: Boolean,
     val whatsappStatus: String?,
+    /** A WhatsApp (or other app's) call on the Gateway that this phone shows. */
+    val mirrorCall: LinkService.MirrorCall?,
     val contacts: List<Contact>,
 )
 
@@ -113,6 +117,8 @@ class CallsActions(
     val answer: () -> Unit,
     val reject: () -> Unit,
     val hangUp: () -> Unit,
+    /** Press one of a Gateway app call's buttons: its index on the Gateway and its label. */
+    val pressMirror: (call: LinkService.MirrorCall, index: Int, label: String) -> Unit,
     val syncContacts: () -> Unit,
 )
 
@@ -144,8 +150,12 @@ fun CallsScreen(ui: CallsUi, actions: CallsActions, modifier: Modifier = Modifie
     val edit: (String) -> Unit = { n -> number = n; section = CallsSection.KEYPAD }
 
     Column(modifier.fillMaxSize().padding(horizontal = 16.dp)) {
+        val mirror = ui.mirrorCall
         if (ui.callState != LinkService.CALL_IDLE) {
             ActiveCallCard(ui, actions)
+            Spacer(Modifier.height(10.dp))
+        } else if (mirror != null) {
+            AppCallCard(mirror, actions)
             Spacer(Modifier.height(10.dp))
         } else if (!ui.connected) {
             Text(
@@ -212,6 +222,7 @@ private fun ActiveCallCard(ui: CallsUi, actions: CallsActions) {
                     Text(
                         when {
                             ringing -> "Incoming SIM call"
+                            ui.simOnGateway -> "Taken on the Gateway"
                             since > 0 -> "On a call · ${duration((now - since) / 1000)}"
                             else -> "Calling…"
                         },
@@ -251,6 +262,77 @@ private fun ActiveCallCard(ui: CallsUi, actions: CallsActions) {
             }
             Text(
                 "Talk through the Gateway or its Bluetooth headset.",
+                style = MaterialTheme.typography.bodySmall,
+            )
+        }
+    }
+}
+
+/** A WhatsApp (or other app's) call on the Gateway, with that call's own buttons. */
+@Composable
+private fun AppCallCard(call: LinkService.MirrorCall, actions: CallsActions) {
+    var now by remember { mutableLongStateOf(System.currentTimeMillis()) }
+    LaunchedEffect(call.connectedAt) {
+        while (call.connectedAt != null) {
+            now = System.currentTimeMillis()
+            delay(1_000)
+        }
+    }
+    Card(
+        colors = CardDefaults.cardColors(
+            containerColor = if (call.ringing) MaterialTheme.colorScheme.tertiaryContainer else MaterialTheme.colorScheme.primaryContainer,
+        ),
+        modifier = Modifier.fillMaxWidth(),
+    ) {
+        Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Icon(Icons.AutoMirrored.Filled.Chat, null, Modifier.size(28.dp))
+                Spacer(Modifier.width(12.dp))
+                Column(Modifier.weight(1f)) {
+                    Text(
+                        when {
+                            call.ringing -> "Incoming ${call.app} call"
+                            call.connectedAt != null -> "${call.app} call · ${duration(((now - call.connectedAt) / 1000).coerceAtLeast(0))}"
+                            else -> "${call.app} call"
+                        },
+                        style = MaterialTheme.typography.titleMedium,
+                        fontWeight = FontWeight.SemiBold,
+                    )
+                    Text(call.title, style = MaterialTheme.typography.bodyLarge, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                }
+            }
+            if (call.buttons.isNotEmpty()) {
+                Row(horizontalArrangement = Arrangement.spacedBy(10.dp), modifier = Modifier.fillMaxWidth()) {
+                    call.buttons.forEach { (index, label) ->
+                        val answer = WhatsAppCalls.isAnswer(label)
+                        val end = WhatsAppCalls.isDecline(label) || WhatsAppCalls.isEnd(label)
+                        FilledTonalButton(
+                            onClick = { actions.pressMirror(call, index, label) },
+                            colors = androidx.compose.material3.ButtonDefaults.filledTonalButtonColors(
+                                containerColor = when {
+                                    answer -> CallGreen
+                                    end -> MaterialTheme.colorScheme.error
+                                    else -> MaterialTheme.colorScheme.secondaryContainer
+                                },
+                                contentColor = when {
+                                    answer -> Color.White
+                                    end -> MaterialTheme.colorScheme.onError
+                                    else -> MaterialTheme.colorScheme.onSecondaryContainer
+                                },
+                            ),
+                            modifier = Modifier.weight(1f),
+                        ) {
+                            if (answer || end) {
+                                Icon(if (answer) Icons.Default.Call else Icons.Default.CallEnd, null)
+                                Spacer(Modifier.width(6.dp))
+                            }
+                            Text(label, maxLines = 1)
+                        }
+                    }
+                }
+            }
+            Text(
+                "The call runs on the Gateway: talk through its earpiece or Bluetooth headset.",
                 style = MaterialTheme.typography.bodySmall,
             )
         }
@@ -506,6 +588,7 @@ private fun RecentsPane(ui: CallsUi, actions: CallsActions, names: NameBook, onE
                     title = name.ifEmpty { r.number.ifEmpty { "Unknown number" } },
                     titleColor = if (r.type == CallHistory.Type.MISSED) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.onSurface,
                     subtitle = buildString {
+                        if (r.whatsapp) append("WhatsApp · ")
                         append(typeLabel(r.type))
                         append(" · ")
                         append(DateFormat.getTimeInstance(DateFormat.SHORT).format(Date(r.at)))

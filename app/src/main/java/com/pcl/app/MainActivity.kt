@@ -7,8 +7,6 @@ import androidx.core.view.WindowCompat
 import androidx.core.view.WindowInsetsCompat
 import androidx.core.view.WindowInsetsControllerCompat
 import android.bluetooth.BluetoothManager
-import android.net.ConnectivityManager
-import android.net.NetworkCapabilities
 import android.content.Intent
 import android.content.ClipData
 import android.content.ClipboardManager
@@ -213,24 +211,6 @@ class MainActivity : ComponentActivity() {
         if (currentRole() == LinkService.ROLE_REMOTE && loadedContactsVersion != Hub.contactsVersion) loadContacts()
     }
 
-    private fun internetStatus(): String {
-        val manager = getSystemService(ConnectivityManager::class.java)
-        val network = manager?.activeNetwork ?: return "No active network"
-        val caps = manager.getNetworkCapabilities(network) ?: return "Checking network"
-        val transport = when {
-            caps.hasTransport(NetworkCapabilities.TRANSPORT_WIFI) -> "Wi-Fi"
-            caps.hasTransport(NetworkCapabilities.TRANSPORT_CELLULAR) -> "Mobile data"
-            caps.hasTransport(NetworkCapabilities.TRANSPORT_BLUETOOTH) -> "Bluetooth"
-            caps.hasTransport(NetworkCapabilities.TRANSPORT_ETHERNET) -> "Ethernet"
-            else -> "Other network"
-        }
-        return if (caps.hasCapability(NetworkCapabilities.NET_CAPABILITY_VALIDATED)) {
-            "$transport · internet verified by Android"
-        } else {
-            "$transport · internet not verified"
-        }
-    }
-
     private fun formatTrafficRate(bytesPerSecond: Long): String = when {
         bytesPerSecond >= 1024L * 1024L -> String.format(java.util.Locale.US, "%.1f MB/s", bytesPerSecond / (1024.0 * 1024.0))
         bytesPerSecond >= 1024L -> String.format(java.util.Locale.US, "%.1f KB/s", bytesPerSecond / 1024.0)
@@ -252,7 +232,9 @@ class MainActivity : ComponentActivity() {
         val notificationAccess = NotifListener.isEnabled(this)
         val setupReady = remember(revision, role, roleSelected, notificationAccess) {
             val required = corePerms() + if (role == LinkService.ROLE_GATEWAY) gatewayPerms() else emptyList()
-            roleSelected && required.distinct().all { granted(it) } && notificationAccess
+            // Only the Gateway reads notifications; the Remote has no WhatsApp to watch.
+            roleSelected && required.distinct().all { granted(it) } &&
+                (role != LinkService.ROLE_GATEWAY || notificationAccess)
         }
         var screen by remember { mutableStateOf(if (setupReady) MainTab.HOME else MainTab.SETTINGS) }
         val unseenMissed by CallHistory.unseenMissed.collectAsState()
@@ -311,7 +293,9 @@ class MainActivity : ComponentActivity() {
                         callState = callState,
                         callDisplay = service?.display().orEmpty(),
                         simStatus = service?.callControlError,
+                        simOnGateway = service?.simCallOnGateway == true,
                         whatsappStatus = service?.whatsappCallStatus,
+                        mirrorCall = service?.liveMirrorCall,
                         contacts = contacts,
                     ),
                     actions = CallsActions(
@@ -320,6 +304,7 @@ class MainActivity : ComponentActivity() {
                         answer = { service?.answer() },
                         reject = { service?.reject() },
                         hangUp = { service?.hangUp() },
+                        pressMirror = { call, index, label -> service?.pressMirrorButton(call.key, index, label, call.pkg) },
                         syncContacts = { service?.syncContacts(); refresh() },
                     ),
                     modifier = Modifier.padding(insets),
@@ -441,7 +426,7 @@ class MainActivity : ComponentActivity() {
 
                 if (screen == MainTab.HOME && setupReady) {
                     val traffic = service
-                    SectionCard(title = "Network speed", subtitle = "PCL traffic over Bluetooth · not internet speed") {
+                    SectionCard(title = "Link traffic", subtitle = "What PCL sends between the phones over Bluetooth") {
                         if (connected && traffic != null) {
                             Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
                                 Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(4.dp)) {
@@ -462,29 +447,6 @@ class MainActivity : ComponentActivity() {
                 if (screen == MainTab.SETTINGS) {
                     Text("Setup & settings", style = MaterialTheme.typography.headlineMedium, fontWeight = FontWeight.Bold)
                     Text("Choose a role and grant every required permission. Home unlocks when setup is complete.", style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                    SectionCard(
-                        title = "Bluetooth internet",
-                        subtitle = "The Remote uses the Gateway's mobile data over Bluetooth tethering."
-                    ) {
-                        Text("Current network on this phone: ${internetStatus()}", style = MaterialTheme.typography.bodyMedium, fontWeight = FontWeight.SemiBold)
-                        if (role == LinkService.ROLE_GATEWAY) {
-                            Text("Turn on Bluetooth tethering (in Hotspot & tethering) and leave it on. PCL can't switch it for you, and some phones turn it off after a restart, so check it then.", style = MaterialTheme.typography.bodyMedium)
-                            Button(onClick = {
-                                try { startActivity(Intent("android.settings.TETHER_SETTINGS")) }
-                                catch (_: Exception) {
-                                    try { startActivity(Intent(Settings.ACTION_BLUETOOTH_SETTINGS)) }
-                                    catch (_: Exception) { toast("Open Android Settings → Hotspot & tethering → Bluetooth tethering") }
-                                }
-                            }, modifier = Modifier.fillMaxWidth()) { Text("Bluetooth tethering settings") }
-                        } else {
-                            Text("In Bluetooth settings, open the Gateway and allow Internet access, and keep Bluetooth on. To check it works, turn Wi-Fi off and open a web page.", style = MaterialTheme.typography.bodyMedium)
-                            Button(onClick = {
-                                try { startActivity(Intent(Settings.ACTION_BLUETOOTH_SETTINGS)) }
-                                catch (_: Exception) { toast("Open Android Settings → Bluetooth") }
-                            }, modifier = Modifier.fillMaxWidth()) { Text("Open Bluetooth settings") }
-                        }
-                        Text("PCL's own link carries calls and notifications, not internet; it doesn't relay call audio. Mobile-data charges may apply.", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                    }
                     Row(horizontalArrangement = Arrangement.spacedBy(12.dp), modifier = Modifier.fillMaxWidth()) {
                         RoleChoiceCard("Gateway", "SIM phone and call controller", Icons.Default.Radio, roleSelected && role == LinkService.ROLE_GATEWAY, Modifier.weight(1f)) {
                             if (!running) { role = LinkService.ROLE_GATEWAY; roleSelected = true; prefs.edit().putString(Prefs.ROLE, role).apply(); refresh() }
@@ -508,6 +470,9 @@ class MainActivity : ComponentActivity() {
                         )
                         if (callState == LinkService.CALL_RINGING || callState == LinkService.CALL_OFFHOOK) {
                             Text(service?.display().orEmpty(), style = MaterialTheme.typography.bodyLarge)
+                        }
+                        if (remote && service?.simCallOnGateway == true) {
+                            Text("Taken on the Gateway, so this phone stays quiet.", style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
                         }
                         val callError = service?.callControlError
                         if (callError?.startsWith("FAILED:") == true || callError?.startsWith("PENDING:") == true) {
@@ -574,7 +539,7 @@ class MainActivity : ComponentActivity() {
                             PermissionSetupRow("Answer calls", "Allow call answering requests", granted(Manifest.permission.ANSWER_PHONE_CALLS)) { requestPermissions(arrayOf(Manifest.permission.ANSWER_PHONE_CALLS), 1) }
                             PermissionSetupRow("Place calls", "Place calls through the gateway SIM", granted(Manifest.permission.CALL_PHONE)) { requestPermissions(arrayOf(Manifest.permission.CALL_PHONE), 1) }
                             PermissionSetupRow("Contacts (for sync)", "Send Gateway contacts to the Remote and resolve caller names", granted(Manifest.permission.READ_CONTACTS)) { requestPermissions(arrayOf(Manifest.permission.READ_CONTACTS), 1) }
-                            PermissionSetupRow("Notification access", "Mirror notifications and detect WhatsApp call state", notificationAccess, actionLabel = "Open settings") { runCatching { startActivity(Intent(Settings.ACTION_NOTIFICATION_LISTENER_SETTINGS)) }.onFailure { toast("Open Android Settings → Notifications → Notification access") } }
+                            PermissionSetupRow("Notification access", "Send notifications and WhatsApp calls to the Remote", notificationAccess, actionLabel = "Open settings") { runCatching { startActivity(Intent(Settings.ACTION_NOTIFICATION_LISTENER_SETTINGS)) }.onFailure { toast("Open Android Settings → Notifications → Notification access") } }
                             val callHelperEnabled = WhatsappCallAccessibilityService.isEnabled(this@MainActivity)
                             PermissionSetupRow("WhatsApp calls (optional)", "Accessibility service \"PCL WhatsApp call helper\": lets PCL start the WhatsApp calls the Remote asks for", callHelperEnabled, actionLabel = "Open settings") {
                                 runCatching { startActivity(Intent(Settings.ACTION_ACCESSIBILITY_SETTINGS)) }
@@ -582,7 +547,6 @@ class MainActivity : ComponentActivity() {
                             }
                             if (Build.VERSION.SDK_INT >= 31) PermissionSetupRow("Bluetooth connection", "Connect to the paired remote phone", granted(Manifest.permission.BLUETOOTH_CONNECT)) { requestPermissions(arrayOf(Manifest.permission.BLUETOOTH_CONNECT), 1) }
                         } else if (roleSelected) {
-                            PermissionSetupRow("Notification access", "Detect this phone's WhatsApp calls, so the same call isn't shown twice", notificationAccess, actionLabel = "Open settings") { runCatching { startActivity(Intent(Settings.ACTION_NOTIFICATION_LISTENER_SETTINGS)) }.onFailure { toast("Open Android Settings → Notifications → Notification access") } }
                             PermissionSetupRow("Local contacts (optional)", "Include this phone's contacts in Remote search", granted(Manifest.permission.READ_CONTACTS)) { requestPermissions(arrayOf(Manifest.permission.READ_CONTACTS), 1) }
                             if (Build.VERSION.SDK_INT >= 31) PermissionSetupRow("Bluetooth connection", "Find and connect to the paired gateway phone", granted(Manifest.permission.BLUETOOTH_CONNECT)) { requestPermissions(arrayOf(Manifest.permission.BLUETOOTH_CONNECT), 1) }
                             if (Build.VERSION.SDK_INT >= 33) PermissionSetupRow("Notifications", "Show the ongoing PCL status", granted(Manifest.permission.POST_NOTIFICATIONS)) { requestPermissions(arrayOf(Manifest.permission.POST_NOTIFICATIONS), 1) }
@@ -591,9 +555,9 @@ class MainActivity : ComponentActivity() {
                         }
                         // Android 13+ blocks these two for apps installed from an APK file
                         // until the user allows "restricted settings" in App info.
-                        // The Remote has no accessibility helper, so only Notification access applies there.
-                        if (roleSelected && Build.VERSION.SDK_INT >= 33 && (!notificationAccess ||
-                                (role == LinkService.ROLE_GATEWAY && !WhatsappCallAccessibilityService.isEnabled(this@MainActivity)))
+                        // Only the Gateway needs them; the Remote has neither.
+                        if (roleSelected && role == LinkService.ROLE_GATEWAY && Build.VERSION.SDK_INT >= 33 &&
+                            (!notificationAccess || !WhatsappCallAccessibilityService.isEnabled(this@MainActivity))
                         ) {
                             Text(
                                 "Greyed out or \"Restricted setting\"? Android blocks Notification access and Accessibility for apps installed from an APK. Open App info, tap ⋮, choose Allow restricted settings, then try again.",
@@ -640,7 +604,10 @@ class MainActivity : ComponentActivity() {
                         }, modifier = Modifier.fillMaxWidth()) { Text("Open notification access settings") }
                         var mirror by remember { mutableStateOf(prefs.getBoolean(Prefs.MIRROR, true)) }
                         Row(verticalAlignment = Alignment.CenterVertically) {
-                            Text("Send notifications to remote", Modifier.weight(1f))
+                            Column(Modifier.weight(1f)) {
+                                Text("Send other notifications to remote")
+                                Text("Messages and other apps. Calls always go to the Remote.", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                            }
                             Switch(checked = mirror, onCheckedChange = {
                                 mirror = it
                                 prefs.edit().putBoolean(Prefs.MIRROR, it).apply()

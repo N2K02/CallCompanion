@@ -14,9 +14,11 @@ import java.io.File
  *
  * SIM calls are worked out from the Gateway's call states (ringing, in call, idle):
  * ringing then idle is missed (or declined, when declined from this phone), ringing then
- * in call is incoming, and in call without ringing is outgoing.
+ * in call is incoming, and in call without ringing is outgoing. WhatsApp calls on the
+ * Gateway are worked out the same way by [WhatsAppCallTracker].
  */
 object CallHistory {
+    /** [WHATSAPP] is only in lists saved by PCL 2.8 and older: a WhatsApp call asked for from the Remote. */
     enum class Type { INCOMING, OUTGOING, MISSED, DECLINED, WHATSAPP }
 
     data class Record(
@@ -27,6 +29,8 @@ object CallHistory {
         val at: Long,
         /** Talk time in seconds; 0 for calls that weren't answered. */
         val durationSec: Long = 0,
+        /** A WhatsApp call on the Gateway rather than a SIM call. */
+        val whatsapp: Boolean = false,
     )
 
     private const val FILE = "call_history.json"
@@ -75,6 +79,7 @@ object CallHistory {
                         type = runCatching { Type.valueOf(o.optString("t")) }.getOrNull() ?: return@mapNotNull null,
                         at = o.optLong("a"),
                         durationSec = o.optLong("d"),
+                        whatsapp = o.optBoolean("w"),
                     )
                 }
             }
@@ -85,7 +90,7 @@ object CallHistory {
     }
 
     @Synchronized
-    private fun add(record: Record) {
+    fun add(record: Record) {
         if (!loaded) return
         val list = (listOf(record) + _records.value).take(MAX)
         _records.value = list
@@ -98,7 +103,7 @@ object CallHistory {
             val arr = JSONArray()
             list.forEach { r ->
                 arr.put(JSONObject().put("n", r.number).put("m", r.name).put("t", r.type.name)
-                    .put("a", r.at).put("d", r.durationSec))
+                    .put("a", r.at).put("d", r.durationSec).put("w", r.whatsapp))
             }
             File(app.filesDir, FILE).writeText(arr.toString())
         } catch (e: Exception) {
@@ -135,11 +140,6 @@ object CallHistory {
     @Synchronized
     fun onDeclinedHere() {
         if (lastState == LinkService.CALL_RINGING) declinedHere = true
-    }
-
-    @Synchronized
-    fun onWhatsAppCall(number: String, name: String) {
-        add(Record(number, name, Type.WHATSAPP, System.currentTimeMillis()))
     }
 
     /**

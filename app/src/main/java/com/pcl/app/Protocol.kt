@@ -24,8 +24,7 @@ object Protocol {
      *  - no number: PCL 2.1 and older
      *  - 3: HELLO carries versions; Gateway reports hotspot status (HOTSPOT_STATE)
      *  - 4: the Remote can ask the Gateway to start a WhatsApp call (WHATSAPP_CALL)
-     *  - 5: the Wi-Fi hotspot workaround is gone (no HOTSPOT_STATE, no WHATSAPP_CALL_TRIGGER);
-     *       the Remote's internet is Bluetooth tethering only
+     *  - 5: the Wi-Fi hotspot workaround is gone (no HOTSPOT_STATE, no WHATSAPP_CALL_TRIGGER)
      */
     const val VERSION = 5
 }
@@ -33,7 +32,8 @@ object Protocol {
 /**
  * Which phone may act on each command. A command arriving at the wrong role is ignored,
  * so a peer can't, for example, make a Remote place calls.
- * HELLO and WHATSAPP_CALL_STATE flow both ways and appear in neither set.
+ * HELLO goes both ways and is in neither set. WHATSAPP_CALL_STATE goes from the Gateway to
+ * the Remote; older Remotes also sent their own, which the Gateway ignores.
  */
 object Commands {
     /** Sent by the Remote; handled only on the Gateway. */

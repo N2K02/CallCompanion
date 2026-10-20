@@ -65,6 +65,8 @@ class LinkService : Service() {
         const val ACTION_NOTIF_ACTION = "com.pcl.app.NOTIF_ACTION"
         /** Remote: "Call back" on a missed-call notification. */
         const val ACTION_CALL_BACK = "com.pcl.app.CALL_BACK"
+        /** Remote: "Call back" on a missed WhatsApp call notification. */
+        const val ACTION_WHATSAPP_CALL_BACK = "com.pcl.app.WHATSAPP_CALL_BACK"
         const val EXTRA_NUMBER = "number"
         const val EXTRA_NAME = "name"
         /** MainActivity: which tab to open ("calls"). */
@@ -92,10 +94,13 @@ class LinkService : Service() {
         private const val ID_INCOMING = 2
         private const val ID_WHATSAPP_HANDOFF = 42
         private const val ID_MISSED = 46
+        private const val ID_MISSED_WHATSAPP = 47
         private const val TRAFFIC_SAMPLE_MS = 5_000L
         private const val CALL_CONTROL_TIMEOUT_MS = 15_000L
         /** Remote: stop ringing for a mirrored call after this long, whatever happens. */
         private const val MIRROR_RING_LIMIT_MS = 75_000L
+        /** Remote: a SIM call connecting this soon after this phone asked to dial is this phone's. */
+        private const val DIAL_WINDOW_MS = 60_000L
         /** Remote: how long to wait for the Gateway to say whether a WhatsApp call started. */
         private const val WHATSAPP_CALL_TIMEOUT_MS = 25_000L
         /** Upper bound for a contact sync in characters; protects memory from a misbehaving peer. */
@@ -224,9 +229,46 @@ class LinkService : Service() {
 
     /** Remote: the mirrored Gateway call (WhatsApp etc.) that is ringing here, by its encoded key. */
     @Volatile private var ringingMirrorKey: String? = null
-    /** Remote: mirrored Gateway calls on screen, and when each one connected (for the call timer). */
-    private val mirroredCalls = ConcurrentHashMap<String, Long>()
+
+    /** Remote: a Gateway call (WhatsApp etc.) shown on this phone, with the Gateway notification's buttons. */
+    class MirrorCall(
+        val key: String,
+        val pkg: String,
+        val app: String,
+        val title: String,
+        val ringing: Boolean,
+        /** When it connected (epoch ms), or null while it rings. */
+        val connectedAt: Long?,
+        /** Each button's index on the Gateway, and its label. */
+        val buttons: List<Pair<Int, String>>,
+    )
+
+    /** Remote: mirrored Gateway calls on screen, by encoded key. */
+    private val mirroredCalls = ConcurrentHashMap<String, MirrorCall>()
+
+    /** Remote: the Gateway call (WhatsApp etc.) for the Calls tab: a ringing one first. */
+    val liveMirrorCall: MirrorCall?
+        get() = mirroredCalls.values.sortedByDescending { it.ringing }.firstOrNull()
+
     private val stopMirrorRingingLater = Runnable { stopMirrorRinging(null) }
+
+    /** Remote: follows the Gateway's WhatsApp calls, for whose call it is and for Recents. */
+    private val whatsappTracker by lazy {
+        WhatsAppCallTracker(
+            trafficHandler,
+            numberFor = ::numberForName,
+            onTakenByGateway = ::onWhatsAppTakenByGateway,
+            onEnded = ::onWhatsAppCallEnded,
+        )
+    }
+
+    /** Remote: this phone answered or placed the current SIM call, so it shows it until it ends. */
+    @Volatile private var simCallHere = false
+    private var simDialAt = 0L
+
+    /** Remote: the current SIM call was answered or placed on the Gateway, so this phone stays quiet. */
+    @Volatile var simCallOnGateway = false
+        private set
     private var contactBuf: StringBuilder? = null
 
     val isActive: Boolean get() = running
@@ -292,23 +334,17 @@ class LinkService : Service() {
                 key?.let(::stopMirrorRinging)
                 if (running && key != null) send("NOTIF_DISMISS", key) else if (!running) stopSelf()
             }
-            ACTION_NOTIF_ACTION -> {
-                val key = intent.getStringExtra(EXTRA_KEY)
-                // Answer, Decline or Hang up: either way this phone stops ringing.
-                key?.let(::stopMirrorRinging)
-                val index = intent.getIntExtra(EXTRA_ACTION_INDEX, -1)
-                val label = intent.getStringExtra(EXTRA_ACTION_LABEL).orEmpty()
-                val notifPackage = intent.getStringExtra(EXTRA_NOTIF_PACKAGE).orEmpty()
-                val staleAnswer = WhatsAppCalls.isWhatsApp(notifPackage) && WhatsAppCalls.isAnswer(label) &&
-                    (localWhatsappCallStates[notifPackage] == WhatsAppCalls.ACTIVE ||
-                        peerWhatsappCallStates[notifPackage] == WhatsAppCalls.ACTIVE)
-                when {
-                    staleAnswer -> Hub.log("Ignored stale WhatsApp Answer action: a WhatsApp call is already active")
-                    !running || role != ROLE_REMOTE || !connected ->
-                        Hub.log("Third-party call action unavailable: Bluetooth link is not connected")
-                    key == null || index < 0 -> Hub.log("Third-party call action unavailable: the notification is no longer valid")
-                    else -> send("NOTIF_ACTION", key, index.toString(), encodeText(label))
-                }
+            ACTION_NOTIF_ACTION -> pressMirrorButton(
+                intent.getStringExtra(EXTRA_KEY),
+                intent.getIntExtra(EXTRA_ACTION_INDEX, -1),
+                intent.getStringExtra(EXTRA_ACTION_LABEL).orEmpty(),
+                intent.getStringExtra(EXTRA_NOTIF_PACKAGE).orEmpty(),
+            )
+            ACTION_WHATSAPP_CALL_BACK -> {
+                nm.cancel(ID_MISSED_WHATSAPP)
+                val number = intent.getStringExtra(EXTRA_NUMBER).orEmpty()
+                if (running && number.isNotEmpty()) startWhatsAppCall(number, intent.getStringExtra(EXTRA_NAME).orEmpty())
+                else if (!running) stopSelf()
             }
         }
         Hub.notifyUi()
@@ -344,7 +380,32 @@ class LinkService : Service() {
 
     fun answer() {
         stopSimRinging()
-        if (role == ROLE_GATEWAY) gatewayAnswer() else requestGateway("ANSWER")
+        if (role == ROLE_GATEWAY) {
+            gatewayAnswer()
+        } else {
+            simCallHere = true
+            requestGateway("ANSWER")
+        }
+    }
+
+    /**
+     * Remote: press a button of a mirrored Gateway call (Answer, Decline, Hang up), from its
+     * notification or the Calls tab. The Gateway presses the same button on its own notification.
+     */
+    fun pressMirrorButton(key: String?, index: Int, label: String, pkg: String) {
+        // Whichever button it is, this phone stops ringing.
+        key?.let(::stopMirrorRinging)
+        if (WhatsAppCalls.isWhatsApp(pkg)) whatsappTracker.onButton(pkg, label)
+        val staleAnswer = WhatsAppCalls.isWhatsApp(pkg) && WhatsAppCalls.isAnswer(label) &&
+            peerWhatsappCallStates[pkg] == WhatsAppCalls.ACTIVE
+        when {
+            staleAnswer -> Hub.log("Ignored stale WhatsApp Answer action: a WhatsApp call is already active")
+            !running || role != ROLE_REMOTE || !connected ->
+                Hub.log("Third-party call action unavailable: Bluetooth link is not connected")
+            key == null || index < 0 -> Hub.log("Third-party call action unavailable: the notification is no longer valid")
+            else -> send("NOTIF_ACTION", key, index.toString(), encodeText(label))
+        }
+        Hub.notifyUi()
     }
 
     fun reject() {
@@ -363,6 +424,7 @@ class LinkService : Service() {
             gatewayDial(number)
         } else {
             CallHistory.onDialRequested(number, name)
+            simDialAt = SystemClock.elapsedRealtime()
             requestGateway("DIAL", number)
         }
     }
@@ -380,22 +442,6 @@ class LinkService : Service() {
     }
 
     /**
-     * WhatsApp does not expose a stable public API to place a voice call directly.
-     * This asks the Gateway to post a notification that opens the WhatsApp chat when
-     * tapped on that phone; the user starts the voice call inside WhatsApp.
-     */
-    fun openWhatsAppChat(number: String) {
-        if (role == ROLE_GATEWAY) {
-            gatewayWhatsAppChat(number)
-        } else if (!connected) {
-            Hub.log("WhatsApp handoff unavailable: Bluetooth is disconnected")
-        } else {
-            send("WHATSAPP_CHAT", number)
-            Hub.log("Requested WhatsApp chat handoff on Gateway")
-        }
-    }
-
-    /**
      * Remote: asks the Gateway to start a WhatsApp voice call to [number] in its own WhatsApp.
      * The call runs on the Gateway; Home shows whether it started.
      */
@@ -406,7 +452,7 @@ class LinkService : Service() {
             Hub.notifyUi()
             return
         }
-        CallHistory.onWhatsAppCall(number, name)
+        whatsappTracker.onRequested(number, name)
         val theirs = peerProtocol
         if (theirs == null || theirs < 4) {
             // An older Gateway can only post a "Continue in WhatsApp" notification.
@@ -529,18 +575,10 @@ class LinkService : Service() {
         Hub.notifyUi()
     }
 
-    /**
-     * Suppress the Gateway's WhatsApp call copy whenever Remote has already
-     * detected its own native WhatsApp call notification. Native WhatsApp UI
-     * takes priority; mirroring remains a fallback if Remote has no detected call.
-     */
-    fun shouldSuppressWhatsAppMirror(pkg: String): Boolean =
-        WhatsAppCalls.isWhatsApp(pkg) &&
-            peerWhatsappCallStates[pkg] in setOf(WhatsAppCalls.RINGING, WhatsAppCalls.ACTIVE)
-
     /** Observe and relay call state only; never auto-answer, reject, or mute a call. */
     fun updateLocalWhatsappCallState(pkg: String, state: String) {
-        if (!WhatsAppCalls.isWhatsApp(pkg) || state !in WhatsAppCalls.STATES) return
+        // Only the Gateway has WhatsApp.
+        if (role != ROLE_GATEWAY || !WhatsAppCalls.isWhatsApp(pkg) || state !in WhatsAppCalls.STATES) return
         val previous = localWhatsappCallStates[pkg] ?: WhatsAppCalls.IDLE
         // Notification updates often repeat the same state; only real changes are relayed.
         if (previous == state) return
@@ -559,7 +597,7 @@ class LinkService : Service() {
                 )
             }
         }
-        // The other phone uses this to avoid showing the same WhatsApp call twice.
+        // The Remote uses this to follow the call: whose it is, and for its Recents.
         if (connected) sendWhatsAppState(pkg, state)
         Hub.notifyUi()
     }
@@ -687,17 +725,17 @@ class LinkService : Service() {
             "peer"
         }
         setConn(true, "Connected to $peer")
-        NotifListener.instance?.syncActiveNotifications()
         helloReceived = false
         peerProtocol = null
         peerAppVersion = ""
         send("HELLO", role, Protocol.VERSION.toString(), appVersion)
-        // Replay every WhatsApp call state, IDLE included: the peer may have missed changes
-        // while the link was down.
-        for (pkg in WhatsAppCalls.PACKAGES) sendWhatsAppState(pkg, localWhatsappCallStates[pkg] ?: WhatsAppCalls.IDLE)
         if (role == ROLE_GATEWAY) {
+            // Replay every WhatsApp call state, IDLE included: the Remote may have missed
+            // changes while the link was down. States go before the call notifications.
+            for (pkg in WhatsAppCalls.PACKAGES) sendWhatsAppState(pkg, localWhatsappCallStates[pkg] ?: WhatsAppCalls.IDLE)
             sendCallState()
             sendContactsFingerprint()
+            NotifListener.instance?.syncActiveNotifications()
         }
         val input = DataInputStream(BufferedInputStream(s.inputStream, 16384))
         try {
@@ -730,6 +768,7 @@ class LinkService : Service() {
                 ringingMirrorKey = null
                 mirroredCalls.keys.forEach { nm.cancel(TAG_MIRROR, it.hashCode()) }
                 mirroredCalls.clear()
+                whatsappTracker.reset()
             }
         }
     }
@@ -822,6 +861,7 @@ class LinkService : Service() {
             "HOTSPOT_STATE", "WHATSAPP_CALL_TRIGGER" -> Unit
             // gateway -> remote
             "CALL" -> {
+                val previousState = callState
                 callState = arg1.ifEmpty { CALL_IDLE }
                 if (callState == CALL_RINGING) callControlError = null
                 callNumber = p.getOrElse(2) { "" }
@@ -830,7 +870,7 @@ class LinkService : Service() {
                 CallHistory.onSimState(callState, callNumber, callName)
                     ?.takeIf { it.type == CallHistory.Type.MISSED }
                     ?.let(::showMissedCall)
-                onRemoteCallUpdate()
+                onRemoteCallUpdate(previousState)
             }
             // remote -> gateway
             "ANSWER" -> { gatewayAnswer(); sendCallResult() }
@@ -921,29 +961,23 @@ class LinkService : Service() {
                 val key = decodeKey(arg1)
                 val index = p.getOrNull(2)?.toIntOrNull() ?: -1
                 val label = decodeText(p.getOrNull(3).orEmpty())
-                val notifPackage = key?.let { NotifListener.instance?.notificationPackage(it) }.orEmpty()
-                val duplicateWhatsappAnswer = WhatsAppCalls.isWhatsApp(notifPackage) &&
-                    peerWhatsappCallStates[notifPackage] == WhatsAppCalls.ACTIVE && WhatsAppCalls.isAnswer(label)
-                val ok = !duplicateWhatsappAnswer && key != null && index >= 0 && (NotifListener.instance?.performAction(key, index) == true)
-                if (duplicateWhatsappAnswer) Hub.log("Ignored stale WhatsApp Answer action: Remote already has an active WhatsApp call in $notifPackage")
-                else if (!ok) Hub.log("Third-party call action failed or is no longer available")
+                val ok = key != null && index >= 0 && (NotifListener.instance?.performAction(key, index) == true)
+                if (ok) Hub.log("Remote pressed \"$label\" on a call notification")
+                else Hub.log("Third-party call action failed or is no longer available")
                 send("NOTIF_ACTION_RESULT", if (ok) "OK" else "FAILED")
             }
             "WHATSAPP_CALL_STATE" -> {
                 val pkg = decodeText(arg1)
                 val state = p.getOrNull(2).orEmpty()
-                if (WhatsAppCalls.isWhatsApp(pkg) && state in WhatsAppCalls.STATES) {
+                // Only the Gateway has WhatsApp; older Remotes may still send their own state.
+                if (role == ROLE_REMOTE && WhatsAppCalls.isWhatsApp(pkg) && state in WhatsAppCalls.STATES) {
                     val previous = peerWhatsappCallStates[pkg] ?: WhatsAppCalls.IDLE
                     if (state == WhatsAppCalls.IDLE) peerWhatsappCallStates.remove(pkg) else peerWhatsappCallStates[pkg] = state
-                    if (previous != state) Hub.log("Peer WhatsApp call state for $pkg: $state")
-                    // Remote: the Gateway's WhatsApp call ended, so its "calling" line is done.
-                    if (role == ROLE_REMOTE && peerWhatsappCallStates.isEmpty() &&
-                        whatsappCallStatus?.startsWith("OK:") == true
-                    ) whatsappCallStatus = null
-                    if (role == ROLE_GATEWAY) {
-                        // Remote may detect its native notification after the Gateway
-                        // already mirrored one. Remove all WhatsApp call copies now.
-                        if (state != WhatsAppCalls.IDLE) NotifListener.instance?.suppressWhatsAppCallMirrors(pkg)
+                    if (previous != state) Hub.log("Gateway WhatsApp call: ${state.lowercase()}")
+                    whatsappTracker.onState(pkg, state)
+                    // The Gateway's WhatsApp call ended, so the "calling" line is done.
+                    if (peerWhatsappCallStates.isEmpty() && whatsappCallStatus?.startsWith("OK:") == true) {
+                        whatsappCallStatus = null
                     }
                 }
             }
@@ -1213,22 +1247,47 @@ class LinkService : Service() {
 
     // ---------------------------------------------------------------- remote: ringing
 
-    private fun onRemoteCallUpdate() {
+    /**
+     * Remote: the Gateway's SIM call changed. This phone rings for every incoming call, but
+     * once connected it only shows calls it answered or placed itself; a call answered or
+     * placed on the Gateway is left to the Gateway.
+     */
+    private fun onRemoteCallUpdate(previous: String) {
         when (callState) {
             CALL_RINGING -> {
-                Hub.log("Incoming call (${logCaller()})")
+                if (previous != CALL_RINGING) {
+                    simCallHere = false
+                    simCallOnGateway = false
+                    Hub.log("Incoming call (${logCaller()})")
+                }
                 showIncoming()
                 startRinging()
             }
             CALL_OFFHOOK -> {
                 stopSimRinging()
-                showOngoingCall()
-                Hub.log("Call in progress on gateway (${logCaller()})")
+                if (previous == CALL_IDLE) {
+                    // Placed from here if this phone asked to dial just now (or answered it
+                    // before a link drop).
+                    simCallHere = simCallHere || SystemClock.elapsedRealtime() - simDialAt < DIAL_WINDOW_MS
+                }
+                if (simCallHere) {
+                    simCallOnGateway = false
+                    showOngoingCall()
+                    if (previous != CALL_OFFHOOK) Hub.log("Call in progress on gateway (${logCaller()})")
+                } else {
+                    simCallOnGateway = true
+                    nm.cancel(ID_INCOMING)
+                    if (previous != CALL_OFFHOOK) {
+                        Hub.log(if (previous == CALL_RINGING) "Call answered on the Gateway" else "Call placed on the Gateway")
+                    }
+                }
             }
             else -> {
+                simCallHere = false
+                simCallOnGateway = false
                 stopSimRinging()
                 nm.cancel(ID_INCOMING)
-                Hub.log("Call ended")
+                if (previous != CALL_IDLE) Hub.log("Call ended")
             }
         }
         updateStatus()
@@ -1241,9 +1300,12 @@ class LinkService : Service() {
             .setSmallIcon(android.R.drawable.sym_action_call)
             .setContentTitle("Call in progress")
             .setContentText(display())
+            .setSubText("on the Gateway")
             .setCategory(Notification.CATEGORY_CALL)
             .setOngoing(true)
-            .setContentIntent(openAppPi())
+            .setUsesChronometer(CallHistory.connectedSince > 0)
+            .setWhen(System.currentTimeMillis() - (SystemClock.elapsedRealtime() - CallHistory.connectedSince).coerceAtLeast(0))
+            .setContentIntent(openCallsPi())
             .addAction(action(android.R.drawable.ic_menu_close_clear_cancel, "End call", actionPi(ACTION_HANGUP, 13)))
             .build()
         try {
@@ -1352,9 +1414,11 @@ class LinkService : Service() {
 
     // ---------------------------------------------------------------- notification mirroring
 
-    fun shouldMirror(): Boolean =
-        running && connected && role == ROLE_GATEWAY &&
-            Prefs.of(this).getBoolean(Prefs.MIRROR, true)
+    /** Gateway: linked to the Remote, so call notifications can be relayed. */
+    fun canRelay(): Boolean = running && connected && role == ROLE_GATEWAY
+
+    /** Gateway: also send other notifications (messages etc.), as set in Settings. */
+    fun shouldMirror(): Boolean = canRelay() && Prefs.of(this).getBoolean(Prefs.MIRROR, true)
 
     private fun encodeKey(k: String): String = encodeText(k)
     private fun decodeKey(k: String): String? = try { decodeText(k) } catch (_: Exception) { null }
@@ -1396,16 +1460,31 @@ class LinkService : Service() {
 
     /**
      * Remote: mirror a Gateway call notification (WhatsApp etc.) with its buttons. While it
-     * rings, this phone rings like for a SIM call; once answered it shows a call timer. Its
-     * Answer / Decline / Hang up act on the Gateway, where the call and its audio stay.
+     * rings, this phone rings like for a SIM call; once answered from here it shows a call
+     * timer. A call the Gateway took (answered or started there) isn't shown here at all.
+     * The buttons act on the Gateway, where the call and its audio stay.
      */
     private fun showMirroredCall(encKey: String, pkg: String, app: String, title: String, text: String, actionIndices: List<Int>, actionLabels: List<String>) {
         val id = encKey.hashCode()
+        val whatsapp = WhatsAppCalls.isWhatsApp(pkg)
+        if (whatsapp) {
+            whatsappTracker.onCaller(pkg, title)
+            if (!whatsappTracker.shownHere(pkg)) {
+                hideMirroredCall(encKey)
+                return
+            }
+        }
         val state = WhatsAppCalls.stateFromActionLabels(actionLabels)
+        val ringing = state == WhatsAppCalls.RINGING
         val now = System.currentTimeMillis()
-        if (state == WhatsAppCalls.ACTIVE) mirroredCalls[encKey] = mirroredCalls[encKey]?.takeIf { it > 0 } ?: now
-        else mirroredCalls.putIfAbsent(encKey, 0L)
-        val connectedAt = mirroredCalls[encKey]?.takeIf { it > 0 }
+        val connectedAt = when {
+            ringing -> null
+            whatsapp -> whatsappTracker.connectedAt(pkg)
+            else -> mirroredCalls[encKey]?.connectedAt ?: if (state == WhatsAppCalls.ACTIVE) now else null
+        }
+        val buttons = (0 until minOf(3, actionIndices.size, actionLabels.size)).map { actionIndices[it] to actionLabels[it] }
+        mirroredCalls[encKey] = MirrorCall(encKey, pkg, app, title.ifEmpty { app }, ringing, connectedAt, buttons)
+
         val deletePi = PendingIntent.getService(this, id, Intent(this, LinkService::class.java).setAction(ACTION_NOTIF_DISMISSED).putExtra(EXTRA_KEY, encKey), PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT)
         // The calls channel is silent: PCL plays the ringtone itself while it rings.
         val builder = Notification.Builder(this, CH_CALLS)
@@ -1414,14 +1493,14 @@ class LinkService : Service() {
             .setStyle(Notification.BigTextStyle().bigText(text)).setCategory(Notification.CATEGORY_CALL)
             .setWhen(connectedAt ?: now).setShowWhen(true).setUsesChronometer(connectedAt != null)
             .setOngoing(true)
-            .setContentIntent(openAppPi()).setDeleteIntent(deletePi)
-        for (i in 0 until minOf(3, actionIndices.size, actionLabels.size)) {
-            val sourceIndex = actionIndices[i]
-            val label = actionLabels[i]
+            .setContentIntent(openCallsPi()).setDeleteIntent(deletePi)
+        // On a locked phone, a ringing call opens the Calls tab with Answer and Decline.
+        if (ringing) builder.setFullScreenIntent(openCallsPi(), true)
+        for ((sourceIndex, label) in buttons) {
             val lower = label.lowercase()
             val iconId = when {
-                lower.contains("answer") || lower.contains("accept") || lower.contains("join") -> android.R.drawable.sym_action_call
-                lower.contains("decline") || lower.contains("reject") || lower.contains("end") -> android.R.drawable.ic_menu_close_clear_cancel
+                WhatsAppCalls.isAnswer(label) || lower.contains("join") -> android.R.drawable.sym_action_call
+                WhatsAppCalls.isDecline(label) || WhatsAppCalls.isEnd(label) -> android.R.drawable.ic_menu_close_clear_cancel
                 else -> android.R.drawable.ic_menu_view
             }
             val pi = PendingIntent.getService(this, id xor (sourceIndex + 0x341),
@@ -1431,7 +1510,7 @@ class LinkService : Service() {
         }
         try { nm.notify(TAG_MIRROR, id, builder.build()) } catch (_: Exception) { }
 
-        if (state == WhatsAppCalls.RINGING) {
+        if (ringing) {
             if (ringingMirrorKey != encKey) {
                 ringingMirrorKey = encKey
                 startRinging()
@@ -1444,6 +1523,30 @@ class LinkService : Service() {
             stopMirrorRinging(encKey)
         }
     }
+
+    private fun hideMirroredCall(encKey: String) {
+        nm.cancel(TAG_MIRROR, encKey.hashCode())
+        mirroredCalls.remove(encKey)
+        stopMirrorRinging(encKey)
+    }
+
+    /** Remote: the Gateway answered or started this WhatsApp call itself, so this phone lets go. */
+    private fun onWhatsAppTakenByGateway(pkg: String) {
+        mirroredCalls.values.filter { it.pkg == pkg }.forEach { hideMirroredCall(it.key) }
+        Hub.log("WhatsApp call taken on the Gateway; not shown here")
+        Hub.notifyUi()
+    }
+
+    /** Remote: a Gateway WhatsApp call ended: add it to Recents, and say so if it was missed. */
+    private fun onWhatsAppCallEnded(call: CallHistory.Record) {
+        CallHistory.add(call)
+        if (call.type == CallHistory.Type.MISSED) showMissedCall(call)
+        Hub.notifyUi()
+    }
+
+    /** A synced (or this phone's) contact's number by exact name, or "". */
+    private fun numberForName(name: String): String =
+        if (name.isBlank()) "" else ContactStore.all(this).firstOrNull { it.name.equals(name, ignoreCase = true) }?.number.orEmpty()
 
     // ---------------------------------------------------------------- notifications
 
@@ -1461,6 +1564,15 @@ class LinkService : Service() {
             NotificationChannel(CH_MIRROR, "Notifications from gateway phone", NotificationManager.IMPORTANCE_HIGH)
         )
     }
+
+    /** Opens PCL on the Calls tab, where the live call has its buttons. */
+    private fun openCallsPi(): PendingIntent = PendingIntent.getActivity(
+        this, 23,
+        Intent(this, MainActivity::class.java)
+            .addFlags(Intent.FLAG_ACTIVITY_SINGLE_TOP)
+            .putExtra(EXTRA_OPEN_TAB, "calls"),
+        PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT
+    )
 
     private fun openAppPi(): PendingIntent = PendingIntent.getActivity(
         this, 0,
@@ -1515,19 +1627,13 @@ class LinkService : Service() {
         Hub.notifyUi()
     }
 
-    /** Remote: a Gateway call rang and nobody answered. */
+    /** Remote: a Gateway call (SIM or WhatsApp) rang and nobody answered. */
     private fun showMissedCall(call: CallHistory.Record) {
         val who = call.name.ifEmpty { call.number.ifEmpty { "Unknown number" } }
-        val open = PendingIntent.getActivity(
-            this, 21,
-            Intent(this, MainActivity::class.java)
-                .addFlags(Intent.FLAG_ACTIVITY_SINGLE_TOP)
-                .putExtra(EXTRA_OPEN_TAB, "calls"),
-            PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT
-        )
+        val open = openCallsPi()
         val builder = Notification.Builder(this, CH_CALLS)
             .setSmallIcon(android.R.drawable.stat_notify_missed_call)
-            .setContentTitle("Missed call")
+            .setContentTitle(if (call.whatsapp) "Missed WhatsApp call" else "Missed call")
             .setContentText(who)
             .setCategory(Notification.CATEGORY_MISSED_CALL)
             .setWhen(call.at)
@@ -1536,15 +1642,16 @@ class LinkService : Service() {
             .setContentIntent(open)
         if (call.number.isNotEmpty()) {
             val callBack = PendingIntent.getService(
-                this, 22,
-                Intent(this, LinkService::class.java).setAction(ACTION_CALL_BACK)
+                this, if (call.whatsapp) 24 else 22,
+                Intent(this, LinkService::class.java)
+                    .setAction(if (call.whatsapp) ACTION_WHATSAPP_CALL_BACK else ACTION_CALL_BACK)
                     .putExtra(EXTRA_NUMBER, call.number).putExtra(EXTRA_NAME, call.name),
                 PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT
             )
             builder.addAction(action(android.R.drawable.sym_action_call, "Call back", callBack))
         }
         try {
-            nm.notify(ID_MISSED, builder.build())
+            nm.notify(if (call.whatsapp) ID_MISSED_WHATSAPP else ID_MISSED, builder.build())
         } catch (e: Exception) {
             Hub.log("Could not show missed-call notification: ${e.message ?: e.javaClass.simpleName}")
         }
@@ -1557,8 +1664,8 @@ class LinkService : Service() {
             .setContentText(display())
             .setCategory(Notification.CATEGORY_CALL)
             .setOngoing(true)
-            .setContentIntent(openAppPi())
-            .setFullScreenIntent(openAppPi(), true)
+            .setContentIntent(openCallsPi())
+            .setFullScreenIntent(openCallsPi(), true)
             .addAction(action(android.R.drawable.ic_menu_close_clear_cancel, "Reject", actionPi(ACTION_REJECT, 11)))
             .addAction(action(android.R.drawable.sym_action_call, "Answer", actionPi(ACTION_ANSWER, 12)))
             .build()
