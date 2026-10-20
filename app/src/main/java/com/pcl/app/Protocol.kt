@@ -17,6 +17,14 @@ object Protocol {
     const val SERVICE_NAME = "PCL"
     const val TYPE_CMD = 1
     const val MAX_FRAME = 64 * 1024
+
+    /**
+     * Bumped whenever the phones start exchanging new messages, and sent in HELLO so mismatched
+     * versions are reported instead of failing silently.
+     *  - no number: PCL 2.1 and older
+     *  - 3: HELLO carries versions; Gateway reports hotspot status (HOTSPOT_STATE)
+     */
+    const val VERSION = 3
 }
 
 /**
@@ -35,7 +43,7 @@ object Commands {
     val REMOTE_HANDLES = setOf(
         "CALL", "CALL_RESULT", "CONTACTS_HASH", "CONTACTS_BEGIN", "CONTACTS", "CONTACTS_END",
         "CONTACTS_RESULT", "NOTIF", "NOTIF_V2", "CALL_NOTIF", "NOTIF_REMOVE",
-        "WHATSAPP_CHAT_RESULT", "NOTIF_ACTION_RESULT"
+        "WHATSAPP_CHAT_RESULT", "NOTIF_ACTION_RESULT", "HOTSPOT_STATE"
     )
 }
 

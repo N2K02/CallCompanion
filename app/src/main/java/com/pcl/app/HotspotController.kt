@@ -13,6 +13,16 @@ import android.os.Handler
 import android.os.Looper
 import android.os.SystemClock
 
+/** What the hotspot automation is doing, as shown in the app on both phones. */
+data class HotspotStatus(
+    /** Stable code sent over Bluetooth, e.g. "ON" or "MANUAL_ON". */
+    val code: String,
+    /** One plain sentence for the screen. */
+    val text: String,
+    /** True when the person has to switch the hotspot themselves. */
+    val needsYou: Boolean = false,
+)
+
 /**
  * Gateway only: turns the Wi-Fi hotspot on for a WhatsApp call handled on the Remote, and
  * off again afterwards. Best effort — Android gives ordinary apps no hotspot API.
@@ -20,6 +30,8 @@ import android.os.SystemClock
  * Rules:
  *  - Changes are debounced, so notification churn on the Remote can't flip the network back and forth.
  *  - Nothing happens when it isn't needed: the hotspot is already on, or the Remote is already on Wi-Fi.
+ *  - A tap on a WhatsApp call button only holds the hotspot request for a minute; if no call
+ *    state follows (the call was never placed), the request lapses.
  *  - PCL only turns off a hotspot it turned on, and records "PCL turned it on" only once the new
  *    state is confirmed — by Android's hotspot broadcast, or by the Settings switch on phones
  *    that don't send that broadcast.
@@ -34,6 +46,7 @@ class HotspotController(
     private val nm: NotificationManager,
     private val channelId: String,
     private val isGatewayInPhoneCall: () -> Boolean,
+    private val onStatusChanged: (HotspotStatus) -> Unit,
 ) {
     companion object {
         private const val NOTIFICATION_ID = 43
@@ -41,6 +54,7 @@ class HotspotController(
         private const val DISABLE_DELAY_MS = 15_000L
         private const val ATTEMPT_TIMEOUT_MS = 20_000L
         private const val RETRY_COOLDOWN_MS = 60_000L
+        private const val CALL_BUTTON_TTL_MS = 60_000L
 
         // Android's hotspot-state broadcast. It isn't in the public SDK, but stock and most
         // OEM builds send it; when it never arrives PCL falls back to reading the Settings switch.
@@ -51,6 +65,8 @@ class HotspotController(
         private const val AP_FAILED = 14
 
         private const val TETHER_SETTINGS = "android.settings.TETHER_SETTINGS"
+
+        val READY = HotspotStatus("IDLE", "Waiting for a WhatsApp call on the Remote.")
     }
 
     private val main = Handler(Looper.getMainLooper())
@@ -67,10 +83,16 @@ class HotspotController(
     @Volatile var targetOn = true
         private set
 
+    /** Current status for the screen (and for the Remote). */
+    @Volatile var status: HotspotStatus = READY
+        private set
+
     private var switchTapped = false
     private var enabledByPcl = false
     private var lastFailureAt = 0L
     private var wanted: Boolean? = null
+    private var remoteActive = false
+    private var callButtonUntil = 0L
     private var remoteOnWifi = false
     private var registered = false
 
@@ -79,6 +101,7 @@ class HotspotController(
     }
 
     private val debounce = Runnable { wanted?.let { reconcile(it) } }
+    private val callButtonExpired = Runnable { evaluate() }
     private val timeout = Runnable { finish(false, "the hotspot switch wasn't found or confirmed in time") }
 
     private val apReceiver = object : BroadcastReceiver() {
@@ -101,6 +124,7 @@ class HotspotController(
             } catch (e: RuntimeException) {
                 Hub.log("Hotspot state monitoring unavailable: ${e.message ?: e.javaClass.simpleName}")
             }
+            setStatus(READY)
         }
     }
 
@@ -108,6 +132,7 @@ class HotspotController(
         onMain {
             main.removeCallbacks(debounce)
             main.removeCallbacks(timeout)
+            main.removeCallbacks(callButtonExpired)
             if (registered) {
                 runCatching { context.unregisterReceiver(apReceiver) }
                 registered = false
@@ -117,6 +142,8 @@ class HotspotController(
                 refreshHelper()
             }
             wanted = null
+            remoteActive = false
+            callButtonUntil = 0L
             if (enabledByPcl) {
                 showNotice(
                     "PCL stopped while its hotspot is on",
@@ -133,11 +160,25 @@ class HotspotController(
     fun onRemoteCallActive(active: Boolean, remoteHasWifi: Boolean) {
         onMain {
             remoteOnWifi = remoteHasWifi
-            // Same answer as last time: nothing to do, and no reason to reopen Settings.
-            if (wanted == active) return@onMain
-            wanted = active
-            main.removeCallbacks(debounce)
-            main.postDelayed(debounce, if (active) ENABLE_DELAY_MS else DISABLE_DELAY_MS)
+            remoteActive = active
+            // A reported call state supersedes an earlier call-button hint.
+            callButtonUntil = 0L
+            main.removeCallbacks(callButtonExpired)
+            evaluate()
+        }
+    }
+
+    /**
+     * The Remote's accessibility helper saw a tap on a WhatsApp call button. That is only a hint:
+     * it holds the hotspot request for a minute, and lapses if no call state follows.
+     */
+    fun onCallButtonTapped(remoteHasWifi: Boolean) {
+        onMain {
+            remoteOnWifi = remoteHasWifi
+            callButtonUntil = SystemClock.elapsedRealtime() + CALL_BUTTON_TTL_MS
+            main.removeCallbacks(callButtonExpired)
+            main.postDelayed(callButtonExpired, CALL_BUTTON_TTL_MS)
+            evaluate()
         }
     }
 
@@ -145,8 +186,14 @@ class HotspotController(
     fun onLinkLost() {
         onMain {
             main.removeCallbacks(debounce)
+            main.removeCallbacks(callButtonExpired)
             wanted = null
+            remoteActive = false
+            callButtonUntil = 0L
+            // A scheduled switch was cancelled above, so don't keep showing it.
+            if (!enabledByPcl && !pending && status.code == "WAITING") setStatus(READY)
             if (enabledByPcl) {
+                setStatus(HotspotStatus("ON", "On. The Remote disconnected; PCL turns the hotspot off once it reconnects with no call."))
                 showNotice(
                     "Remote disconnected",
                     "PCL turned the Gateway hotspot on for a Remote WhatsApp call. It will turn it off once the Remote reconnects with no active call. If the Remote doesn't come back, turn the hotspot off in Settings."
@@ -184,19 +231,44 @@ class HotspotController(
 
     // ---------------------------------------------------------------- internals (main thread)
 
+    private fun setStatus(next: HotspotStatus) {
+        if (next == status) return
+        status = next
+        onStatusChanged(next)
+        Hub.notifyUi()
+    }
+
+    /** Works out whether the hotspot is wanted now, and schedules the (debounced) change. */
+    private fun evaluate() {
+        val want = remoteActive || SystemClock.elapsedRealtime() < callButtonUntil
+        // Same answer as last time: nothing to do, and no reason to reopen Settings.
+        if (want == wanted) return
+        wanted = want
+        main.removeCallbacks(debounce)
+        main.postDelayed(debounce, if (want) ENABLE_DELAY_MS else DISABLE_DELAY_MS)
+        if (want && !enabledByPcl && observedOn != true && !remoteOnWifi) {
+            setStatus(HotspotStatus("WAITING", "WhatsApp call on the Remote; switching the hotspot on in a few seconds."))
+        } else if (!want && (enabledByPcl || pending)) {
+            setStatus(HotspotStatus("WAITING", "Remote call ended; switching the hotspot off in about 15 seconds."))
+        }
+    }
+
     private fun reconcile(on: Boolean) {
         if (on) {
             if (enabledByPcl || (pending && targetOn)) return
             if (observedOn == true) {
                 Hub.log("Gateway hotspot is already on; PCL leaves it as it is")
+                setStatus(HotspotStatus("ALREADY_ON", "Already on, so PCL leaves it as it is and won't turn it off."))
                 return
             }
             if (remoteOnWifi) {
                 Hub.log("Remote is already on Wi-Fi; the Gateway hotspot isn't needed")
+                setStatus(HotspotStatus("NOT_NEEDED", "Not needed: the Remote is already on Wi-Fi."))
                 return
             }
             if (SystemClock.elapsedRealtime() - lastFailureAt < RETRY_COOLDOWN_MS) {
                 Hub.log("Hotspot: the last attempt failed less than a minute ago; not retrying yet")
+                setStatus(HotspotStatus("MANUAL_ON", "The last attempt failed a moment ago. Turn the hotspot on in Settings.", needsYou = true))
                 return
             }
             begin(true)
@@ -207,18 +279,28 @@ class HotspotController(
                 cancelAttempt()
                 when {
                     tapped && observedOn == true -> enabledByPcl = true
-                    tapped -> showNotice(
-                        "Check the Gateway hotspot",
-                        "The Remote call ended while PCL was turning the hotspot on, and Android didn't confirm the result. Check the hotspot in Settings."
-                    )
+                    tapped -> {
+                        setStatus(HotspotStatus("CHECK", "The call ended before Android confirmed the hotspot. Check it in Settings.", needsYou = true))
+                        showNotice(
+                            "Check the Gateway hotspot",
+                            "The Remote call ended while PCL was turning the hotspot on, and Android didn't confirm the result. Check the hotspot in Settings."
+                        )
+                        return
+                    }
                     else -> nm.cancel(NOTIFICATION_ID)
                 }
             }
-            if (!enabledByPcl) return
+            if (!enabledByPcl) {
+                // Nothing of PCL's to undo; drop any "turn it on yourself" prompt for the finished call.
+                if (status.needsYou && status.code == "MANUAL_ON") nm.cancel(NOTIFICATION_ID)
+                if (status.code != "CHECK") setStatus(READY)
+                return
+            }
             if (observedOn == false) {
                 enabledByPcl = false
                 nm.cancel(NOTIFICATION_ID)
                 Hub.log("Gateway hotspot is already off")
+                setStatus(READY)
                 return
             }
             begin(false)
@@ -233,12 +315,16 @@ class HotspotController(
             if (on) "PCL is trying to turn on this phone's Wi-Fi hotspot. If it doesn't, tap Open hotspot settings and turn it on, then connect the Remote to this Wi-Fi network."
             else "PCL is trying to turn off the hotspot it turned on. If it doesn't, tap Open hotspot settings and turn it off."
         )
+        val manual = if (on) "MANUAL_ON" else "MANUAL_OFF"
+        val verb = if (on) "on" else "off"
         if (!WhatsappCallAccessibilityService.isEnabled(context)) {
             Hub.log("Hotspot automation is off (PCL accessibility helper not enabled); use the notification")
+            setStatus(HotspotStatus(manual, "Turn the hotspot $verb in Settings. Automatic switching needs the optional PCL call & hotspot helper.", needsYou = true))
             return
         }
         if (isGatewayInPhoneCall()) {
             Hub.log("Gateway is in a phone call; PCL won't open Settings over it. It will retry when the call ends, or use the notification")
+            setStatus(HotspotStatus("WAITING", "Waiting for this phone's call to end before switching the hotspot $verb. You can switch it yourself now."))
             return
         }
         pending = true
@@ -247,10 +333,12 @@ class HotspotController(
             context.startActivity(Intent(TETHER_SETTINGS).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK))
             main.postDelayed(timeout, ATTEMPT_TIMEOUT_MS)
             Hub.log(if (on) "Opening hotspot settings to turn the hotspot on" else "Opening hotspot settings to turn off the hotspot PCL turned on")
+            setStatus(HotspotStatus(if (on) "SWITCHING_ON" else "SWITCHING_OFF", "Switching the hotspot $verb in Settings…"))
         } catch (e: Exception) {
             cancelAttempt()
             lastFailureAt = SystemClock.elapsedRealtime()
             Hub.log("Could not open hotspot settings: ${e.message ?: e.javaClass.simpleName}; use the notification")
+            setStatus(HotspotStatus(manual, "Couldn't open Settings. Turn the hotspot $verb yourself.", needsYou = true))
         }
     }
 
@@ -264,12 +352,18 @@ class HotspotController(
             enabledByPcl = false
             nm.cancel(NOTIFICATION_ID)
             Hub.log("Gateway hotspot was turned off")
+            setStatus(READY)
+        } else if (!pending && changed && status.needsYou && on == (status.code == "MANUAL_ON")) {
+            // The person did what the prompt asked.
+            nm.cancel(NOTIFICATION_ID)
+            setStatus(if (on) HotspotStatus("ALREADY_ON", "On (switched on by hand), so PCL won't turn it off.") else READY)
         }
     }
 
     private fun finish(success: Boolean, detail: String) {
         if (!pending) return
         cancelAttempt()
+        val verb = if (targetOn) "on" else "off"
         if (success) {
             enabledByPcl = targetOn && switchTapped
             nm.cancel(NOTIFICATION_ID)
@@ -278,13 +372,21 @@ class HotspotController(
                 if (targetOn) "Connect the Remote to the Gateway Wi-Fi if it hasn't joined automatically"
                 else "Hotspot off; the Remote should fall back to Bluetooth internet where supported"
             )
+            setStatus(
+                when {
+                    !targetOn -> READY
+                    enabledByPcl -> HotspotStatus("ON", "On for the Remote's WhatsApp call. PCL turns it off after the call.")
+                    else -> HotspotStatus("ALREADY_ON", "Already on, so PCL leaves it as it is and won't turn it off.")
+                }
+            )
         } else {
             lastFailureAt = SystemClock.elapsedRealtime()
             Hub.log("Hotspot automation stopped: $detail")
             showNotice(
-                if (targetOn) "Turn on the hotspot manually" else "Turn off the hotspot manually",
+                "Turn $verb the hotspot manually",
                 "PCL couldn't confirm the change. Tap Open hotspot settings to check the hotspot."
             )
+            setStatus(HotspotStatus(if (targetOn) "MANUAL_ON" else "MANUAL_OFF", "PCL couldn't confirm the change. Turn the hotspot $verb in Settings.", needsYou = true))
         }
     }
 
