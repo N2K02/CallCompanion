@@ -5,9 +5,6 @@ import android.os.Looper
 import java.io.BufferedOutputStream
 import java.io.DataOutputStream
 import java.io.OutputStream
-import java.text.SimpleDateFormat
-import java.util.Date
-import java.util.Locale
 import java.util.UUID
 
 /**
@@ -20,6 +17,26 @@ object Protocol {
     const val SERVICE_NAME = "PCL"
     const val TYPE_CMD = 1
     const val MAX_FRAME = 64 * 1024
+}
+
+/**
+ * Which phone may act on each command. A command arriving at the wrong role is ignored,
+ * so a peer can't, for example, make a Remote place calls.
+ * HELLO and WHATSAPP_CALL_STATE flow both ways and appear in neither set.
+ */
+object Commands {
+    /** Sent by the Remote; handled only on the Gateway. */
+    val GATEWAY_HANDLES = setOf(
+        "ANSWER", "REJECT", "HANGUP", "DIAL", "SYNC_CONTACTS",
+        "WHATSAPP_CALL_TRIGGER", "WHATSAPP_CHAT", "NOTIF_DISMISS", "NOTIF_ACTION"
+    )
+
+    /** Sent by the Gateway; handled only on the Remote. */
+    val REMOTE_HANDLES = setOf(
+        "CALL", "CALL_RESULT", "CONTACTS_HASH", "CONTACTS_BEGIN", "CONTACTS", "CONTACTS_END",
+        "CONTACTS_RESULT", "NOTIF", "NOTIF_V2", "CALL_NOTIF", "NOTIF_REMOVE",
+        "WHATSAPP_CHAT_RESULT", "NOTIF_ACTION_RESULT"
+    )
 }
 
 class FrameWriter(stream: OutputStream) {
@@ -50,23 +67,11 @@ object Hub {
     var contactsVersion = 0
 
     private val main = Handler(Looper.getMainLooper())
-    private val lines = ArrayDeque<String>()
-    private val fmt = SimpleDateFormat("HH:mm:ss", Locale.US)
 
+    /** Writes to Logcat and to the in-app activity log. */
     fun log(msg: String) {
         android.util.Log.i("PCL", msg)
         CallLogger.log(msg)
-        synchronized(lines) {
-            lines.addLast(fmt.format(Date()) + "  " + msg)
-            while (lines.size > 60) lines.removeFirst()
-        }
-        notifyUi()
-    }
-
-    fun logText(): String = synchronized(lines) { lines.reversed().joinToString("\n") }
-
-    fun clearLog() {
-        synchronized(lines) { lines.clear() }
         notifyUi()
     }
 

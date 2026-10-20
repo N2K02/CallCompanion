@@ -3,6 +3,11 @@ name: Build PCL APK
 on:
   push:
     branches: [ main ]
+    # Documentation-only pushes don't change the APK, so they don't publish a release.
+    paths-ignore:
+      - '**.md'
+      - '.gitignore'
+      - '.github/workflows/ci.yml'
   workflow_dispatch:
     inputs:
       version:
