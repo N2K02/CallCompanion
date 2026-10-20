@@ -11,9 +11,9 @@ on:
   workflow_dispatch:
     inputs:
       version:
-        description: 'Version to release, one decimal place (e.g. 1.0). Defaults to 1.0 for the initial PCL release.'
+        description: 'Version to release, one decimal place (e.g. 2.1). Leave empty for the next version after the latest tag.'
         required: false
-        default: '1.0'
+        default: ''
 
 permissions:
   contents: write
@@ -43,8 +43,8 @@ jobs:
         env:
           REQUESTED: ${{ github.event.inputs.version }}
         run: |
-          # PCL starts a fresh v1.x release line; ignore legacy CallCompanion v5.x tags.
-          last=$(git tag -l 'v1.*' | grep -E '^v1\.[0-9]$' | sort -V | tail -1 || true)
+          # Latest release tag of the form vMAJOR.MINOR (v1.9, v2.0, ...).
+          last=$(git tag -l 'v*' | grep -E '^v[0-9]+\.[0-9]$' | sort -V | tail -1 || true)
           if [ -n "$REQUESTED" ]; then
             echo "$REQUESTED" | grep -Eq '^[0-9]+\.[0-9]$' || { echo "::error::Version must look like 1.0"; exit 1; }
             ver="$REQUESTED"
@@ -62,8 +62,7 @@ jobs:
           echo "VERSION=$ver" >> "$GITHUB_ENV"
           echo "Version: $ver (previous: ${last:-none})"
 
-          # Build notes from commits since the previous PCL release.
-          # The version-line scoped tag lookup above ignores legacy CallCompanion v5.x tags.
+          # Build notes from commits since the previous release.
           prev="$last"
           if [ -n "$prev" ]; then range="$prev..HEAD"; else range="HEAD"; fi
           changes=$(git log --no-merges --pretty='- %s' "$range" | head -40)
