@@ -87,6 +87,10 @@ class LinkService : Service() {
         private const val ID_INCOMING = 2
         private const val ID_WHATSAPP_HANDOFF = 42
         private const val ID_REMOTE_WIFI = 44
+        private const val TRAFFIC_SAMPLE_MS = 5_000L
+        private const val CALL_CONTROL_TIMEOUT_MS = 15_000L
+        /** Upper bound for a contact sync in characters; protects memory from a misbehaving peer. */
+        private const val MAX_CONTACT_CHARS = 8_000_000
 
         /** Restarts the link with the saved role and phone, if the user left it running. */
         fun startSaved(context: Context, reason: String) {
@@ -138,17 +142,17 @@ class LinkService : Service() {
             if (!running) return
             val rx = rxTotal.get()
             val tx = txTotal.get()
-            val down = if (connected) (rx - lastRxSample).coerceAtLeast(0L) else 0L
-            val up = if (connected) (tx - lastTxSample).coerceAtLeast(0L) else 0L
+            // Sampled every few seconds and shown per second; an idle link wakes the phone
+            // rarely, and the notification is only touched when the numbers change.
+            val down = if (connected) (rx - lastRxSample).coerceAtLeast(0L) * 1000L / TRAFFIC_SAMPLE_MS else 0L
+            val up = if (connected) (tx - lastTxSample).coerceAtLeast(0L) * 1000L / TRAFFIC_SAMPLE_MS else 0L
             lastRxSample = rx; lastTxSample = tx
-            // Only touch the notification and screen when the numbers change; an idle
-            // link no longer reposts the status notification every second.
             if (down != downloadBytesPerSecond || up != uploadBytesPerSecond) {
                 downloadBytesPerSecond = down
                 uploadBytesPerSecond = up
                 updateStatus()
             }
-            trafficHandler.postDelayed(this, 1000L)
+            trafficHandler.postDelayed(this, TRAFFIC_SAMPLE_MS)
         }
     }
 
@@ -157,8 +161,46 @@ class LinkService : Service() {
 
     /** Gateway hotspot automation for Remote WhatsApp calls. */
     val hotspot: HotspotController by lazy {
-        HotspotController(this, nm, CH_HOTSPOT) { callState != CALL_IDLE }
+        HotspotController(this, nm, CH_HOTSPOT, isGatewayInPhoneCall = { callState != CALL_IDLE }) { status ->
+            if (connected) sendHotspotStatus(status)
+        }
     }
+
+    /** Remote: the Gateway's hotspot status, or null until the Gateway reports one. */
+    @Volatile var peerHotspot: HotspotStatus? = null
+        private set
+
+    /** Protocol version and app version the other phone reported in HELLO; null until HELLO arrives. */
+    @Volatile var peerProtocol: Int? = null
+        private set
+    @Volatile var peerAppVersion: String = ""
+        private set
+    @Volatile private var helloReceived = false
+
+    /** A warning to show when the two phones run different PCL versions, or null when they match. */
+    val versionWarning: String?
+        get() {
+            if (!connected || !helloReceived) return null
+            val theirs = peerProtocol
+            val named = if (peerAppVersion.isNotEmpty()) " (${peerAppVersion})" else ""
+            return when {
+                theirs == Protocol.VERSION -> null
+                theirs == null || theirs < Protocol.VERSION ->
+                    "The other phone runs an older PCL$named. Update it so both phones run the same version; some features won't work until then."
+                else -> "This phone runs an older PCL than the other phone$named. Update this phone from the Update tab."
+            }
+        }
+
+    private val appVersion: String by lazy {
+        try {
+            @Suppress("DEPRECATION")
+            packageManager.getPackageInfo(packageName, 0).versionName ?: ""
+        } catch (_: Exception) {
+            ""
+        }
+    }
+
+    private var callControlRequest = 0
 
     @Volatile private var running = false
     @Volatile private var generation = 0
@@ -268,7 +310,7 @@ class LinkService : Service() {
         }
         if (reason != null) Hub.log("Link restarted $reason")
         trafficHandler.removeCallbacks(trafficSampler)
-        trafficHandler.postDelayed(trafficSampler, 1000L)
+        trafficHandler.postDelayed(trafficSampler, TRAFFIC_SAMPLE_MS)
         if (role == ROLE_GATEWAY) {
             registerPhoneReceiver()
             hotspot.start()
@@ -333,6 +375,15 @@ class LinkService : Service() {
         }
         callControlError = "PENDING: Waiting for Gateway confirmation"
         if (command == "DIAL") send(command, argument) else send(command)
+        val request = ++callControlRequest
+        trafficHandler.postDelayed({
+            // No answer at all: say so instead of waiting forever.
+            if (request == callControlRequest && callControlError?.startsWith("PENDING:") == true) {
+                callControlError = "FAILED: No reply from the Gateway. Check that both phones run the same PCL version."
+                Hub.log("Call control: no reply from the Gateway")
+                Hub.notifyUi()
+            }
+        }, CALL_CONTROL_TIMEOUT_MS)
         Hub.notifyUi()
     }
 
@@ -544,7 +595,10 @@ class LinkService : Service() {
         }
         setConn(true, "Connected to $peer")
         NotifListener.instance?.syncActiveNotifications()
-        send("HELLO", role)
+        helloReceived = false
+        peerProtocol = null
+        peerAppVersion = ""
+        send("HELLO", role, Protocol.VERSION.toString(), appVersion)
         // Replay every WhatsApp call state, IDLE included. The peer may have missed changes
         // while the link was down — this is what lets the Gateway turn off a hotspot it
         // enabled for a call that ended during the outage.
@@ -552,6 +606,7 @@ class LinkService : Service() {
         if (role == ROLE_GATEWAY) {
             sendCallState()
             sendContactsFingerprint()
+            sendHotspotStatus(hotspot.status)
         }
         val input = DataInputStream(BufferedInputStream(s.inputStream, 16384))
         try {
@@ -572,6 +627,8 @@ class LinkService : Service() {
             connected = false
             peerWhatsappCallStates.clear()
             contactBuf = null
+            helloReceived = false
+            peerHotspot = null
             if (role == ROLE_REMOTE) {
                 if (callControlError?.startsWith("PENDING:") == true) callControlError = "FAILED: Connection lost before Gateway confirmation"
                 stopRinging()
@@ -629,6 +686,11 @@ class LinkService : Service() {
             return
         }
         val msg = parts.joinToString("|") { it.replace('|', '/') }
+        if (msg.toByteArray(Charsets.UTF_8).size > Protocol.MAX_FRAME) {
+            // The peer would drop the whole link on an oversized frame.
+            Hub.log("Not sent: ${parts.firstOrNull()} message is too large")
+            return
+        }
         try {
             io.execute {
                 try {
@@ -655,7 +717,19 @@ class LinkService : Service() {
             return
         }
         when (cmd) {
-            "HELLO" -> Hub.log("Peer is the $arg1 phone")
+            "HELLO" -> {
+                // Older versions sent only the role; they have no protocol number.
+                peerProtocol = p.getOrNull(2)?.toIntOrNull()
+                peerAppVersion = p.getOrNull(3).orEmpty().take(20)
+                helloReceived = true
+                Hub.log("Peer is the $arg1 phone (PCL ${peerAppVersion.ifEmpty { "older version" }})")
+                versionWarning?.let { Hub.log("Version mismatch: $it") }
+            }
+            "HOTSPOT_STATE" -> {
+                val code = arg1
+                val text = decodeText(p.getOrElse(2) { "" })
+                peerHotspot = if (code.isEmpty() || text.isEmpty()) null else HotspotStatus(code, text, p.getOrNull(3) == "1")
+            }
             // gateway -> remote
             "CALL" -> {
                 callState = arg1.ifEmpty { CALL_IDLE }
@@ -671,7 +745,7 @@ class LinkService : Service() {
             "DIAL" -> { gatewayDial(arg1); sendCallResult() }
             "SYNC_CONTACTS" -> sendContacts()
             "WHATSAPP_CALL_TRIGGER" -> {
-                if (decodeText(arg1) == "START") hotspot.onRemoteCallActive(true, p.getOrNull(2) == "WIFI")
+                if (decodeText(arg1) == "START") hotspot.onCallButtonTapped(p.getOrNull(2) == "WIFI")
             }
             "WHATSAPP_CHAT" -> {
                 val ok = gatewayWhatsAppChat(arg1)
@@ -697,7 +771,16 @@ class LinkService : Service() {
                 }
             }
             "CONTACTS_BEGIN" -> contactBuf = StringBuilder()
-            "CONTACTS" -> contactBuf?.append(msg.substringAfter('|'))
+            "CONTACTS" -> {
+                val buf = contactBuf
+                val chunk = msg.substringAfter('|')
+                if (buf != null && buf.length + chunk.length > MAX_CONTACT_CHARS) {
+                    contactBuf = null
+                    Hub.log("Contact sync stopped: the list is too large")
+                } else {
+                    buf?.append(chunk)
+                }
+            }
             "CONTACTS_END" -> {
                 val data = contactBuf?.toString() ?: ""
                 contactBuf = null
@@ -808,7 +891,7 @@ class LinkService : Service() {
             if (changed && newState == CALL_RINGING) callControlError = null
             callState = newState
             if (changed || gotNumber) {
-                Hub.log("Phone call: $newState ${display()}")
+                Hub.log("Phone call: $newState (${logCaller()})")
                 sendCallState()
             }
             if (newState == CALL_IDLE) {
@@ -856,6 +939,13 @@ class LinkService : Service() {
             }
         } catch (e: Exception) {
             Hub.log("Initial phone-state query unavailable: ${e.message ?: e.javaClass.simpleName}")
+        }
+    }
+
+    /** Gateway: tell the Remote what the hotspot automation is doing. */
+    private fun sendHotspotStatus(status: HotspotStatus) {
+        if (role == ROLE_GATEWAY && writer != null) {
+            send("HOTSPOT_STATE", status.code, encodeText(status.text), if (status.needsYou) "1" else "0")
         }
     }
 
@@ -965,7 +1055,7 @@ class LinkService : Service() {
                 .setContentIntent(pending)
                 .build()
             nm.notify(ID_WHATSAPP_HANDOFF, n)
-            Hub.log("Posted WhatsApp chat handoff for $display")
+            Hub.log("Posted WhatsApp chat handoff for ${logCaller(digits)}")
             true
         } catch (e: Exception) {
             Hub.log("WhatsApp handoff failed: ${e.message ?: e.javaClass.simpleName}")
@@ -989,7 +1079,7 @@ class LinkService : Service() {
             getSystemService(TelecomManager::class.java)!!
                 .placeCall(Uri.fromParts("tel", n, null), Bundle())
             callControlError = null
-            Hub.log("Dialing $n")
+            Hub.log("Dialing ${logCaller(n)}")
         } catch (e: Exception) {
             callControlError = "FAILED: ${e.message ?: "Android rejected the dial request"}"
             Hub.log("Dial failed: ${e.message}")
@@ -1010,6 +1100,19 @@ class LinkService : Service() {
         }
     }
 
+    /**
+     * How a caller appears in logs: never the full number or the contact name, because the
+     * activity log can be copied and shared, and Logcat is readable over USB debugging.
+     */
+    private fun logCaller(number: String = callNumber): String {
+        val digits = number.filter { it.isDigit() }
+        return when {
+            digits.length >= 2 -> "number ending ${digits.takeLast(2)}"
+            callName.isNotEmpty() -> "a saved contact"
+            else -> "unknown number"
+        }
+    }
+
     fun display(): String = when {
         callName.isNotEmpty() && callNumber.isNotEmpty() -> "$callName ($callNumber)"
         callName.isNotEmpty() -> callName
@@ -1022,14 +1125,14 @@ class LinkService : Service() {
     private fun onRemoteCallUpdate() {
         when (callState) {
             CALL_RINGING -> {
-                Hub.log("Incoming call: ${display()}")
+                Hub.log("Incoming call (${logCaller()})")
                 showIncoming()
                 startRinging()
             }
             CALL_OFFHOOK -> {
                 stopRinging()
                 showOngoingCall()
-                Hub.log("Call in progress on gateway: ${display()}")
+                Hub.log("Call in progress on gateway (${logCaller()})")
             }
             else -> {
                 stopRinging()

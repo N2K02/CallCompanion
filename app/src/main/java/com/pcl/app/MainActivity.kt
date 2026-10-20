@@ -387,6 +387,52 @@ class MainActivity : ComponentActivity() {
                             style = MaterialTheme.typography.bodySmall,
                             color = MaterialTheme.colorScheme.onSurfaceVariant
                         )
+                        // The phones update separately; say so when they no longer match.
+                        service?.versionWarning?.let { warning ->
+                            Text(warning, style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.error)
+                        }
+                    }
+                }
+
+                if (screen == MainTab.HOME && setupReady && running) {
+                    // What the hotspot automation is doing, including when it needs you.
+                    val status = if (remote) service?.peerHotspot else service?.hotspot?.status
+                    val helperOn = WhatsappCallAccessibilityService.isEnabled(this@MainActivity)
+                    SectionCard(
+                        title = if (remote) "Gateway hotspot" else "Hotspot for Remote calls",
+                        subtitle = if (remote) "Turned on by the Gateway for WhatsApp calls on this phone."
+                            else "Turned on for WhatsApp calls on the Remote, then off again."
+                    ) {
+                        Text(
+                            when {
+                                status != null -> status.text
+                                remote && !connected -> "Connect to the Gateway to see its hotspot status."
+                                else -> "Waiting for the Gateway to report its hotspot status."
+                            },
+                            style = MaterialTheme.typography.bodyLarge,
+                            color = if (status?.needsYou == true) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.onSurface
+                        )
+                        if (status?.needsYou == true) {
+                            Text(
+                                if (remote) "Action needed on the Gateway phone." else "Action needed on this phone.",
+                                style = MaterialTheme.typography.labelLarge,
+                                color = MaterialTheme.colorScheme.error
+                            )
+                            if (!remote) {
+                                Button(onClick = {
+                                    try { startActivity(Intent("android.settings.TETHER_SETTINGS")) }
+                                    catch (_: Exception) { toast("Open Android Settings → Hotspot & tethering") }
+                                }, modifier = Modifier.fillMaxWidth()) { Text("Open hotspot settings") }
+                            }
+                        }
+                        if (!remote) {
+                            Text(
+                                if (helperOn) "Automatic switching is on (PCL call & hotspot helper)."
+                                else "Automatic switching is off. It's optional: enable \"PCL call & hotspot helper\" in Settings to let PCL switch the hotspot for you.",
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+                        }
                     }
                 }
 
