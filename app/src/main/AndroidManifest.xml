@@ -24,6 +24,9 @@
             <action android:name="android.intent.action.MAIN" />
             <category android:name="android.intent.category.LAUNCHER" />
         </intent>
+        <!-- Gateway: starts WhatsApp calls the Remote asks for -->
+        <package android:name="com.whatsapp" />
+        <package android:name="com.whatsapp.w4b" />
     </queries>
     <application
         android:allowBackup="false"
@@ -42,6 +45,16 @@
                 <category android:name="android.intent.category.LAUNCHER" />
             </intent-filter>
         </activity>
+        <!-- Gateway: invisible step that wakes the screen and opens WhatsApp for a call -->
+        <activity
+            android:name=".WhatsAppCallActivity"
+            android:excludeFromRecents="true"
+            android:exported="false"
+            android:noHistory="true"
+            android:showWhenLocked="true"
+            android:taskAffinity=""
+            android:theme="@android:style/Theme.Translucent.NoTitleBar"
+            android:turnScreenOn="true" />
         <service
             android:name=".LinkService"
             android:exported="false"

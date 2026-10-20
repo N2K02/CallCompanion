@@ -23,8 +23,9 @@ object Protocol {
      * versions are reported instead of failing silently.
      *  - no number: PCL 2.1 and older
      *  - 3: HELLO carries versions; Gateway reports hotspot status (HOTSPOT_STATE)
+     *  - 4: the Remote can ask the Gateway to start a WhatsApp call (WHATSAPP_CALL)
      */
-    const val VERSION = 3
+    const val VERSION = 4
 }
 
 /**
@@ -36,14 +37,14 @@ object Commands {
     /** Sent by the Remote; handled only on the Gateway. */
     val GATEWAY_HANDLES = setOf(
         "ANSWER", "REJECT", "HANGUP", "DIAL", "SYNC_CONTACTS",
-        "WHATSAPP_CALL_TRIGGER", "WHATSAPP_CHAT", "NOTIF_DISMISS", "NOTIF_ACTION"
+        "WHATSAPP_CALL_TRIGGER", "WHATSAPP_CHAT", "WHATSAPP_CALL", "NOTIF_DISMISS", "NOTIF_ACTION"
     )
 
     /** Sent by the Gateway; handled only on the Remote. */
     val REMOTE_HANDLES = setOf(
         "CALL", "CALL_RESULT", "CONTACTS_HASH", "CONTACTS_BEGIN", "CONTACTS", "CONTACTS_END",
         "CONTACTS_RESULT", "NOTIF", "NOTIF_V2", "CALL_NOTIF", "NOTIF_REMOVE",
-        "WHATSAPP_CHAT_RESULT", "NOTIF_ACTION_RESULT", "HOTSPOT_STATE"
+        "WHATSAPP_CHAT_RESULT", "WHATSAPP_CALL_RESULT", "NOTIF_ACTION_RESULT", "HOTSPOT_STATE"
     )
 }
 

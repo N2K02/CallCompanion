@@ -55,7 +55,7 @@ PCL needs Android 8.0 or newer. It never needs the microphone.
 | SIM calls | The Remote rings for incoming Gateway calls and shows the caller (and contact name, with Contacts permission on the Gateway). It can answer, reject, end, and dial through the Gateway's SIM. |
 | Contacts | The Gateway's contacts are copied to the Remote for offline search. On each connection the phones compare a fingerprint and only resync when the list changed; **Sync contacts from Gateway** forces a refresh. |
 | Notifications | The Gateway mirrors its notifications to the Remote. Dismissing a copy dismisses the original; actions offered by the original app (such as Answer on a call notification) can be used from the Remote. Can be turned off in the Gateway's settings. |
-| WhatsApp | Detects WhatsApp call state on both phones, avoids duplicate call alerts, can open a WhatsApp chat on the Gateway from the Remote, and can switch the Gateway hotspot on for calls handled on the Remote. See below. |
+| WhatsApp | Detects WhatsApp call state on both phones, avoids duplicate call alerts, can start a WhatsApp call on the Gateway from the Remote, and can switch the Gateway hotspot on for calls handled on the Remote. See below. |
 | Link status | Home and the status notification show PCL's own Bluetooth traffic. This is app traffic only, not internet speed. |
 | Activity log | Home keeps a short log for troubleshooting, with a Copy button. It never shows full phone numbers or contact names (only the last two digits). |
 
@@ -65,7 +65,14 @@ WhatsApp has no public call API, so PCL reads call state from the **action butto
 
 **Which phone shows the call.** If the Remote's own WhatsApp is ringing, PCL hides the Gateway's mirrored copy. If the Remote has no call of its own, the Gateway's copy is shown as a fallback, and its Answer button works from the Remote. Answer is blocked when either phone already has an active WhatsApp call. PCL never answers, rejects or mutes a call by itself. A short duplicate can appear before the Remote's state reaches the Gateway.
 
-**Calling from the Remote.** Pick a contact or enter a number, then tap **WhatsApp chat on Gateway**. The Gateway shows a **Continue in WhatsApp** notification; tap it there and start the call in WhatsApp. PCL can't place WhatsApp calls itself.
+**Calling from the Remote.** Pick a contact or enter a number, then tap **WhatsApp call on Gateway**. The Gateway starts a WhatsApp voice call in its own WhatsApp, and Home on the Remote says whether it started. You talk through the Gateway (or its Bluetooth headset), as with SIM calls.
+
+- For a saved contact who uses WhatsApp, the Gateway opens WhatsApp's own "Voice call" entry for that contact, which starts the call straight away.
+- For any other number, WhatsApp opens the chat and PCL taps its voice-call button. It only taps in a chat whose top bar shows that contact's name or number. Typed numbers need their country code (+44…) unless the Gateway's SIM country matches.
+- If WhatsApp asks "start this call?", PCL confirms it.
+- This needs **PCL call & hotspot helper** turned on in the Gateway's Accessibility settings: Android only lets an app open another app from the background through such a service. Without it, the Gateway shows a **Start WhatsApp call** notification that starts the call in one tap.
+- The Gateway must be unlocked, or locked without a PIN (swipe, or kept unlocked by Smart Lock). A PIN, pattern or password can't be skipped.
+- Both phones need this version of PCL. An older Gateway only shows a **Continue in WhatsApp** notification.
 
 **Hotspot for calls on the Remote.** The Remote's always-on internet is Bluetooth tethering (see [Internet on the Remote](#internet-on-the-remote)), which is slow for calls. When a WhatsApp call becomes active on the Remote, the Gateway can turn on its Wi-Fi hotspot, and turn it off afterwards:
 

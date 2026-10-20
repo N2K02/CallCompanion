@@ -42,7 +42,29 @@ object WhatsAppCalls {
         "rispondi", "contestar", "接听", "接聽", "応答"
     )
 
+    /**
+     * The voice-call button in a WhatsApp chat's top bar. Used on the Gateway to start a call
+     * the Remote asked for. Video buttons are excluded.
+     */
+    val VOICE_CALL_LABELS = listOf(
+        "voice call", "audio call", "appel vocal", "appel audio", "llamada de voz",
+        "chiamata vocale", "sprachanruf", "chamada de voz", "голосовой звонок",
+        "语音通话", "語音通話", "音声通話"
+    )
+    private val VIDEO_WORDS = listOf("video", "vidéo", "vídeo", "видео", "视频", "視訊", "ビデオ")
+
+    /** The button in WhatsApp's "start this call?" confirmation. Matched exactly, not contained. */
+    val CONFIRM_CALL_LABELS = setOf(
+        "call", "voice call", "start call", "appeler", "llamar", "chiama", "anrufen", "ligar",
+        "позвонить", "呼叫", "拨打", "撥打", "発信"
+    )
+
     fun isWhatsApp(pkg: String?): Boolean = pkg in PACKAGES
+
+    fun isVoiceCallButton(label: String): Boolean =
+        containsAny(label, VOICE_CALL_LABELS) && !containsAny(label, VIDEO_WORDS)
+
+    fun isConfirmCall(label: String): Boolean = label.trim().lowercase() in CONFIRM_CALL_LABELS
 
     fun isAnswer(label: String): Boolean = containsAny(label, ANSWER_LABELS)
     fun isDecline(label: String): Boolean = containsAny(label, DECLINE_LABELS)

@@ -2,6 +2,7 @@ package com.pcl.app
 
 import android.Manifest
 import android.annotation.SuppressLint
+import android.app.KeyguardManager
 import android.app.Notification
 import android.app.NotificationChannel
 import android.app.NotificationManager
@@ -89,6 +90,8 @@ class LinkService : Service() {
         private const val ID_REMOTE_WIFI = 44
         private const val TRAFFIC_SAMPLE_MS = 5_000L
         private const val CALL_CONTROL_TIMEOUT_MS = 15_000L
+        /** Remote: how long to wait for the Gateway to say whether a WhatsApp call started. */
+        private const val WHATSAPP_CALL_TIMEOUT_MS = 25_000L
         /** Upper bound for a contact sync in characters; protects memory from a misbehaving peer. */
         private const val MAX_CONTACT_CHARS = 8_000_000
 
@@ -128,6 +131,17 @@ class LinkService : Service() {
         private set
     @Volatile var callControlError: String? = null
         private set
+
+    /**
+     * Remote: the last WhatsApp call request, as "PENDING: …", "OK: …", "TAP: …" or
+     * "FAILED: …" followed by text for Home. null when there's nothing to show.
+     */
+    @Volatile var whatsappCallStatus: String? = null
+        private set
+    private var whatsappCallRequest = 0
+
+    /** Gateway: a WhatsApp call started for the Remote that WhatsApp hasn't shown yet. */
+    @Volatile private var pendingWhatsAppCall: WhatsAppDialer.Plan? = null
     @Volatile var downloadBytesPerSecond: Long = 0L
         private set
     @Volatile var uploadBytesPerSecond: Long = 0L
@@ -366,6 +380,118 @@ class LinkService : Service() {
         }
     }
 
+    /**
+     * Remote: asks the Gateway to start a WhatsApp voice call to [number] in its own WhatsApp.
+     * The call runs on the Gateway; Home shows whether it started.
+     */
+    fun startWhatsAppCall(number: String) {
+        if (role != ROLE_REMOTE) return
+        if (!connected) {
+            whatsappCallStatus = "FAILED: Bluetooth is disconnected."
+            Hub.notifyUi()
+            return
+        }
+        val theirs = peerProtocol
+        if (theirs == null || theirs < 4) {
+            // An older Gateway can only post a "Continue in WhatsApp" notification.
+            send("WHATSAPP_CHAT", number)
+            whatsappCallStatus = "FAILED: The Gateway runs an older PCL that can't start calls. " +
+                "Update it; for now a \"Continue in WhatsApp\" notification is waiting on the Gateway."
+            Hub.notifyUi()
+            return
+        }
+        whatsappCallStatus = "PENDING: Asking the Gateway to start the WhatsApp call…"
+        send("WHATSAPP_CALL", number)
+        Hub.log("Asked the Gateway to start a WhatsApp call to ${logCaller(number)}")
+        val request = ++whatsappCallRequest
+        trafficHandler.postDelayed({
+            if (request == whatsappCallRequest && whatsappCallStatus?.startsWith("PENDING:") == true) {
+                whatsappCallStatus = "FAILED: No answer from the Gateway."
+                Hub.notifyUi()
+            }
+        }, WHATSAPP_CALL_TIMEOUT_MS)
+        Hub.notifyUi()
+    }
+
+    /** Gateway: starts the WhatsApp call the Remote asked for and reports back. */
+    private fun gatewayWhatsAppCall(number: String) {
+        fun reply(code: String, text: String) {
+            Hub.log("WhatsApp call for the Remote: $text")
+            if (connected) send("WHATSAPP_CALL_RESULT", code, encodeText(text))
+        }
+        val busy = localWhatsappCallStates.values.any { it == WhatsAppCalls.ACTIVE || it == WhatsAppCalls.RINGING }
+        when {
+            busy -> return reply("FAILED", "The Gateway is already in a WhatsApp call.")
+            callState != CALL_IDLE -> return reply("FAILED", "The Gateway is in a phone call.")
+            pendingWhatsAppCall != null -> return reply("FAILED", "The Gateway is still starting the previous call.")
+        }
+        val plan = try {
+            WhatsAppDialer.plan(this, number)
+        } catch (e: WhatsAppDialer.CannotCall) {
+            return reply("FAILED", e.message ?: "WhatsApp can't call this number.")
+        }
+        val name = lookupName(number)
+        val display = if (name.isNotBlank()) name else "+${plan.digits}"
+        val helper = WhatsappCallAccessibilityService.instance
+        if (helper == null) {
+            // Android only lets PCL open WhatsApp from the background through the helper.
+            showWhatsAppCallNotification(plan, display)
+            return reply(
+                "TAP",
+                "Turn on \"PCL call & hotspot helper\" in the Gateway's Accessibility settings so it can start " +
+                    "calls by itself. For now, tap \"Start WhatsApp call\" in the Gateway's notifications."
+            )
+        }
+        pendingWhatsAppCall = plan
+        try {
+            helper.startWhatsAppCall(plan, name)
+        } catch (e: Exception) {
+            pendingWhatsAppCall = null
+            helper.stopWhatsAppCall()
+            showWhatsAppCallNotification(plan, display)
+            return reply("FAILED", "Android didn't let PCL open WhatsApp (${e.message ?: e.javaClass.simpleName}).")
+        }
+        reply("PENDING", "Starting the WhatsApp call on the Gateway…")
+        trafficHandler.postDelayed({
+            if (pendingWhatsAppCall !== plan) return@postDelayed
+            pendingWhatsAppCall = null
+            WhatsappCallAccessibilityService.instance?.stopWhatsAppCall()
+            val keyguard = getSystemService(KeyguardManager::class.java)
+            val why = when {
+                keyguard?.isDeviceLocked == true ->
+                    "the Gateway is locked with a PIN, pattern or password. Unlock it and try again."
+                plan.viaChat ->
+                    "WhatsApp opened the chat, but its call button wasn't found. The number may not use WhatsApp."
+                else -> "WhatsApp didn't start it."
+            }
+            showWhatsAppCallNotification(plan, display)
+            reply("FAILED", "No call started: $why A \"Start WhatsApp call\" notification is waiting on the Gateway.")
+        }, WhatsappCallAccessibilityService.CALL_WINDOW_MS + 2_000L)
+    }
+
+    /** Gateway: one tap on this notification starts the call (the manual route). */
+    private fun showWhatsAppCallNotification(plan: WhatsAppDialer.Plan, display: String) {
+        try {
+            val open = Intent(this, WhatsAppCallActivity::class.java)
+                .putExtra(WhatsAppCallActivity.EXTRA_TARGET, plan.intent)
+            val pending = PendingIntent.getActivity(
+                this, plan.digits.hashCode(), open,
+                PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
+            )
+            val text = if (plan.viaChat) "Tap to open the chat with $display, then tap the call button."
+            else "Tap to call $display in WhatsApp."
+            nm.notify(ID_WHATSAPP_HANDOFF, Notification.Builder(this, CH_MIRROR)
+                .setSmallIcon(android.R.drawable.sym_action_call)
+                .setContentTitle("Start WhatsApp call")
+                .setContentText(text)
+                .setAutoCancel(true)
+                .setContentIntent(pending)
+                .build())
+        } catch (e: Exception) {
+            Hub.log("Could not show the WhatsApp call notification: ${e.message ?: e.javaClass.simpleName}")
+        }
+    }
+
     private fun requestGateway(command: String, argument: String = "") {
         if (!connected) {
             callControlError = "FAILED: Bluetooth is disconnected"
@@ -415,6 +541,19 @@ class LinkService : Service() {
         if (previous == state) return
         if (state == WhatsAppCalls.IDLE) localWhatsappCallStates.remove(pkg) else localWhatsappCallStates[pkg] = state
         Hub.log("Local WhatsApp call state detected for $pkg: $state")
+        // Gateway: WhatsApp now shows the call PCL started for the Remote.
+        if (role == ROLE_GATEWAY && state == WhatsAppCalls.ACTIVE) {
+            pendingWhatsAppCall?.let {
+                pendingWhatsAppCall = null
+                WhatsappCallAccessibilityService.instance?.stopWhatsAppCall()
+                nm.cancel(ID_WHATSAPP_HANDOFF)
+                Hub.log("WhatsApp call for the Remote started")
+                if (connected) send(
+                    "WHATSAPP_CALL_RESULT", "OK",
+                    encodeText("WhatsApp is calling on the Gateway. Talk through the Gateway or its Bluetooth headset.")
+                )
+            }
+        }
         // An ACTIVE state from the Remote is what asks the Gateway for its hotspot. A ringing
         // notification alone may belong to a call answered on the Gateway, so it doesn't.
         if (connected) sendWhatsAppState(pkg, state)
@@ -631,6 +770,7 @@ class LinkService : Service() {
             peerHotspot = null
             if (role == ROLE_REMOTE) {
                 if (callControlError?.startsWith("PENDING:") == true) callControlError = "FAILED: Connection lost before Gateway confirmation"
+                if (whatsappCallStatus?.startsWith("PENDING:") == true) whatsappCallStatus = "FAILED: Connection lost before the Gateway answered."
                 stopRinging()
                 callState = CALL_IDLE
                 nm.cancel(ID_INCOMING)
@@ -751,6 +891,15 @@ class LinkService : Service() {
                 val ok = gatewayWhatsAppChat(arg1)
                 send("WHATSAPP_CHAT_RESULT", if (ok) "OK" else "FAILED")
             }
+            "WHATSAPP_CALL" -> gatewayWhatsAppCall(arg1)
+            "WHATSAPP_CALL_RESULT" -> {
+                val text = decodeText(p.getOrElse(2) { "" })
+                // A late PENDING must not hide a result that already arrived.
+                if (arg1 != "PENDING" || whatsappCallStatus?.startsWith("PENDING:") == true) {
+                    whatsappCallStatus = "$arg1: $text"
+                }
+                Hub.log(if (arg1 == "OK") "Gateway started the WhatsApp call" else "WhatsApp call on Gateway: $text")
+            }
             "WHATSAPP_CHAT_RESULT" -> Hub.log(
                 if (arg1 == "OK") "WhatsApp chat handoff notification created on Gateway"
                 else "Could not create WhatsApp chat handoff on Gateway"
@@ -833,6 +982,10 @@ class LinkService : Service() {
                     val previous = peerWhatsappCallStates[pkg] ?: WhatsAppCalls.IDLE
                     if (state == WhatsAppCalls.IDLE) peerWhatsappCallStates.remove(pkg) else peerWhatsappCallStates[pkg] = state
                     if (previous != state) Hub.log("Peer WhatsApp call state for $pkg: $state")
+                    // Remote: the Gateway's WhatsApp call ended, so its "calling" line is done.
+                    if (role == ROLE_REMOTE && peerWhatsappCallStates.isEmpty() &&
+                        whatsappCallStatus?.startsWith("OK:") == true
+                    ) whatsappCallStatus = null
                     if (role == ROLE_GATEWAY) {
                         // Remote may detect its native notification after the Gateway
                         // already mirrored one. Remove all WhatsApp call copies now.

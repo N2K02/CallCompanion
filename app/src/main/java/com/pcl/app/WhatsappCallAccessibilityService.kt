@@ -3,6 +3,8 @@ package com.pcl.app
 import android.accessibilityservice.AccessibilityService
 import android.content.ComponentName
 import android.content.Context
+import android.content.Intent
+import android.graphics.Rect
 import android.os.SystemClock
 import android.provider.Settings
 import android.view.accessibility.AccessibilityEvent
@@ -14,9 +16,13 @@ import android.view.accessibility.AccessibilityNodeInfo
  * - Gateway: while a hotspot change is pending, tries to find and tap the Wi-Fi hotspot
  *   switch in Android Settings. OEM layouts vary, so a notification is always left as the
  *   manual route.
+ * - Gateway: starts a WhatsApp call the Remote asked for. Android only lets an app open
+ *   another app from the background through a service like this one. For a number WhatsApp
+ *   only knows as a chat, it then taps the chat's voice-call button, and confirms WhatsApp's
+ *   "start call?" question if it asks.
  *
  * To keep its footprint small it only receives WhatsApp taps, and widens to Settings
- * screens only while a hotspot change is actually in progress.
+ * screens or WhatsApp's windows only while a hotspot change or a call start is in progress.
  */
 class WhatsappCallAccessibilityService : AccessibilityService() {
 
@@ -35,6 +41,9 @@ class WhatsappCallAccessibilityService : AccessibilityService() {
             return enabled.split(':').any { it.equals(component, ignoreCase = true) }
         }
 
+        /** How long PCL helps WhatsApp start a call before giving up. */
+        const val CALL_WINDOW_MS = 12_000L
+
         /** Labels of the Wi-Fi hotspot row or switch. */
         private val HOTSPOT_WORDS = listOf(
             "hotspot", "point d'accès", "point d’accès", "point d’acces", "zona wifi",
@@ -52,6 +61,43 @@ class WhatsappCallAccessibilityService : AccessibilityService() {
     private var lastTriggerAt = 0L
     private var lastSettingsTapAt = 0L
     private var lastToggleTapAt = 0L
+    private var lastCallTapAt = 0L
+
+    /** Gateway: a WhatsApp call being started for the Remote. */
+    private class CallJob(
+        val pkg: String,
+        val viaChat: Boolean,
+        val digits: String,
+        val name: String,
+        val until: Long,
+    ) {
+        var tappedCall = false
+    }
+
+    @Volatile
+    private var callJob: CallJob? = null
+
+    /**
+     * Gateway: opens WhatsApp to call [plan] and, for [CALL_WINDOW_MS], helps it along.
+     * [name] is the contact name WhatsApp shows for the number, if the Gateway knows one.
+     */
+    fun startWhatsAppCall(plan: WhatsAppDialer.Plan, name: String) {
+        callJob = CallJob(plan.pkg, plan.viaChat, plan.digits, name, SystemClock.elapsedRealtime() + CALL_WINDOW_MS)
+        lastCallTapAt = 0L
+        refreshEventFilter()
+        startActivity(
+            Intent(this, WhatsAppCallActivity::class.java)
+                .putExtra(WhatsAppCallActivity.EXTRA_TARGET, plan.intent)
+                .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_NO_ANIMATION)
+        )
+    }
+
+    /** Gateway: stop helping with the call start (it started, failed or timed out). */
+    fun stopWhatsAppCall() {
+        if (callJob == null) return
+        callJob = null
+        refreshEventFilter()
+    }
 
     override fun onServiceConnected() {
         super.onServiceConnected()
@@ -64,15 +110,20 @@ class WhatsappCallAccessibilityService : AccessibilityService() {
         super.onDestroy()
     }
 
-    /** Receive WhatsApp taps only, plus Settings screens while a hotspot change is pending. */
+    /**
+     * Receive WhatsApp taps only, plus Settings screens while a hotspot change is pending and
+     * WhatsApp's windows while a call is being started.
+     */
     fun refreshEventFilter() {
         val info = serviceInfo ?: return
         val service = Hub.service
-        if (service?.role == LinkService.ROLE_GATEWAY && service.hotspot.pending) {
+        val hotspotPending = service?.role == LinkService.ROLE_GATEWAY && service.hotspot.pending
+        if (hotspotPending || callJob != null) {
             info.eventTypes = AccessibilityEvent.TYPE_WINDOW_STATE_CHANGED or
                 AccessibilityEvent.TYPE_WINDOW_CONTENT_CHANGED or
                 AccessibilityEvent.TYPE_VIEW_CLICKED
-            info.packageNames = null // Settings' package name differs between manufacturers.
+            // Settings' package name differs between manufacturers.
+            info.packageNames = if (hotspotPending) null else WhatsAppCalls.PACKAGES.toTypedArray()
         } else {
             info.eventTypes = AccessibilityEvent.TYPE_VIEW_CLICKED
             info.packageNames = WhatsAppCalls.PACKAGES.toTypedArray()
@@ -83,6 +134,16 @@ class WhatsappCallAccessibilityService : AccessibilityService() {
     override fun onAccessibilityEvent(event: AccessibilityEvent?) {
         event ?: return
         val service = Hub.service
+
+        val job = callJob
+        if (job != null && WhatsAppCalls.isWhatsApp(event.packageName?.toString())) {
+            if (SystemClock.elapsedRealtime() > job.until) {
+                stopWhatsAppCall()
+            } else if (event.eventType != AccessibilityEvent.TYPE_VIEW_CLICKED) {
+                tryAutomateCall(job)
+                return
+            }
+        }
         if (service?.role == LinkService.ROLE_GATEWAY && service.hotspot.pending) {
             if (event.eventType == AccessibilityEvent.TYPE_WINDOW_STATE_CHANGED ||
                 event.eventType == AccessibilityEvent.TYPE_WINDOW_CONTENT_CHANGED ||
@@ -109,6 +170,81 @@ class WhatsappCallAccessibilityService : AccessibilityService() {
         lastTriggerAt = now
         Hub.log("WhatsApp call button detected on Remote; requesting Gateway hotspot")
         service?.onWhatsAppCallUiAction("START")
+    }
+
+    /**
+     * Gateway, while a WhatsApp call is being started: confirms WhatsApp's "start call?"
+     * question, and on the chat route taps the voice-call button once. That tap only happens
+     * in a chat whose top bar shows this contact's name or number, so a call list or another
+     * chat is never touched.
+     */
+    private fun tryAutomateCall(job: CallJob) {
+        val root = try { rootInActiveWindow } catch (_: Exception) { null } ?: return
+        if (root.packageName?.toString() != job.pkg) return
+        val now = SystemClock.elapsedRealtime()
+        if (now - lastCallTapAt < 1_500L) return
+
+        val confirm = findNode(root) { n ->
+            n.isClickable && n.className?.toString()?.contains("Button") == true &&
+                WhatsAppCalls.isConfirmCall(labelOf(n))
+        }
+        if (confirm != null) {
+            if (click(confirm)) {
+                lastCallTapAt = now
+                Hub.log("Confirmed WhatsApp's call question on the Gateway")
+            }
+            return
+        }
+
+        if (!job.viaChat || job.tappedCall) return
+        val topBar = resources.displayMetrics.heightPixels / 5
+        if (!chatIsFor(root, job, topBar)) return
+        val button = findNode(root) { n -> isInTopBar(n, topBar) && WhatsAppCalls.isVoiceCallButton(labelOf(n)) } ?: return
+        if (click(button)) {
+            job.tappedCall = true
+            lastCallTapAt = now
+            Hub.log("Tapped WhatsApp's voice-call button on the Gateway")
+        }
+    }
+
+    /** True when the top bar shows the contact's name or the number being called. */
+    private fun chatIsFor(root: AccessibilityNodeInfo, job: CallJob, topBar: Int): Boolean {
+        val tail = job.digits.takeLast(7)
+        return findNode(root) { n ->
+            if (!isInTopBar(n, topBar)) return@findNode false
+            val text = n.text?.toString()?.trim().orEmpty()
+            if (text.isEmpty()) return@findNode false
+            (job.name.isNotBlank() && text.equals(job.name.trim(), ignoreCase = true)) ||
+                (tail.length == 7 && text.filter { it.isDigit() }.endsWith(tail))
+        } != null
+    }
+
+    private fun isInTopBar(node: AccessibilityNodeInfo, topBar: Int): Boolean {
+        val r = Rect()
+        node.getBoundsInScreen(r)
+        return !r.isEmpty && r.bottom <= topBar
+    }
+
+    private fun labelOf(node: AccessibilityNodeInfo): String =
+        listOfNotNull(node.text?.toString(), node.contentDescription?.toString()).joinToString(" ")
+
+    private fun click(node: AccessibilityNodeInfo): Boolean {
+        val target = if (node.isClickable) node else clickableAncestor(node) ?: return false
+        return try { target.performAction(AccessibilityNodeInfo.ACTION_CLICK) } catch (_: Exception) { false }
+    }
+
+    private fun findNode(
+        node: AccessibilityNodeInfo,
+        depth: Int = 0,
+        match: (AccessibilityNodeInfo) -> Boolean,
+    ): AccessibilityNodeInfo? {
+        if (match(node)) return node
+        if (depth > 40) return null
+        for (i in 0 until node.childCount) {
+            val child = node.getChild(i) ?: continue
+            findNode(child, depth + 1, match)?.let { return it }
+        }
+        return null
     }
 
     private fun tryAutomateHotspot(event: AccessibilityEvent, hotspot: HotspotController) {

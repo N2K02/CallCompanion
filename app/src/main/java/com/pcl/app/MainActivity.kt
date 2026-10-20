@@ -590,19 +590,33 @@ class MainActivity : ComponentActivity() {
                         ) {
                             Icon(Icons.Default.Sync, null); Spacer(Modifier.width(8.dp)); Text("Sync contacts from Gateway")
                         }
+                        val whatsappStatus = service?.whatsappCallStatus
                         FilledTonalButton(
                             onClick = {
                                 val n = numberToDial()
                                 if (n.isEmpty()) toast("Pick a contact or enter a number")
-                                else service?.openWhatsAppChat(n)
+                                else service?.startWhatsAppCall(n)
                             },
-                            enabled = connected,
+                            enabled = connected && whatsappStatus?.startsWith("PENDING:") != true,
                             modifier = Modifier.fillMaxWidth()
                         ) {
-                            Icon(Icons.Default.Call, null); Spacer(Modifier.width(8.dp)); Text("WhatsApp chat on Gateway")
+                            Icon(Icons.Default.Call, null); Spacer(Modifier.width(8.dp)); Text("WhatsApp call on Gateway")
+                        }
+                        if (whatsappStatus != null) {
+                            Text(
+                                whatsappStatus.substringAfter(": "),
+                                style = MaterialTheme.typography.bodyMedium,
+                                color = when {
+                                    whatsappStatus.startsWith("FAILED:") -> MaterialTheme.colorScheme.error
+                                    whatsappStatus.startsWith("OK:") -> MaterialTheme.colorScheme.primary
+                                    else -> MaterialTheme.colorScheme.onSurfaceVariant
+                                }
+                            )
                         }
                         Text(
-                            "WhatsApp handoff opens a chat from a notification on the Gateway. Tap that notification, then start the voice call in WhatsApp.",
+                            "The Gateway starts the call in its own WhatsApp, so you talk through the Gateway or its Bluetooth headset. " +
+                                "It needs \"PCL call & hotspot helper\" turned on in the Gateway's Accessibility settings, and the Gateway " +
+                                "unlocked or locked without a PIN. Typed numbers need their country code unless they're saved contacts.",
                             style = MaterialTheme.typography.bodySmall,
                             color = MaterialTheme.colorScheme.onSurfaceVariant
                         )
@@ -637,7 +651,7 @@ class MainActivity : ComponentActivity() {
                             PermissionSetupRow("Contacts (for sync)", "Send Gateway contacts to the Remote and resolve caller names", granted(Manifest.permission.READ_CONTACTS)) { requestPermissions(arrayOf(Manifest.permission.READ_CONTACTS), 1) }
                             PermissionSetupRow("Notification access", "Mirror notifications and detect WhatsApp call state", notificationAccess, actionLabel = "Open settings") { runCatching { startActivity(Intent(Settings.ACTION_NOTIFICATION_LISTENER_SETTINGS)) }.onFailure { toast("Open Android Settings → Notifications → Notification access") } }
                             val hotspotAccessibilityEnabled = WhatsappCallAccessibilityService.isEnabled(this@MainActivity)
-                            PermissionSetupRow("Hotspot automation (optional)", "Accessibility service \"PCL call & hotspot helper\": lets PCL try to switch the Gateway hotspot in Android Settings during a Remote WhatsApp call", hotspotAccessibilityEnabled, actionLabel = "Open settings") {
+                            PermissionSetupRow("WhatsApp calls & hotspot (optional)", "Accessibility service \"PCL call & hotspot helper\": lets PCL start WhatsApp calls the Remote asks for, and switch the Gateway hotspot in Android Settings during a Remote WhatsApp call", hotspotAccessibilityEnabled, actionLabel = "Open settings") {
                                 runCatching { startActivity(Intent(Settings.ACTION_ACCESSIBILITY_SETTINGS)) }
                                     .onFailure { toast("Open Android Settings → Accessibility → Installed apps → PCL call & hotspot helper") }
                             }
