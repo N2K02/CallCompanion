@@ -4,6 +4,8 @@ import android.app.Notification
 import android.app.PendingIntent
 import android.content.ComponentName
 import android.content.Context
+import android.os.Build
+import android.os.Bundle
 import android.provider.Settings
 import android.service.notification.NotificationListenerService
 import android.service.notification.StatusBarNotification
@@ -27,13 +29,72 @@ class NotifListener : NotificationListenerService() {
 
         /** Action labels that mark an ongoing non-WhatsApp notification as a call. */
         private val GENERIC_CALL_ACTIONS = listOf("answer", "accept", "decline", "reject", "hang up", "end call")
+
+        // Call-style notifications (Android 12+): Android draws Answer / Decline / Hang up
+        // itself from these extras, so those buttons are not in Notification.actions.
+        private const val EXTRA_CALL_TYPE = "android.callType"
+        private const val EXTRA_ANSWER_INTENT = "android.answerIntent"
+        private const val EXTRA_DECLINE_INTENT = "android.declineIntent"
+        private const val EXTRA_HANG_UP_INTENT = "android.hangUpIntent"
+        private const val CALL_TYPE_INCOMING = 1
+        private const val CALL_TYPE_ONGOING = 2
+        private const val CALL_TYPE_SCREENING = 3
+
+        fun isCallStyle(n: Notification): Boolean {
+            val ex = n.extras ?: return false
+            return ex.containsKey(EXTRA_CALL_TYPE) ||
+                ex.getString(Notification.EXTRA_TEMPLATE)?.endsWith("\$CallStyle") == true
+        }
+
+        private fun pendingIntent(ex: Bundle, key: String): PendingIntent? = try {
+            if (Build.VERSION.SDK_INT >= 33) ex.getParcelable(key, PendingIntent::class.java)
+            else @Suppress("DEPRECATION") (ex.getParcelable(key) as? PendingIntent)
+        } catch (_: Exception) {
+            null
+        }
+
+        /**
+         * The buttons of [n] that PCL can press, call buttons first. For call-style
+         * notifications that includes the Answer / Decline / Hang up buttons Android draws.
+         */
+        fun relaysOf(n: Notification): List<Relay> {
+            val list = ArrayList<Relay>()
+            val ex = n.extras
+            if (ex != null && isCallStyle(n)) {
+                pendingIntent(ex, EXTRA_DECLINE_INTENT)?.let { list += Relay("Decline", it) }
+                pendingIntent(ex, EXTRA_ANSWER_INTENT)?.let { list += Relay("Answer", it) }
+                pendingIntent(ex, EXTRA_HANG_UP_INTENT)?.let { list += Relay("Hang up", it) }
+            }
+            val system = list.map { it.intent }
+            n.actions?.forEach { a ->
+                val label = a.title?.toString()?.takeIf { it.isNotBlank() } ?: return@forEach
+                val intent = a.actionIntent ?: return@forEach
+                // Older AndroidX call styles also add the call buttons as ordinary actions.
+                if (intent in system) return@forEach
+                list += Relay(label.take(40), intent)
+            }
+            return list
+        }
+
+        /** The call state a notification shows, or null when it can't tell. */
+        fun callStateOf(n: Notification, relays: List<Relay> = relaysOf(n)): String? =
+            when (n.extras?.getInt(EXTRA_CALL_TYPE, 0) ?: 0) {
+                CALL_TYPE_INCOMING, CALL_TYPE_SCREENING -> WhatsAppCalls.RINGING
+                CALL_TYPE_ONGOING -> WhatsAppCalls.ACTIVE
+                else -> WhatsAppCalls.stateFromActionLabels(relays.map { it.label })
+            }
     }
 
+    /** A button PCL can press on the original notification. */
+    class Relay(val label: String, val intent: PendingIntent)
+
     private val lastSent = HashMap<String, String>()
-    private val actionsByKey = HashMap<String, Array<Notification.Action>>()
+    private val actionsByKey = HashMap<String, List<Relay>>()
     private val actionPackagesByKey = HashMap<String, String>()
     private val whatsappCallStates = HashMap<String, String>()
     private val whatsappCallPackages = HashMap<String, String>()
+    /** WhatsApp notifications already logged as "looks like a call, buttons not recognised". */
+    private val unrecognisedLogged = HashSet<String>()
 
     private fun reportWhatsAppState(pkg: String) {
         val state = synchronized(whatsappCallStates) {
@@ -54,15 +115,25 @@ class NotifListener : NotificationListenerService() {
             val changed = synchronized(whatsappCallStates) {
                 val wasTracked = whatsappCallStates.remove(sbn.key) != null
                 whatsappCallPackages.remove(sbn.key)
+                unrecognisedLogged.remove(sbn.key)
                 wasTracked
             }
             if (changed && report) reportWhatsAppState(sbn.packageName)
             return
         }
         val n = sbn.notification ?: return
-        val labels = (n.actions ?: emptyArray()).mapNotNull { it.title?.toString() }
+        val relays = relaysOf(n)
         // Do not guess when WhatsApp/OEM exposes no recognizable call actions.
-        val state = WhatsAppCalls.stateFromActionLabels(labels) ?: return
+        val state = callStateOf(n, relays)
+        if (state == null) {
+            val looksLikeCall = n.category == Notification.CATEGORY_CALL || n.fullScreenIntent != null
+            if (looksLikeCall && synchronized(whatsappCallStates) { unrecognisedLogged.add(sbn.key) }) {
+                Hub.log("WhatsApp call notification with unrecognised buttons: " +
+                    relays.joinToString { "\"${it.label}\"" }.ifEmpty { "none" } +
+                    ". Please report these labels so PCL can learn them.")
+            }
+            return
+        }
         val changed = synchronized(whatsappCallStates) {
             whatsappCallPackages[sbn.key] = sbn.packageName
             whatsappCallStates.put(sbn.key, state) != state
@@ -114,18 +185,33 @@ class NotifListener : NotificationListenerService() {
         val n = sbn.notification ?: return
         if ((n.flags and Notification.FLAG_GROUP_SUMMARY) != 0) return
         val ex = n.extras ?: return
-        val title = ex.getCharSequence(Notification.EXTRA_TITLE)?.toString() ?: ""
-        val text = (ex.getCharSequence(Notification.EXTRA_BIG_TEXT) ?: ex.getCharSequence(Notification.EXTRA_TEXT))?.toString()
+        var title = ex.getCharSequence(Notification.EXTRA_TITLE)?.toString() ?: ""
+        var text = (ex.getCharSequence(Notification.EXTRA_BIG_TEXT) ?: ex.getCharSequence(Notification.EXTRA_TEXT))?.toString()
             ?: ex.getCharSequenceArray(Notification.EXTRA_TEXT_LINES)?.joinToString("\n") ?: ""
-        if (title.isEmpty() && text.isEmpty()) return
 
-        val actions = n.actions ?: emptyArray()
-        val available = actions.withIndex().filter { it.value.actionIntent != null && !it.value.title.isNullOrBlank() }.take(3)
-        val indices = available.map { it.index }
-        val labels = available.map { it.value.title.toString().take(40) }
-        val whatsappCallAction = isWhatsApp && labels.any { WhatsAppCalls.isAnswer(it) || WhatsAppCalls.isDecline(it) }
-        val callNotification = n.category == Notification.CATEGORY_CALL || whatsappCallAction ||
+        val relays = relaysOf(n)
+        val shown = relays.take(3)
+        val indices = shown.indices.toList()
+        val labels = shown.map { it.label }
+        val callState = callStateOf(n, relays)
+        // A WhatsApp call: call-style or call-category notification, one that opens a full-screen
+        // call screen, or one with call buttons. "Reply" alone (a message) is not enough.
+        val whatsappCall = isWhatsApp && (isCallStyle(n) || n.category == Notification.CATEGORY_CALL ||
+            n.fullScreenIntent != null || callState != null)
+        val callNotification = whatsappCall || n.category == Notification.CATEGORY_CALL || isCallStyle(n) ||
             (sbn.isOngoing && labels.any { WhatsAppCalls.containsAny(it, GENERIC_CALL_ACTIONS) })
+
+        if (callNotification) {
+            // Call-style notifications may carry the caller only as a Person.
+            if (title.isEmpty()) title = callerName(ex)
+            if (text.isEmpty()) text = when (callState) {
+                WhatsAppCalls.RINGING -> "Incoming call"
+                WhatsAppCalls.ACTIVE -> "Call in progress"
+                else -> ""
+            }
+            if (title.isEmpty() && text.isEmpty()) title = appName(sbn.packageName)
+        }
+        if (title.isEmpty() && text.isEmpty()) return
 
         if (callNotification) {
             // Prefer the Remote phone's native WhatsApp notification when its own
@@ -137,7 +223,7 @@ class NotifListener : NotificationListenerService() {
                 return
             }
             synchronized(actionsByKey) {
-                actionsByKey[sbn.key] = actions
+                actionsByKey[sbn.key] = relays
                 actionPackagesByKey[sbn.key] = sbn.packageName
             }
             val signature = "CALL\u0000$title\u0000$text\u0000" + labels.joinToString("\u0001")
@@ -203,6 +289,18 @@ class NotifListener : NotificationListenerService() {
         return dispatchAction(action)
     }
 
+    private fun callerName(ex: Bundle): String = try {
+        val person = if (Build.VERSION.SDK_INT >= 33) {
+            ex.getParcelable(Notification.EXTRA_CALL_PERSON, android.app.Person::class.java)
+        } else {
+            @Suppress("DEPRECATION")
+            ex.getParcelable(Notification.EXTRA_CALL_PERSON) as? android.app.Person
+        }
+        person?.name?.toString().orEmpty()
+    } catch (_: Exception) {
+        ""
+    }
+
     /** Fallback for OEM Phone apps that expose controls only in their call notification. */
     fun performCallAction(kind: String): Boolean {
         // Never let a third-party VoIP notification accidentally answer or end the SIM
@@ -213,10 +311,10 @@ class NotifListener : NotificationListenerService() {
         val actions = synchronized(actionsByKey) {
             actionsByKey.entries
                 .filter { actionPackagesByKey[it.key] == dialerPackage }
-                .flatMap { it.value.asList() }
+                .flatMap { it.value }
         }
         val matching = actions.firstOrNull { action ->
-            val label = action.title?.toString().orEmpty()
+            val label = action.label
             when (kind) {
                 "answer" -> WhatsAppCalls.isAnswer(label)
                 "reject" -> WhatsAppCalls.isDecline(label)
@@ -228,11 +326,11 @@ class NotifListener : NotificationListenerService() {
         return dispatchAction(matching)
     }
 
-    private fun dispatchAction(action: Notification.Action): Boolean {
-        val intent = action.actionIntent ?: return false
+    private fun dispatchAction(action: Relay): Boolean {
+        val intent = action.intent
         return try {
             intent.send()
-            Hub.log("Invoked notification action: ${action.title}")
+            Hub.log("Invoked notification action: ${action.label}")
             true
         } catch (e: PendingIntent.CanceledException) {
             Hub.log("Notification action expired: ${e.message}")

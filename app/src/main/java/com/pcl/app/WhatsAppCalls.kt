@@ -16,22 +16,26 @@ object WhatsAppCalls {
     /** WhatsApp and WhatsApp Business. */
     val PACKAGES = listOf("com.whatsapp", "com.whatsapp.w4b")
 
-    /** Notification actions that answer a ringing call. */
+    /**
+     * Notification actions that answer a ringing call. Some of these also mean "Reply" on a
+     * message, so a ringing call needs an answer AND a decline label (see [stateFromActionLabels]).
+     */
     val ANSWER_LABELS = listOf(
         "answer", "accept", "pick up", "rispondi", "contestar", "responder",
-        "décrocher", "annehmen", "接听", "接聽", "応答"
+        "décrocher", "répondre", "repondre", "annehmen", "atender", "ответить", "cevapla",
+        "接听", "接聽", "応答"
     )
 
     /** Notification actions that decline a ringing call. */
     val DECLINE_LABELS = listOf(
         "decline", "reject", "ignore", "rifiuta", "rechazar", "refuser",
-        "ablehnen", "拒绝", "拒接", "拒否"
+        "ablehnen", "recusar", "rejeitar", "отклонить", "reddet", "拒绝", "拒接", "拒否"
     )
 
     /** Notification actions that end a connected call. */
     val END_LABELS = listOf(
         "hang up", "end call", "disconnect", "terminate", "riaggancia", "colgar",
-        "raccrocher", "auflegen", "終了", "切断"
+        "raccrocher", "auflegen", "desligar", "encerrar", "завершить", "kapat", "終了", "切断"
     )
 
     /** In-app WhatsApp buttons (seen by the accessibility helper) that start or answer a call. */

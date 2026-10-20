@@ -61,7 +61,7 @@ PCL needs Android 8.0 or newer. It never needs the microphone.
 
 ## WhatsApp calls
 
-WhatsApp has no public call API, so PCL reads call state from the **action buttons on WhatsApp's notifications** (Answer/Decline means ringing; Hang up means active). This needs Notification access on both phones. It is best effort: a WhatsApp update or a manufacturer's layout can change those labels.
+WhatsApp has no public call API, so PCL reads call state from **WhatsApp's call notification**: Android's call style when WhatsApp uses it (incoming or ongoing, with the Answer / Decline / Hang up buttons Android draws), otherwise the notification's own buttons (Answer and Decline means ringing; Hang up means active). This needs Notification access on both phones. It is best effort: a WhatsApp update or a language PCL doesn't know can change those labels. If a WhatsApp call notification's buttons aren't recognised, the activity log lists them.
 
 **Which phone shows the call.** If the Remote's own WhatsApp is ringing, PCL hides the Gateway's mirrored copy. If the Remote has no call of its own, the Gateway's copy is shown as a fallback, and its Answer button works from the Remote. Answer is blocked when either phone already has an active WhatsApp call. PCL never answers, rejects or mutes a call by itself. A short duplicate can appear before the Remote's state reaches the Gateway.
 
