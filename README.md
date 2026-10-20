@@ -66,7 +66,7 @@ WhatsApp has no public call API, so PCL reads call state from the **action butto
 
 **Calling from the Remote.** Pick a contact or enter a number, then tap **WhatsApp chat on Gateway**. The Gateway shows a **Continue in WhatsApp** notification; tap it there and start the call in WhatsApp. PCL can't place WhatsApp calls itself.
 
-**Hotspot for calls on the Remote.** The Remote's standby internet can be Bluetooth tethering, which is slow for calls. When a WhatsApp call becomes active on the Remote, the Gateway can turn on its Wi-Fi hotspot, and turn it off afterwards:
+**Hotspot for calls on the Remote.** The Remote's always-on internet is Bluetooth tethering (see [Internet on the Remote](#internet-on-the-remote)), which is slow for calls. When a WhatsApp call becomes active on the Remote, the Gateway can turn on its Wi-Fi hotspot, and turn it off afterwards:
 
 - It waits a few seconds before turning on and about 15 seconds before turning off, so brief notification changes don't flip the network.
 - It does nothing if the hotspot is already on or the Remote is already on Wi-Fi. A call that only rings, or is answered on the Gateway, never triggers it.
@@ -74,14 +74,18 @@ WhatsApp has no public call API, so PCL reads call state from the **action butto
 - With the accessibility helper enabled, PCL opens hotspot settings and taps the Wi-Fi hotspot switch (never USB or Bluetooth tethering). It won't open Settings while the Gateway is in a phone call; it waits for the call to end.
 - In every other case, or if automation fails, a notification on the Gateway offers **Open hotspot settings** so you can switch it yourself.
 - If the Bluetooth link drops, the Remote reports its call state again when it reconnects, so a hotspot left on for a finished call is turned off then.
-
-Save the Gateway hotspot's Wi-Fi network on the Remote once, so it joins automatically. Mobile-data charges may apply.
+- On the Remote, if Wi-Fi is off or it hasn't joined the hotspot, a notification offers a Wi-Fi settings shortcut. Android doesn't let apps connect to Wi-Fi themselves.
 
 **Accounts.** Using the same WhatsApp account on both phones requires WhatsApp's official linked-device mode; WhatsApp, not PCL, coordinates the call across those devices. PCL tracks state per WhatsApp app (WhatsApp or WhatsApp Business), not per account.
 
-## Sharing internet with the Remote
+## Internet on the Remote
 
-PCL's Bluetooth link does not share internet. To give the Remote the Gateway's mobile data, turn on Android's Bluetooth tethering or Wi-Fi hotspot on the Gateway (support for Bluetooth tethering varies by phone). The Remote's own apps, including its WhatsApp, then use its own signed-in accounts.
+PCL's Bluetooth link carries call state and commands, not internet. The Remote gets the Gateway's mobile data through Android's own tethering:
+
+1. **Bluetooth tethering — always on, low power.** On the Gateway, open **Settings → Hotspot & tethering** (wording varies) and turn on **Bluetooth tethering**. On the Remote, open the Gateway in Bluetooth settings and allow **Internet access** if offered. Turn Wi-Fi off on the Remote and check a web page loads. Some phones turn Bluetooth tethering off after a reboot, so check it again then. PCL never switches Bluetooth tethering on or off.
+2. **Wi-Fi hotspot — for calls.** Keep the Gateway hotspot off normally. PCL turns it on for an active WhatsApp call on the Remote and off afterwards (see [WhatsApp calls](#whatsapp-calls)). Save the hotspot's Wi-Fi network on the Remote once so it joins automatically.
+
+Android chooses which network the Remote uses, and moving from Bluetooth to Wi-Fi during a call can briefly interrupt it on some phones. The Remote's own apps, including its WhatsApp, use its own accounts. Mobile-data charges may apply.
 
 ## Limitations
 
