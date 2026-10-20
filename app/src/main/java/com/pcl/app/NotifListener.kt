@@ -226,6 +226,9 @@ class NotifListener : NotificationListenerService() {
                 actionsByKey[sbn.key] = relays
                 actionPackagesByKey[sbn.key] = sbn.packageName
             }
+            // SIM calls already have PCL's own call notification on the Remote. The Phone
+            // app's buttons are kept here only as a fallback for answering and ending.
+            if (sbn.packageName == defaultDialer()) return
             val signature = "CALL\u0000$title\u0000$text\u0000" + labels.joinToString("\u0001")
             synchronized(lastSent) { if (lastSent[sbn.key] == signature) return; lastSent[sbn.key] = signature }
             svc.mirrorCallPosted(sbn.key, sbn.packageName, appName(sbn.packageName), title, text, indices, labels)
@@ -289,6 +292,12 @@ class NotifListener : NotificationListenerService() {
         return dispatchAction(action)
     }
 
+    private fun defaultDialer(): String? = try {
+        getSystemService(TelecomManager::class.java)?.defaultDialerPackage
+    } catch (_: Exception) {
+        null
+    }
+
     private fun callerName(ex: Bundle): String = try {
         val person = if (Build.VERSION.SDK_INT >= 33) {
             ex.getParcelable(Notification.EXTRA_CALL_PERSON, android.app.Person::class.java)
@@ -329,7 +338,17 @@ class NotifListener : NotificationListenerService() {
     private fun dispatchAction(action: Relay): Boolean {
         val intent = action.intent
         return try {
-            intent.send()
+            if (Build.VERSION.SDK_INT >= 34) {
+                // Answering a WhatsApp call may open its call screen. Let PCL's own right to
+                // start it apply (it has one while its accessibility helper is on).
+                @Suppress("DEPRECATION")
+                val options = android.app.ActivityOptions.makeBasic()
+                    .setPendingIntentBackgroundActivityStartMode(android.app.ActivityOptions.MODE_BACKGROUND_ACTIVITY_START_ALLOWED)
+                    .toBundle()
+                intent.send(this, 0, null, null, null, null, options)
+            } else {
+                intent.send()
+            }
             Hub.log("Invoked notification action: ${action.label}")
             true
         } catch (e: PendingIntent.CanceledException) {

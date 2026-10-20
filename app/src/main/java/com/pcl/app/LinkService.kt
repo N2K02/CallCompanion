@@ -94,6 +94,8 @@ class LinkService : Service() {
         private const val ID_MISSED = 46
         private const val TRAFFIC_SAMPLE_MS = 5_000L
         private const val CALL_CONTROL_TIMEOUT_MS = 15_000L
+        /** Remote: stop ringing for a mirrored call after this long, whatever happens. */
+        private const val MIRROR_RING_LIMIT_MS = 75_000L
         /** Remote: how long to wait for the Gateway to say whether a WhatsApp call started. */
         private const val WHATSAPP_CALL_TIMEOUT_MS = 25_000L
         /** Upper bound for a contact sync in characters; protects memory from a misbehaving peer. */
@@ -219,6 +221,12 @@ class LinkService : Service() {
     private val io = Executors.newSingleThreadExecutor()
     private var receiverRegistered = false
     private var ringtone: Ringtone? = null
+
+    /** Remote: the mirrored Gateway call (WhatsApp etc.) that is ringing here, by its encoded key. */
+    @Volatile private var ringingMirrorKey: String? = null
+    /** Remote: mirrored Gateway calls on screen, and when each one connected (for the call timer). */
+    private val mirroredCalls = ConcurrentHashMap<String, Long>()
+    private val stopMirrorRingingLater = Runnable { stopMirrorRinging(null) }
     private var contactBuf: StringBuilder? = null
 
     val isActive: Boolean get() = running
@@ -281,10 +289,13 @@ class LinkService : Service() {
             }
             ACTION_NOTIF_DISMISSED -> {
                 val key = intent.getStringExtra(EXTRA_KEY)
+                key?.let(::stopMirrorRinging)
                 if (running && key != null) send("NOTIF_DISMISS", key) else if (!running) stopSelf()
             }
             ACTION_NOTIF_ACTION -> {
                 val key = intent.getStringExtra(EXTRA_KEY)
+                // Answer, Decline or Hang up: either way this phone stops ringing.
+                key?.let(::stopMirrorRinging)
                 val index = intent.getIntExtra(EXTRA_ACTION_INDEX, -1)
                 val label = intent.getStringExtra(EXTRA_ACTION_LABEL).orEmpty()
                 val notifPackage = intent.getStringExtra(EXTRA_NOTIF_PACKAGE).orEmpty()
@@ -332,12 +343,12 @@ class LinkService : Service() {
     // ---------------------------------------------------------------- public actions (UI)
 
     fun answer() {
-        stopRinging()
+        stopSimRinging()
         if (role == ROLE_GATEWAY) gatewayAnswer() else requestGateway("ANSWER")
     }
 
     fun reject() {
-        stopRinging()
+        stopSimRinging()
         if (role == ROLE_REMOTE) CallHistory.onDeclinedHere()
         if (role == ROLE_GATEWAY) gatewayEnd(rejectRinging = true) else requestGateway("REJECT")
     }
@@ -714,6 +725,11 @@ class LinkService : Service() {
                 stopRinging()
                 callState = CALL_IDLE
                 nm.cancel(ID_INCOMING)
+                // Mirrored calls can't be answered or ended without the link; the Gateway
+                // sends the ones still going again when it reconnects.
+                ringingMirrorKey = null
+                mirroredCalls.keys.forEach { nm.cancel(TAG_MIRROR, it.hashCode()) }
+                mirroredCalls.clear()
             }
         }
     }
@@ -892,7 +908,11 @@ class LinkService : Service() {
                 val pkg = decodeText(p.getOrElse(6 + count * 2) { "" })
                 showMirroredCall(arg1, pkg, decodeText(p.getOrElse(2) { "" }), decodeText(p.getOrElse(3) { "" }), decodeText(p.getOrElse(4) { "" }), indices, labels)
             }
-            "NOTIF_REMOVE" -> nm.cancel(TAG_MIRROR, arg1.hashCode())
+            "NOTIF_REMOVE" -> {
+                nm.cancel(TAG_MIRROR, arg1.hashCode())
+                mirroredCalls.remove(arg1)
+                stopMirrorRinging(arg1)
+            }
             "NOTIF_DISMISS" -> {
                 val key = decodeKey(arg1)
                 if (key != null) NotifListener.instance?.dismiss(key)
@@ -1201,12 +1221,12 @@ class LinkService : Service() {
                 startRinging()
             }
             CALL_OFFHOOK -> {
-                stopRinging()
+                stopSimRinging()
                 showOngoingCall()
                 Hub.log("Call in progress on gateway (${logCaller()})")
             }
             else -> {
-                stopRinging()
+                stopSimRinging()
                 nm.cancel(ID_INCOMING)
                 Hub.log("Call ended")
             }
@@ -1250,6 +1270,20 @@ class LinkService : Service() {
             vibrator()?.vibrate(VibrationEffect.createWaveform(longArrayOf(0, 800, 800), 0))
         } catch (e: Exception) {
         }
+    }
+
+    /** The SIM call stopped ringing; keep ringing if a mirrored WhatsApp call still is. */
+    private fun stopSimRinging() {
+        if (ringingMirrorKey == null) stopRinging()
+    }
+
+    /** A mirrored call stopped ringing ([encKey] null: whichever one is ringing). */
+    private fun stopMirrorRinging(encKey: String?) {
+        val ringing = ringingMirrorKey ?: return
+        if (encKey != null && encKey != ringing) return
+        ringingMirrorKey = null
+        trafficHandler.removeCallbacks(stopMirrorRingingLater)
+        if (callState != CALL_RINGING) stopRinging()
     }
 
     private fun stopRinging() {
@@ -1360,15 +1394,26 @@ class LinkService : Service() {
         try { nm.notify(TAG_MIRROR, id, n) } catch (_: Exception) { }
     }
 
-    /** Remote: mirror a third-party call notification with its original available actions. */
+    /**
+     * Remote: mirror a Gateway call notification (WhatsApp etc.) with its buttons. While it
+     * rings, this phone rings like for a SIM call; once answered it shows a call timer. Its
+     * Answer / Decline / Hang up act on the Gateway, where the call and its audio stay.
+     */
     private fun showMirroredCall(encKey: String, pkg: String, app: String, title: String, text: String, actionIndices: List<Int>, actionLabels: List<String>) {
         val id = encKey.hashCode()
+        val state = WhatsAppCalls.stateFromActionLabels(actionLabels)
+        val now = System.currentTimeMillis()
+        if (state == WhatsAppCalls.ACTIVE) mirroredCalls[encKey] = mirroredCalls[encKey]?.takeIf { it > 0 } ?: now
+        else mirroredCalls.putIfAbsent(encKey, 0L)
+        val connectedAt = mirroredCalls[encKey]?.takeIf { it > 0 }
         val deletePi = PendingIntent.getService(this, id, Intent(this, LinkService::class.java).setAction(ACTION_NOTIF_DISMISSED).putExtra(EXTRA_KEY, encKey), PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT)
-        val builder = Notification.Builder(this, CH_MIRROR)
-            .setSmallIcon(android.R.drawable.sym_action_call).setSubText(app)
+        // The calls channel is silent: PCL plays the ringtone itself while it rings.
+        val builder = Notification.Builder(this, CH_CALLS)
+            .setSmallIcon(android.R.drawable.sym_action_call).setSubText("$app · on the Gateway")
             .setContentTitle(title.ifEmpty { app }).setContentText(text)
             .setStyle(Notification.BigTextStyle().bigText(text)).setCategory(Notification.CATEGORY_CALL)
-            .setWhen(System.currentTimeMillis()).setShowWhen(true).setOngoing(true)
+            .setWhen(connectedAt ?: now).setShowWhen(true).setUsesChronometer(connectedAt != null)
+            .setOngoing(true)
             .setContentIntent(openAppPi()).setDeleteIntent(deletePi)
         for (i in 0 until minOf(3, actionIndices.size, actionLabels.size)) {
             val sourceIndex = actionIndices[i]
@@ -1385,6 +1430,19 @@ class LinkService : Service() {
             builder.addAction(action(iconId, label, pi))
         }
         try { nm.notify(TAG_MIRROR, id, builder.build()) } catch (_: Exception) { }
+
+        if (state == WhatsAppCalls.RINGING) {
+            if (ringingMirrorKey != encKey) {
+                ringingMirrorKey = encKey
+                startRinging()
+                Hub.log("Ringing for a $app call on the Gateway")
+                // Never ring forever if the Gateway's notification update is lost.
+                trafficHandler.removeCallbacks(stopMirrorRingingLater)
+                trafficHandler.postDelayed(stopMirrorRingingLater, MIRROR_RING_LIMIT_MS)
+            }
+        } else {
+            stopMirrorRinging(encKey)
+        }
     }
 
     // ---------------------------------------------------------------- notifications

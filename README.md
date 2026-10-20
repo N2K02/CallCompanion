@@ -76,7 +76,15 @@ Android only lets the phone's own dialer send keypad tones into a call, so PCL c
 
 WhatsApp has no public call API, so PCL reads call state from **WhatsApp's call notification**: Android's call style when WhatsApp uses it (incoming or ongoing, with the Answer / Decline / Hang up buttons Android draws), otherwise the notification's own buttons (Answer and Decline means ringing; Hang up means active). This needs Notification access on both phones. It is best effort: a WhatsApp update or a language PCL doesn't know can change those labels. If a WhatsApp call notification's buttons aren't recognised, the activity log lists them.
 
-**Which phone shows the call.** If the Remote's own WhatsApp is ringing, PCL hides the Gateway's mirrored copy. If the Remote has no call of its own, the Gateway's copy is shown as a fallback, and its Answer button works from the Remote. Answer is blocked when either phone already has an active WhatsApp call. PCL never answers, rejects or mutes a call by itself. A short duplicate can appear before the Remote's state reaches the Gateway.
+**Incoming WhatsApp calls on the Gateway.** The Remote shows the call ("WhatsApp · on the Gateway") with **Decline** and **Answer**, and rings like for a SIM call (it stops after 75 seconds at most).
+
+1. **Answer** on the Remote answers the call in the Gateway's WhatsApp. You talk through the Gateway: its earpiece, loudspeaker or Bluetooth headset.
+2. The Remote's notification then shows the call in progress with a call timer and **Hang up**.
+3. **Hang up** on the Remote ends the call in the Gateway's WhatsApp, and the notification goes away.
+
+This needs Notification access and **Send notifications to remote** on the Gateway. On Android 14 and newer, also turn on **PCL WhatsApp call helper** on the Gateway: WhatsApp may open its call screen when answering, and Android only lets PCL do that from the background while the helper is on.
+
+**If the Remote has WhatsApp too.** If the Remote's own WhatsApp rings for the same call (the same account as a linked device), PCL hides the Gateway's copy so you don't get two. Answering in the Remote's WhatsApp puts the call on the Remote, not the Gateway; WhatsApp decides that, not PCL. Answer is blocked when either phone already has an active WhatsApp call. PCL never answers, rejects or mutes a call by itself. A short duplicate can appear before the Remote's state reaches the Gateway.
 
 **Calling from the Remote.** Pick a contact or enter a number, then tap **WhatsApp call on Gateway**. The Gateway starts a WhatsApp voice call in its own WhatsApp, and Home on the Remote says whether it started. You talk through the Gateway (or its Bluetooth headset), as with SIM calls.
 
