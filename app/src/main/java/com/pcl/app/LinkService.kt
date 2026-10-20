@@ -66,6 +66,12 @@ class LinkService : Service() {
         const val ACTION_HANGUP = "com.pcl.app.HANGUP"
         const val ACTION_NOTIF_DISMISSED = "com.pcl.app.NOTIF_DISMISSED"
         const val ACTION_NOTIF_ACTION = "com.pcl.app.NOTIF_ACTION"
+        /** Remote: "Call back" on a missed-call notification. */
+        const val ACTION_CALL_BACK = "com.pcl.app.CALL_BACK"
+        const val EXTRA_NUMBER = "number"
+        const val EXTRA_NAME = "name"
+        /** MainActivity: which tab to open ("calls"). */
+        const val EXTRA_OPEN_TAB = "open_tab"
         const val EXTRA_KEY = "key"
         const val EXTRA_ACTION_INDEX = "action_index"
         const val EXTRA_ACTION_LABEL = "action_label"
@@ -88,6 +94,7 @@ class LinkService : Service() {
         private const val ID_INCOMING = 2
         private const val ID_WHATSAPP_HANDOFF = 42
         private const val ID_REMOTE_WIFI = 44
+        private const val ID_MISSED = 46
         private const val TRAFFIC_SAMPLE_MS = 5_000L
         private const val CALL_CONTROL_TIMEOUT_MS = 15_000L
         /** Remote: how long to wait for the Gateway to say whether a WhatsApp call started. */
@@ -237,6 +244,7 @@ class LinkService : Service() {
     override fun onCreate() {
         super.onCreate()
         Hub.service = this
+        CallHistory.init(this)
         createChannels()
     }
 
@@ -279,6 +287,12 @@ class LinkService : Service() {
             ACTION_ANSWER -> if (running) answer() else stopSelf()
             ACTION_REJECT -> if (running) reject() else stopSelf()
             ACTION_HANGUP -> if (running) hangUp() else stopSelf()
+            ACTION_CALL_BACK -> {
+                nm.cancel(ID_MISSED)
+                val number = intent.getStringExtra(EXTRA_NUMBER).orEmpty()
+                if (running && number.isNotEmpty()) dial(number, intent.getStringExtra(EXTRA_NAME).orEmpty())
+                else if (!running) stopSelf()
+            }
             ACTION_NOTIF_DISMISSED -> {
                 val key = intent.getStringExtra(EXTRA_KEY)
                 if (running && key != null) send("NOTIF_DISMISS", key) else if (!running) stopSelf()
@@ -341,6 +355,7 @@ class LinkService : Service() {
 
     fun reject() {
         stopRinging()
+        if (role == ROLE_REMOTE) CallHistory.onDeclinedHere()
         if (role == ROLE_GATEWAY) gatewayEnd(rejectRinging = true) else requestGateway("REJECT")
     }
 
@@ -348,8 +363,14 @@ class LinkService : Service() {
         if (role == ROLE_GATEWAY) gatewayEnd() else requestGateway("HANGUP")
     }
 
-    fun dial(number: String) {
-        if (role == ROLE_GATEWAY) gatewayDial(number) else requestGateway("DIAL", number)
+    /** [name] is only used for the Remote's call history. */
+    fun dial(number: String, name: String = "") {
+        if (role == ROLE_GATEWAY) {
+            gatewayDial(number)
+        } else {
+            CallHistory.onDialRequested(number, name)
+            requestGateway("DIAL", number)
+        }
     }
 
     /** Ask the Gateway to refresh the Remote's offline contact cache. */
@@ -384,13 +405,14 @@ class LinkService : Service() {
      * Remote: asks the Gateway to start a WhatsApp voice call to [number] in its own WhatsApp.
      * The call runs on the Gateway; Home shows whether it started.
      */
-    fun startWhatsAppCall(number: String) {
+    fun startWhatsAppCall(number: String, name: String = "") {
         if (role != ROLE_REMOTE) return
         if (!connected) {
             whatsappCallStatus = "FAILED: Bluetooth is disconnected."
             Hub.notifyUi()
             return
         }
+        CallHistory.onWhatsAppCall(number, name)
         val theirs = peerProtocol
         if (theirs == null || theirs < 4) {
             // An older Gateway can only post a "Continue in WhatsApp" notification.
@@ -877,6 +899,9 @@ class LinkService : Service() {
                 callNumber = p.getOrElse(2) { "" }
                 callName = p.getOrElse(3) { "" }
                 callDirection = p.getOrElse(4) { "" }
+                CallHistory.onSimState(callState, callNumber, callName)
+                    ?.takeIf { it.type == CallHistory.Type.MISSED }
+                    ?.let(::showMissedCall)
                 onRemoteCallUpdate()
             }
             // remote -> gateway
@@ -1540,6 +1565,41 @@ class LinkService : Service() {
             }
         }
         Hub.notifyUi()
+    }
+
+    /** Remote: a Gateway call rang and nobody answered. */
+    private fun showMissedCall(call: CallHistory.Record) {
+        val who = call.name.ifEmpty { call.number.ifEmpty { "Unknown number" } }
+        val open = PendingIntent.getActivity(
+            this, 21,
+            Intent(this, MainActivity::class.java)
+                .addFlags(Intent.FLAG_ACTIVITY_SINGLE_TOP)
+                .putExtra(EXTRA_OPEN_TAB, "calls"),
+            PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT
+        )
+        val builder = Notification.Builder(this, CH_CALLS)
+            .setSmallIcon(android.R.drawable.stat_notify_missed_call)
+            .setContentTitle("Missed call")
+            .setContentText(who)
+            .setCategory(Notification.CATEGORY_MISSED_CALL)
+            .setWhen(call.at)
+            .setShowWhen(true)
+            .setAutoCancel(true)
+            .setContentIntent(open)
+        if (call.number.isNotEmpty()) {
+            val callBack = PendingIntent.getService(
+                this, 22,
+                Intent(this, LinkService::class.java).setAction(ACTION_CALL_BACK)
+                    .putExtra(EXTRA_NUMBER, call.number).putExtra(EXTRA_NAME, call.name),
+                PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT
+            )
+            builder.addAction(action(android.R.drawable.sym_action_call, "Call back", callBack))
+        }
+        try {
+            nm.notify(ID_MISSED, builder.build())
+        } catch (e: Exception) {
+            Hub.log("Could not show missed-call notification: ${e.message ?: e.javaClass.simpleName}")
+        }
     }
 
     private fun showIncoming() {

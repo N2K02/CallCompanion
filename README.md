@@ -52,12 +52,25 @@ PCL needs Android 8.0 or newer. It never needs the microphone.
 
 | Feature | What it does |
 |---|---|
-| SIM calls | The Remote rings for incoming Gateway calls and shows the caller (and contact name, with Contacts permission on the Gateway). It can answer, reject, end, and dial through the Gateway's SIM. |
-| Contacts | The Gateway's contacts are copied to the Remote for offline search. On each connection the phones compare a fingerprint and only resync when the list changed; **Sync contacts from Gateway** forces a refresh. |
+| SIM calls | The Remote rings for incoming Gateway calls and shows the caller (and contact name, with Contacts permission on the Gateway). It can answer, reject, end, and dial through the Gateway's SIM. A call nobody answered leaves a **Missed call** notification with **Call back**. |
+| Calls tab | On the Remote, next to Home. See [Calls tab](#calls-tab). |
+| Contacts | The Gateway's contacts are copied to the Remote for offline search. On each connection the phones compare a fingerprint and only resync when the list changed; the sync button in **Calls → Contacts** forces a refresh. |
 | Notifications | The Gateway mirrors its notifications to the Remote. Dismissing a copy dismisses the original; actions offered by the original app (such as Answer on a call notification) can be used from the Remote. Can be turned off in the Gateway's settings. |
 | WhatsApp | Detects WhatsApp call state on both phones, avoids duplicate call alerts, can start a WhatsApp call on the Gateway from the Remote, and can switch the Gateway hotspot on for calls handled on the Remote. See below. |
 | Link status | Home and the status notification show PCL's own Bluetooth traffic. This is app traffic only, not internet speed. |
 | Activity log | Home keeps a short log for troubleshooting, with a Copy button. It never shows full phone numbers or contact names (only the last two digits). |
+
+## Calls tab
+
+The Remote has a **Calls** tab next to Home, laid out like a phone's dialer:
+
+- **Keypad.** A dial pad with key tones (when the ringer is on) and haptics. Hold **0** for **+**, tap ⌫ to delete and hold it to clear, and long-press the number to paste one. Typing on the keys also searches contacts by name, like a phone's smart dial: 5‑6‑2 finds "Joan". Below the keys: **SIM call** (through the Gateway's SIM) and **WhatsApp** (in the Gateway's WhatsApp).
+- **Recents.** Calls made and received through the Gateway, grouped by day: incoming, outgoing (with talk time), missed, declined and WhatsApp. Missed calls show as a badge on the Calls icon until you open Recents. The list stays on the Remote only; **Clear** empties it.
+- **Contacts.** Search the synced contacts, sync again, and star **favourites**. Favourites appear at the top of Contacts and above the keypad.
+- Tap any person in Recents or Contacts for **WhatsApp**, **Favourite** and **Edit** (put the number on the keypad); the green phone icon calls straight away.
+- While a SIM call rings or is connected, the top of the tab shows it with **Answer / Decline** or **Hang up** and a call timer.
+
+Android only lets the phone's own dialer send keypad tones into a call, so PCL can't press keys in a menu ("press 1") on the Gateway's call.
 
 ## WhatsApp calls
 

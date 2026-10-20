@@ -55,7 +55,7 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 
-private enum class MainTab { HOME, UPDATE, SETTINGS }
+private enum class MainTab { HOME, CALLS, UPDATE, SETTINGS }
 
 class MainActivity : ComponentActivity() {
     private lateinit var prefs: SharedPreferences
@@ -65,9 +65,9 @@ class MainActivity : ComponentActivity() {
     private var devices by mutableStateOf<List<Pair<String, String>>>(emptyList())
     private var selectedDevice by mutableStateOf<String?>(null)
     private var contacts by mutableStateOf<List<Contact>>(emptyList())
-    private var dialInput by mutableStateOf("")
-    private var selectedContact by mutableStateOf<Contact?>(null)
     private var loadedContactsVersion = -1
+    /** A tab asked for by a notification (the missed-call one opens Calls). */
+    private var requestedTab by mutableStateOf<MainTab?>(null)
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -83,10 +83,22 @@ class MainActivity : ComponentActivity() {
         if (!prefs.contains(Prefs.ROLE)) prefs.edit().putString(Prefs.ROLE, LinkService.ROLE_GATEWAY).apply()
         selectedDevice = prefs.getString(Prefs.PEER_DEVICE, null)
         CallLogger.init(this)
+        CallHistory.init(this)
+        Favourites.init(this)
         AppUpdater.init(this, "N2K02/PCL", "PCL")
+        handleOpenTab(intent)
         setContent { PCLTheme { AppScreen() } }
         loadDevices()
         refresh()
+    }
+
+    override fun onNewIntent(intent: Intent) {
+        super.onNewIntent(intent)
+        handleOpenTab(intent)
+    }
+
+    private fun handleOpenTab(intent: Intent?) {
+        if (intent?.getStringExtra(LinkService.EXTRA_OPEN_TAB) == "calls") requestedTab = MainTab.CALLS
     }
 
     override fun onResume() {
@@ -197,14 +209,6 @@ class MainActivity : ComponentActivity() {
         }.start()
     }
 
-    private fun numberToDial(): String {
-        val t = dialInput
-        val c = selectedContact
-        if (c != null && t.trim() == c.label()) return c.number
-        selectedContact = null
-        return t.substringBefore("·").filter { it.isDigit() || it == '+' || it == '*' || it == '#' }
-    }
-
     private fun refresh() {
         revision++
         if (currentRole() == LinkService.ROLE_REMOTE && loadedContactsVersion != Hub.contactsVersion) loadContacts()
@@ -252,6 +256,15 @@ class MainActivity : ComponentActivity() {
             roleSelected && required.distinct().all { granted(it) } && notificationAccess
         }
         var screen by remember { mutableStateOf(if (setupReady) MainTab.HOME else MainTab.SETTINGS) }
+        val unseenMissed by CallHistory.unseenMissed.collectAsState()
+        // Calls is the Remote's tab; a notification may ask for it.
+        LaunchedEffect(requestedTab, remote, setupReady) {
+            requestedTab?.let { tab ->
+                if (tab != MainTab.CALLS || (remote && setupReady)) screen = tab
+                requestedTab = null
+            }
+        }
+        LaunchedEffect(remote) { if (!remote && screen == MainTab.CALLS) screen = MainTab.HOME }
 
         Scaffold(
             topBar = {
@@ -274,12 +287,45 @@ class MainActivity : ComponentActivity() {
             bottomBar = {
                 NavigationBar {
                     NavigationBarItem(selected = screen == MainTab.HOME, enabled = setupReady, onClick = { if (setupReady) screen = MainTab.HOME }, icon = { Icon(Icons.Default.Hub, null) }, label = { Text("Home") })
+                    if (remote) {
+                        NavigationBarItem(
+                            selected = screen == MainTab.CALLS,
+                            enabled = setupReady,
+                            onClick = { if (setupReady) screen = MainTab.CALLS },
+                            icon = {
+                                BadgedBox(badge = { if (unseenMissed > 0) Badge { Text("$unseenMissed") } }) {
+                                    Icon(Icons.Default.Call, null)
+                                }
+                            },
+                            label = { Text("Calls") }
+                        )
+                    }
                     NavigationBarItem(selected = screen == MainTab.UPDATE, onClick = { screen = MainTab.UPDATE; AppUpdater.check(manual = true) }, icon = { Icon(Icons.Default.Download, null) }, label = { Text("Update") })
                     NavigationBarItem(selected = screen == MainTab.SETTINGS, onClick = { screen = MainTab.SETTINGS }, icon = { Icon(Icons.Default.Settings, null) }, label = { Text("Settings") })
                 }
             }
         ) { insets ->
-            Column(
+            if (screen == MainTab.CALLS && remote && setupReady) {
+                CallsScreen(
+                    ui = CallsUi(
+                        connected = connected,
+                        callState = callState,
+                        callDisplay = service?.display().orEmpty(),
+                        simStatus = service?.callControlError,
+                        whatsappStatus = service?.whatsappCallStatus,
+                        contacts = contacts,
+                    ),
+                    actions = CallsActions(
+                        simCall = { number, name -> service?.dial(number, name) },
+                        whatsappCall = { number, name -> service?.startWhatsAppCall(number, name) },
+                        answer = { service?.answer() },
+                        reject = { service?.reject() },
+                        hangUp = { service?.hangUp() },
+                        syncContacts = { service?.syncContacts(); refresh() },
+                    ),
+                    modifier = Modifier.padding(insets),
+                )
+            } else Column(
                 Modifier.fillMaxSize().padding(insets).verticalScroll(rememberScrollState())
                     .padding(horizontal = 18.dp, vertical = 12.dp),
                 verticalArrangement = Arrangement.spacedBy(14.dp)
@@ -547,79 +593,9 @@ class MainActivity : ComponentActivity() {
                 }
 
                 if (screen == MainTab.HOME && setupReady && running && remote) {
-                    SectionCard(title = "Make a call", subtitle = "Dial through the Gateway SIM or search synced contacts.") {
-                        var suggestionsExpanded by remember { mutableStateOf(false) }
-                        OutlinedTextField(
-                            value = dialInput,
-                            onValueChange = { dialInput = it; selectedContact = null; suggestionsExpanded = it.isNotBlank() },
-                            label = { Text("Contact name or phone number") },
-                            leadingIcon = { Icon(Icons.Default.Call, null) },
-                            singleLine = true,
-                            modifier = Modifier.fillMaxWidth()
-                        )
-                        val digitsQuery = ContactStore.digits(dialInput)
-                        val matches = if (dialInput.isBlank()) emptyList() else contacts.filter {
-                            it.name.contains(dialInput, ignoreCase = true) ||
-                                (digitsQuery.isNotEmpty() && ContactStore.digits(it.number).contains(digitsQuery))
-                        }.take(6)
-                        if (suggestionsExpanded && matches.isNotEmpty()) {
-                            Card(colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceContainerHigh)) {
-                                Column {
-                                    matches.forEach { c ->
-                                        TextButton(onClick = { selectedContact = c; dialInput = c.label(); suggestionsExpanded = false },
-                                            modifier = Modifier.fillMaxWidth()) {
-                                            Column(Modifier.fillMaxWidth()) {
-                                                Text(c.name.ifEmpty { c.number }, maxLines = 1, overflow = TextOverflow.Ellipsis)
-                                                if (c.name.isNotEmpty()) Text(c.number, style = MaterialTheme.typography.bodySmall)
-                                            }
-                                        }
-                                    }
-                                }
-                            }
-                        }
-                        Button(onClick = {
-                            val n = numberToDial()
-                            if (n.isEmpty()) toast("Pick a contact or enter a number") else service?.dial(n)
-                        }, modifier = Modifier.fillMaxWidth()) {
-                            Icon(Icons.Default.Call, null); Spacer(Modifier.width(8.dp)); Text("Call through gateway")
-                        }
-                        OutlinedButton(
-                            onClick = { service?.syncContacts(); refresh() },
-                            enabled = connected,
-                            modifier = Modifier.fillMaxWidth()
-                        ) {
-                            Icon(Icons.Default.Sync, null); Spacer(Modifier.width(8.dp)); Text("Sync contacts from Gateway")
-                        }
-                        val whatsappStatus = service?.whatsappCallStatus
-                        FilledTonalButton(
-                            onClick = {
-                                val n = numberToDial()
-                                if (n.isEmpty()) toast("Pick a contact or enter a number")
-                                else service?.startWhatsAppCall(n)
-                            },
-                            enabled = connected && whatsappStatus?.startsWith("PENDING:") != true,
-                            modifier = Modifier.fillMaxWidth()
-                        ) {
-                            Icon(Icons.Default.Call, null); Spacer(Modifier.width(8.dp)); Text("WhatsApp call on Gateway")
-                        }
-                        if (whatsappStatus != null) {
-                            Text(
-                                whatsappStatus.substringAfter(": "),
-                                style = MaterialTheme.typography.bodyMedium,
-                                color = when {
-                                    whatsappStatus.startsWith("FAILED:") -> MaterialTheme.colorScheme.error
-                                    whatsappStatus.startsWith("OK:") -> MaterialTheme.colorScheme.primary
-                                    else -> MaterialTheme.colorScheme.onSurfaceVariant
-                                }
-                            )
-                        }
-                        Text(
-                            "The Gateway starts the call in its own WhatsApp, so you talk through the Gateway or its Bluetooth headset. " +
-                                "It needs \"PCL call & hotspot helper\" turned on in the Gateway's Accessibility settings, and the Gateway " +
-                                "unlocked or locked without a PIN. Typed numbers need their country code unless they're saved contacts.",
-                            style = MaterialTheme.typography.bodySmall,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant
-                        )
+                    // Dialing, recent calls and contacts live in the Calls tab.
+                    OutlinedButton(onClick = { screen = MainTab.CALLS }, modifier = Modifier.fillMaxWidth()) {
+                        Icon(Icons.Default.Call, null); Spacer(Modifier.width(8.dp)); Text("Open Calls: keypad, recents, contacts")
                     }
                 }
 
