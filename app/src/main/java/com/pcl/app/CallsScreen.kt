@@ -293,18 +293,12 @@ private fun KeypadPane(
     }
 
     val match = names.exact(number)
-    val suggestions = remember(number, names) { if (match != null) emptyList() else names.smartSearch(number, 3) }
+    val suggestions = remember(number, names) { if (match != null) emptyList() else names.smartSearch(number, 2) }
     val name = match?.name.orEmpty()
 
-    BoxWithConstraints(Modifier.fillMaxSize()) {
-        val gap = 12.dp
-        val byWidth = (maxWidth - gap * 2) / 3
-        val byHeight = (maxHeight - 210.dp) / 5
-        val key = minOf(byWidth, byHeight, 76.dp).coerceAtLeast(48.dp)
-
-        Column(Modifier.fillMaxSize(), horizontalAlignment = Alignment.CenterHorizontally) {
+    Column(Modifier.fillMaxSize(), horizontalAlignment = Alignment.CenterHorizontally) {
             // Top area: favourites when nothing is typed, otherwise matching contacts.
-            Box(Modifier.fillMaxWidth().weight(1f), contentAlignment = Alignment.BottomCenter) {
+            Box(Modifier.fillMaxWidth().height(100.dp), contentAlignment = Alignment.BottomCenter) {
                 if (number.isEmpty() && favourites.isNotEmpty()) {
                     FavouriteStrip(favourites) { c -> onNumber(c.number) }
                 } else if (suggestions.isNotEmpty()) {
@@ -361,57 +355,59 @@ private fun KeypadPane(
             StatusLine(ui)
             Spacer(Modifier.height(8.dp))
 
-            // 4 x 3 keys.
-            Column(verticalArrangement = Arrangement.spacedBy(gap * 0.6f)) {
-                KEYS.chunked(3).forEach { row ->
-                    Row(horizontalArrangement = Arrangement.spacedBy(gap)) {
-                        row.forEach { (digit, letters) ->
-                            DialKey(digit, letters, key,
-                                onClick = { press(digit) },
-                                onLongClick = if (digit == "0") ({ press("+") }) else null,
-                            )
+            // Keys fill all the space left, like the Google Dialer: 4 rows of keys + the call row.
+            BoxWithConstraints(Modifier.weight(1f).fillMaxWidth().padding(top = 8.dp, bottom = 8.dp)) {
+                val hGap = 14.dp
+                val vGap = 8.dp
+                val byWidth = (maxWidth - hGap * 2) / 3
+                val byHeight = (maxHeight - vGap * 4) / 5
+                val key = minOf(byWidth, byHeight, 112.dp).coerceAtLeast(48.dp)
+
+                Column(
+                    Modifier.fillMaxSize(),
+                    verticalArrangement = Arrangement.spacedBy(vGap, Alignment.CenterVertically),
+                    horizontalAlignment = Alignment.CenterHorizontally,
+                ) {
+                    KEYS.chunked(3).forEach { row ->
+                        Row(horizontalArrangement = Arrangement.spacedBy(hGap)) {
+                            row.forEach { (digit, letters) ->
+                                DialKey(digit, letters, key,
+                                    onClick = { press(digit) },
+                                    onLongClick = if (digit == "0") ({ press("+") }) else null,
+                                )
+                            }
+                        }
+                    }
+
+                    // WhatsApp · Call · Delete, in the same three columns as the keys.
+                    Row(horizontalArrangement = Arrangement.spacedBy(hGap), verticalAlignment = Alignment.CenterVertically) {
+                        Box(Modifier.size(key), contentAlignment = Alignment.Center) {
+                            FilledTonalIconButton(
+                                onClick = { actions.whatsappCall(number, name) },
+                                enabled = ui.connected && number.isNotEmpty() && ui.whatsappStatus?.startsWith("PENDING:") != true,
+                                modifier = Modifier.size(key * 0.72f),
+                            ) { Icon(Icons.AutoMirrored.Filled.Chat, contentDescription = "WhatsApp call on the Gateway") }
+                        }
+                        FilledTonalIconButton(
+                            onClick = { actions.simCall(number, name) },
+                            enabled = ui.connected && number.isNotEmpty() && ui.callState == LinkService.CALL_IDLE,
+                            colors = IconButtonDefaults.filledTonalIconButtonColors(containerColor = CallGreen, contentColor = Color.White),
+                            modifier = Modifier.size(key),
+                        ) { Icon(Icons.Default.Call, contentDescription = "Call through the Gateway SIM", Modifier.size(key * 0.4f)) }
+                        Box(
+                            Modifier.size(key).clip(CircleShape).combinedClickable(
+                                enabled = number.isNotEmpty(),
+                                onClick = { haptics.performHapticFeedback(HapticFeedbackType.TextHandleMove); onNumber(number.dropLast(1)) },
+                                onLongClick = { haptics.performHapticFeedback(HapticFeedbackType.LongPress); onNumber("") },
+                            ),
+                            contentAlignment = Alignment.Center,
+                        ) {
+                            if (number.isNotEmpty()) Icon(Icons.AutoMirrored.Filled.Backspace, contentDescription = "Delete (hold to clear)", Modifier.size(key * 0.3f))
                         }
                     }
                 }
             }
-            Spacer(Modifier.height(gap))
-
-            // WhatsApp · Call · Delete
-            Row(
-                horizontalArrangement = Arrangement.spacedBy(gap * 2),
-                verticalAlignment = Alignment.CenterVertically,
-                modifier = Modifier.padding(bottom = 10.dp),
-            ) {
-                LabelledButton("WhatsApp") {
-                    FilledTonalIconButton(
-                        onClick = { actions.whatsappCall(number, name) },
-                        enabled = ui.connected && number.isNotEmpty() && ui.whatsappStatus?.startsWith("PENDING:") != true,
-                        modifier = Modifier.size(key * 0.8f),
-                    ) { Icon(Icons.AutoMirrored.Filled.Chat, contentDescription = "WhatsApp call on the Gateway") }
-                }
-                LabelledButton("SIM call") {
-                    FilledTonalIconButton(
-                        onClick = { actions.simCall(number, name) },
-                        enabled = ui.connected && number.isNotEmpty() && ui.callState == LinkService.CALL_IDLE,
-                        colors = IconButtonDefaults.filledTonalIconButtonColors(containerColor = CallGreen, contentColor = Color.White),
-                        modifier = Modifier.size(key),
-                    ) { Icon(Icons.Default.Call, contentDescription = "Call through the Gateway SIM", Modifier.size(30.dp)) }
-                }
-                LabelledButton(" ") {
-                    Box(
-                        Modifier.size(key * 0.8f).clip(CircleShape).combinedClickable(
-                            enabled = number.isNotEmpty(),
-                            onClick = { haptics.performHapticFeedback(HapticFeedbackType.TextHandleMove); onNumber(number.dropLast(1)) },
-                            onLongClick = { haptics.performHapticFeedback(HapticFeedbackType.LongPress); onNumber("") },
-                        ),
-                        contentAlignment = Alignment.Center,
-                    ) {
-                        if (number.isNotEmpty()) Icon(Icons.AutoMirrored.Filled.Backspace, contentDescription = "Delete (hold to clear)")
-                    }
-                }
-            }
         }
-    }
 }
 
 @Composable
@@ -422,19 +418,11 @@ private fun DialKey(digit: String, letters: String, size: androidx.compose.ui.un
         modifier = Modifier.size(size).clip(CircleShape).combinedClickable(onClick = onClick, onLongClick = onLongClick),
     ) {
         Column(horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.Center) {
-            Text(digit, fontSize = (size.value * 0.36f).sp, fontWeight = FontWeight.Medium)
+            Text(digit, fontSize = (size.value * 0.42f).sp, fontWeight = FontWeight.Normal, lineHeight = (size.value * 0.46f).sp)
             if (letters.isNotEmpty()) {
-                Text(letters, style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                Text(letters, fontSize = (size.value * 0.14f).coerceAtLeast(9f).sp, letterSpacing = 1.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
             }
         }
-    }
-}
-
-@Composable
-private fun LabelledButton(label: String, content: @Composable () -> Unit) {
-    Column(horizontalAlignment = Alignment.CenterHorizontally) {
-        content()
-        Text(label, style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
     }
 }
 
