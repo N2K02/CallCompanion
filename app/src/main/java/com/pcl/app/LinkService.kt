@@ -21,10 +21,7 @@ import android.content.pm.ServiceInfo
 import android.graphics.drawable.Icon
 import android.media.Ringtone
 import android.media.RingtoneManager
-import android.net.ConnectivityManager
-import android.net.NetworkCapabilities
 import android.net.Uri
-import android.net.wifi.WifiManager
 import android.os.Build
 import android.os.Bundle
 import android.os.Handler
@@ -87,13 +84,13 @@ class LinkService : Service() {
         private const val CH_STATUS = "pcl_status"
         private const val CH_CALLS = "pcl_calls"
         private const val CH_MIRROR = "pcl_mirror"
-        private const val CH_HOTSPOT = "pcl_hotspot"
-        private val LEGACY_CHANNELS = listOf("vgs_status", "vgs_calls", "vgs_mirror", "vgs_hotspot")
+        // Old channels, deleted on start: the "vgs_" ones from before the rename, and the
+        // hotspot channel from when PCL switched the Gateway's Wi-Fi hotspot for calls.
+        private val LEGACY_CHANNELS = listOf("vgs_status", "vgs_calls", "vgs_mirror", "vgs_hotspot", "pcl_hotspot")
         private const val TAG_MIRROR = "mirror"
         private const val ID_STATUS = 1
         private const val ID_INCOMING = 2
         private const val ID_WHATSAPP_HANDOFF = 42
-        private const val ID_REMOTE_WIFI = 44
         private const val ID_MISSED = 46
         private const val TRAFFIC_SAMPLE_MS = 5_000L
         private const val CALL_CONTROL_TIMEOUT_MS = 15_000L
@@ -179,17 +176,6 @@ class LinkService : Service() {
 
     private val localWhatsappCallStates = ConcurrentHashMap<String, String>()
     private val peerWhatsappCallStates = ConcurrentHashMap<String, String>()
-
-    /** Gateway hotspot automation for Remote WhatsApp calls. */
-    val hotspot: HotspotController by lazy {
-        HotspotController(this, nm, CH_HOTSPOT, isGatewayInPhoneCall = { callState != CALL_IDLE }) { status ->
-            if (connected) sendHotspotStatus(status)
-        }
-    }
-
-    /** Remote: the Gateway's hotspot status, or null until the Gateway reports one. */
-    @Volatile var peerHotspot: HotspotStatus? = null
-        private set
 
     /** Protocol version and app version the other phone reported in HELLO; null until HELLO arrives. */
     @Volatile var peerProtocol: Int? = null
@@ -339,10 +325,7 @@ class LinkService : Service() {
         if (reason != null) Hub.log("Link restarted $reason")
         trafficHandler.removeCallbacks(trafficSampler)
         trafficHandler.postDelayed(trafficSampler, TRAFFIC_SAMPLE_MS)
-        if (role == ROLE_GATEWAY) {
-            registerPhoneReceiver()
-            hotspot.start()
-        }
+        if (role == ROLE_GATEWAY) registerPhoneReceiver()
         startWorker()
     }
 
@@ -460,7 +443,7 @@ class LinkService : Service() {
             showWhatsAppCallNotification(plan, display)
             return reply(
                 "TAP",
-                "Turn on \"PCL call & hotspot helper\" in the Gateway's Accessibility settings so it can start " +
+                "Turn on \"PCL WhatsApp call helper\" in the Gateway's Accessibility settings so it can start " +
                     "calls by itself. For now, tap \"Start WhatsApp call\" in the Gateway's notifications."
             )
         }
@@ -535,17 +518,6 @@ class LinkService : Service() {
         Hub.notifyUi()
     }
 
-    /** Called by the opt-in accessibility helper on Remote after a WhatsApp call-button tap. */
-    fun onWhatsAppCallUiAction(action: String) {
-        if (role != ROLE_REMOTE || action != "START") return
-        if (!connected) {
-            Hub.log("WhatsApp call detected, but Gateway prompt was not sent because Bluetooth is disconnected")
-            return
-        }
-        send("WHATSAPP_CALL_TRIGGER", encodeText(action), wifiFlag())
-        Hub.log("Sent WhatsApp call-start event to Gateway")
-    }
-
     /**
      * Suppress the Gateway's WhatsApp call copy whenever Remote has already
      * detected its own native WhatsApp call notification. Native WhatsApp UI
@@ -576,64 +548,13 @@ class LinkService : Service() {
                 )
             }
         }
-        // An ACTIVE state from the Remote is what asks the Gateway for its hotspot. A ringing
-        // notification alone may belong to a call answered on the Gateway, so it doesn't.
+        // The other phone uses this to avoid showing the same WhatsApp call twice.
         if (connected) sendWhatsAppState(pkg, state)
-        if (role == ROLE_REMOTE) {
-            if (state == WhatsAppCalls.ACTIVE) showRemoteWifiHelper()
-            else if (localWhatsappCallStates.values.none { it == WhatsAppCalls.ACTIVE }) nm.cancel(ID_REMOTE_WIFI)
-        }
         Hub.notifyUi()
     }
 
-    /**
-     * Remote: an active WhatsApp call has just asked the Gateway for its hotspot, so help this
-     * phone join it. Since Android 10 apps can't connect to Wi-Fi themselves, so this is a
-     * notification with a Wi-Fi settings shortcut, shown only when this phone isn't already on Wi-Fi.
-     */
-    private fun showRemoteWifiHelper() {
-        if (role != ROLE_REMOTE || !connected || wifiFlag() == "WIFI") return
-        val wifiOff = try {
-            getSystemService(WifiManager::class.java)?.isWifiEnabled == false
-        } catch (_: Exception) {
-            false
-        }
-        val detail = if (wifiOff) "Turn on Wi-Fi so this phone can join the Gateway hotspot for this call."
-            else "Waiting for this phone to join the Gateway hotspot. Open Wi-Fi settings if it doesn't connect."
-        val settings = PendingIntent.getActivity(
-            this, ID_REMOTE_WIFI,
-            Intent(Settings.ACTION_WIFI_SETTINGS).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK),
-            PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT
-        )
-        try {
-            nm.notify(ID_REMOTE_WIFI, Notification.Builder(this, CH_HOTSPOT)
-                .setSmallIcon(android.R.drawable.sym_action_call)
-                .setContentTitle("Join the Gateway hotspot")
-                .setContentText(detail)
-                .setStyle(Notification.BigTextStyle().bigText("$detail Save the Gateway hotspot on this phone once and allow automatic connection."))
-                .setTimeoutAfter(90_000L) // stale once the phone has joined
-                .setContentIntent(settings)
-                .addAction(action(android.R.drawable.sym_action_call, "Open Wi-Fi settings", settings))
-                .build())
-        } catch (e: Exception) {
-            Hub.log("Could not show Wi-Fi helper notification: ${e.message ?: e.javaClass.simpleName}")
-        }
-        Hub.log("Remote Wi-Fi helper: $detail")
-    }
-
     private fun sendWhatsAppState(pkg: String, state: String) {
-        send("WHATSAPP_CALL_STATE", encodeText(pkg), state, if (role == ROLE_REMOTE) wifiFlag() else "")
-    }
-
-    /** "WIFI" when this phone already has working Wi-Fi, so the Gateway hotspot isn't needed. */
-    private fun wifiFlag(): String = try {
-        val cm = getSystemService(ConnectivityManager::class.java)
-        val caps = cm?.getNetworkCapabilities(cm.activeNetwork)
-        if (caps != null && caps.hasTransport(NetworkCapabilities.TRANSPORT_WIFI) &&
-            caps.hasCapability(NetworkCapabilities.NET_CAPABILITY_VALIDATED)
-        ) "WIFI" else ""
-    } catch (_: Exception) {
-        ""
+        send("WHATSAPP_CALL_STATE", encodeText(pkg), state)
     }
 
     // ---------------------------------------------------------------- connection
@@ -760,14 +681,12 @@ class LinkService : Service() {
         peerProtocol = null
         peerAppVersion = ""
         send("HELLO", role, Protocol.VERSION.toString(), appVersion)
-        // Replay every WhatsApp call state, IDLE included. The peer may have missed changes
-        // while the link was down — this is what lets the Gateway turn off a hotspot it
-        // enabled for a call that ended during the outage.
+        // Replay every WhatsApp call state, IDLE included: the peer may have missed changes
+        // while the link was down.
         for (pkg in WhatsAppCalls.PACKAGES) sendWhatsAppState(pkg, localWhatsappCallStates[pkg] ?: WhatsAppCalls.IDLE)
         if (role == ROLE_GATEWAY) {
             sendCallState()
             sendContactsFingerprint()
-            sendHotspotStatus(hotspot.status)
         }
         val input = DataInputStream(BufferedInputStream(s.inputStream, 16384))
         try {
@@ -789,15 +708,12 @@ class LinkService : Service() {
             peerWhatsappCallStates.clear()
             contactBuf = null
             helloReceived = false
-            peerHotspot = null
             if (role == ROLE_REMOTE) {
                 if (callControlError?.startsWith("PENDING:") == true) callControlError = "FAILED: Connection lost before Gateway confirmation"
                 if (whatsappCallStatus?.startsWith("PENDING:") == true) whatsappCallStatus = "FAILED: Connection lost before the Gateway answered."
                 stopRinging()
                 callState = CALL_IDLE
                 nm.cancel(ID_INCOMING)
-            } else {
-                hotspot.onLinkLost()
             }
         }
     }
@@ -833,7 +749,6 @@ class LinkService : Service() {
             }
             receiverRegistered = false
         }
-        if (role == ROLE_GATEWAY) hotspot.stop()
         nm.cancel(ID_INCOMING)
         stopForeground(STOP_FOREGROUND_REMOVE)
         connectionState = "Stopped"
@@ -887,11 +802,8 @@ class LinkService : Service() {
                 Hub.log("Peer is the $arg1 phone (PCL ${peerAppVersion.ifEmpty { "older version" }})")
                 versionWarning?.let { Hub.log("Version mismatch: $it") }
             }
-            "HOTSPOT_STATE" -> {
-                val code = arg1
-                val text = decodeText(p.getOrElse(2) { "" })
-                peerHotspot = if (code.isEmpty() || text.isEmpty()) null else HotspotStatus(code, text, p.getOrNull(3) == "1")
-            }
+            // Sent by older PCL versions, which switched the Gateway's Wi-Fi hotspot for calls.
+            "HOTSPOT_STATE", "WHATSAPP_CALL_TRIGGER" -> Unit
             // gateway -> remote
             "CALL" -> {
                 callState = arg1.ifEmpty { CALL_IDLE }
@@ -909,9 +821,6 @@ class LinkService : Service() {
             "REJECT", "HANGUP" -> { gatewayEnd(rejectRinging = cmd == "REJECT"); sendCallResult() }
             "DIAL" -> { gatewayDial(arg1); sendCallResult() }
             "SYNC_CONTACTS" -> sendContacts()
-            "WHATSAPP_CALL_TRIGGER" -> {
-                if (decodeText(arg1) == "START") hotspot.onCallButtonTapped(p.getOrNull(2) == "WIFI")
-            }
             "WHATSAPP_CHAT" -> {
                 val ok = gatewayWhatsAppChat(arg1)
                 send("WHATSAPP_CHAT_RESULT", if (ok) "OK" else "FAILED")
@@ -1015,14 +924,6 @@ class LinkService : Service() {
                         // Remote may detect its native notification after the Gateway
                         // already mirrored one. Remove all WhatsApp call copies now.
                         if (state != WhatsAppCalls.IDLE) NotifListener.instance?.suppressWhatsAppCallMirrors(pkg)
-                        // Only Remote calls drive the hotspot; the Gateway's own WhatsApp calls never do.
-                        val states = peerWhatsappCallStates.values
-                        val remoteHasWifi = p.getOrNull(3) == "WIFI"
-                        when {
-                            states.any { it == WhatsAppCalls.ACTIVE } -> hotspot.onRemoteCallActive(true, remoteHasWifi)
-                            states.none { it == WhatsAppCalls.RINGING } -> hotspot.onRemoteCallActive(false, remoteHasWifi)
-                            // Only ringing: wait until it is answered or stops.
-                        }
                     }
                 }
             }
@@ -1075,7 +976,6 @@ class LinkService : Service() {
             if (newState == CALL_IDLE) {
                 callNumber = ""
                 callName = ""
-                if (changed) hotspot.onGatewayPhoneIdle()
             }
             Hub.notifyUi()
         }
@@ -1117,13 +1017,6 @@ class LinkService : Service() {
             }
         } catch (e: Exception) {
             Hub.log("Initial phone-state query unavailable: ${e.message ?: e.javaClass.simpleName}")
-        }
-    }
-
-    /** Gateway: tell the Remote what the hotspot automation is doing. */
-    private fun sendHotspotStatus(status: HotspotStatus) {
-        if (role == ROLE_GATEWAY && writer != null) {
-            send("HOTSPOT_STATE", status.code, encodeText(status.text), if (status.needsYou) "1" else "0")
         }
     }
 
@@ -1508,9 +1401,6 @@ class LinkService : Service() {
         nm.createNotificationChannel(calls)
         nm.createNotificationChannel(
             NotificationChannel(CH_MIRROR, "Notifications from gateway phone", NotificationManager.IMPORTANCE_HIGH)
-        )
-        nm.createNotificationChannel(
-            NotificationChannel(CH_HOTSPOT, "WhatsApp call connectivity", NotificationManager.IMPORTANCE_HIGH)
         )
     }
 

@@ -38,14 +38,6 @@ object WhatsAppCalls {
         "raccrocher", "auflegen", "desligar", "encerrar", "завершить", "kapat", "終了", "切断"
     )
 
-    /** In-app WhatsApp buttons (seen by the accessibility helper) that start or answer a call. */
-    val CALL_BUTTON_LABELS = listOf(
-        "video call", "voice call", "start call", "answer", "accept", "join call",
-        "appel vidéo", "appel video", "appel vocal", "répondre", "repondre", "décrocher", "decrocher",
-        "llamada de video", "llamada de voz", "responder", "videochiamata", "chiamata vocale",
-        "rispondi", "contestar", "接听", "接聽", "応答"
-    )
-
     /**
      * The voice-call button in a WhatsApp chat's top bar. Used on the Gateway to start a call
      * the Remote asked for. Video buttons are excluded.
@@ -73,7 +65,6 @@ object WhatsAppCalls {
     fun isAnswer(label: String): Boolean = containsAny(label, ANSWER_LABELS)
     fun isDecline(label: String): Boolean = containsAny(label, DECLINE_LABELS)
     fun isEnd(label: String): Boolean = containsAny(label, END_LABELS)
-    fun isCallButton(label: String): Boolean = containsAny(label, CALL_BUTTON_LABELS)
 
     /**
      * The call state a notification's action labels show, or null when they can't tell

@@ -38,7 +38,6 @@ import androidx.compose.material.icons.filled.Download
 import androidx.compose.material.icons.filled.Hub
 import androidx.compose.material.icons.filled.PhoneAndroid
 import androidx.compose.material.icons.filled.Radio
-import androidx.compose.material.icons.filled.Wifi
 import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material.icons.filled.Smartphone
@@ -440,48 +439,6 @@ class MainActivity : ComponentActivity() {
                     }
                 }
 
-                if (screen == MainTab.HOME && setupReady && running) {
-                    // What the hotspot automation is doing, including when it needs you.
-                    val status = if (remote) service?.peerHotspot else service?.hotspot?.status
-                    val helperOn = WhatsappCallAccessibilityService.isEnabled(this@MainActivity)
-                    SectionCard(
-                        title = if (remote) "Gateway hotspot" else "Hotspot for Remote calls",
-                        subtitle = if (remote) "Turned on by the Gateway for WhatsApp calls on this phone."
-                            else "Turned on for WhatsApp calls on the Remote, then off again."
-                    ) {
-                        Text(
-                            when {
-                                status != null -> status.text
-                                remote && !connected -> "Connect to the Gateway to see its hotspot status."
-                                else -> "Waiting for the Gateway to report its hotspot status."
-                            },
-                            style = MaterialTheme.typography.bodyLarge,
-                            color = if (status?.needsYou == true) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.onSurface
-                        )
-                        if (status?.needsYou == true) {
-                            Text(
-                                if (remote) "Action needed on the Gateway phone." else "Action needed on this phone.",
-                                style = MaterialTheme.typography.labelLarge,
-                                color = MaterialTheme.colorScheme.error
-                            )
-                            if (!remote) {
-                                Button(onClick = {
-                                    try { startActivity(Intent("android.settings.TETHER_SETTINGS")) }
-                                    catch (_: Exception) { toast("Open Android Settings → Hotspot & tethering") }
-                                }, modifier = Modifier.fillMaxWidth()) { Text("Open hotspot settings") }
-                            }
-                        }
-                        if (!remote) {
-                            Text(
-                                if (helperOn) "Automatic switching is on (PCL call & hotspot helper)."
-                                else "Automatic switching is off. It's optional: enable \"PCL call & hotspot helper\" in Settings to let PCL switch the hotspot for you.",
-                                style = MaterialTheme.typography.bodySmall,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant
-                            )
-                        }
-                    }
-                }
-
                 if (screen == MainTab.HOME && setupReady) {
                     val traffic = service
                     SectionCard(title = "Network speed", subtitle = "PCL traffic over Bluetooth · not internet speed") {
@@ -506,35 +463,27 @@ class MainActivity : ComponentActivity() {
                     Text("Setup & settings", style = MaterialTheme.typography.headlineMedium, fontWeight = FontWeight.Bold)
                     Text("Choose a role and grant every required permission. Home unlocks when setup is complete.", style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
                     SectionCard(
-                        title = "Bluetooth internet & on-demand Wi-Fi",
-                        subtitle = "Bluetooth tethering is the low-power, always-on internet path for the Remote. The Wi-Fi hotspot is only for WhatsApp calls on the Remote."
+                        title = "Bluetooth internet",
+                        subtitle = "The Remote uses the Gateway's mobile data over Bluetooth tethering."
                     ) {
                         Text("Current network on this phone: ${internetStatus()}", style = MaterialTheme.typography.bodyMedium, fontWeight = FontWeight.SemiBold)
                         if (role == LinkService.ROLE_GATEWAY) {
-                            Text("Turn on Bluetooth tethering in Android Settings and leave it on, then allow internet access for this phone in the Remote's Bluetooth settings. PCL can't switch Bluetooth tethering for you. For an active WhatsApp call on the Remote, PCL can also turn on this phone's Wi-Fi hotspot and turn it off afterwards; that needs the optional PCL call & hotspot helper.", style = MaterialTheme.typography.bodyMedium)
+                            Text("Turn on Bluetooth tethering (in Hotspot & tethering) and leave it on. PCL can't switch it for you, and some phones turn it off after a restart, so check it then.", style = MaterialTheme.typography.bodyMedium)
                             Button(onClick = {
                                 try { startActivity(Intent("android.settings.TETHER_SETTINGS")) }
                                 catch (_: Exception) {
                                     try { startActivity(Intent(Settings.ACTION_BLUETOOTH_SETTINGS)) }
-                                    catch (_: Exception) { toast("Open Android Settings → Hotspot & tethering") }
+                                    catch (_: Exception) { toast("Open Android Settings → Hotspot & tethering → Bluetooth tethering") }
                                 }
-                            }, modifier = Modifier.fillMaxWidth()) { Text("Bluetooth tethering & hotspot settings") }
-                            OutlinedButton(onClick = {
-                                try { startActivity(Intent(Settings.ACTION_BLUETOOTH_SETTINGS)) }
-                                catch (_: Exception) { toast("Open Android Settings → Bluetooth") }
-                            }, modifier = Modifier.fillMaxWidth()) { Text("Open Bluetooth settings") }
+                            }, modifier = Modifier.fillMaxWidth()) { Text("Bluetooth tethering settings") }
                         } else {
-                            Text("In Bluetooth settings, open the Gateway and allow Internet access if Android offers it, and keep Bluetooth on: this is the always-on internet path. For an active WhatsApp call on this phone, PCL asks the Gateway to turn on its Wi-Fi hotspot unless this phone is already on Wi-Fi. Save the Gateway hotspot here once so Android joins it automatically.", style = MaterialTheme.typography.bodyMedium)
+                            Text("In Bluetooth settings, open the Gateway and allow Internet access, and keep Bluetooth on. To check it works, turn Wi-Fi off and open a web page.", style = MaterialTheme.typography.bodyMedium)
                             Button(onClick = {
                                 try { startActivity(Intent(Settings.ACTION_BLUETOOTH_SETTINGS)) }
                                 catch (_: Exception) { toast("Open Android Settings → Bluetooth") }
                             }, modifier = Modifier.fillMaxWidth()) { Text("Open Bluetooth settings") }
-                            OutlinedButton(onClick = {
-                                try { startActivity(Intent(Settings.ACTION_WIFI_SETTINGS)) }
-                                catch (_: Exception) { toast("Open Android Settings → Wi-Fi") }
-                            }, modifier = Modifier.fillMaxWidth()) { Text("Wi-Fi hotspot fallback settings") }
                         }
-                        Text("Enable Notification access on both phones, and the \"PCL call & hotspot helper\" accessibility service on both phones. PCL turns off the Wi-Fi hotspot only if it turned it on, and never switches Bluetooth tethering. Tethering controls and switching between Bluetooth and Wi-Fi vary by phone, and a switch during a call may briefly interrupt it. PCL does not relay call audio. Mobile-data charges may apply.", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                        Text("PCL's own link carries calls and notifications, not internet; it doesn't relay call audio. Mobile-data charges may apply.", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                     }
                     Row(horizontalArrangement = Arrangement.spacedBy(12.dp), modifier = Modifier.fillMaxWidth()) {
                         RoleChoiceCard("Gateway", "SIM phone and call controller", Icons.Default.Radio, roleSelected && role == LinkService.ROLE_GATEWAY, Modifier.weight(1f)) {
@@ -626,19 +575,14 @@ class MainActivity : ComponentActivity() {
                             PermissionSetupRow("Place calls", "Place calls through the gateway SIM", granted(Manifest.permission.CALL_PHONE)) { requestPermissions(arrayOf(Manifest.permission.CALL_PHONE), 1) }
                             PermissionSetupRow("Contacts (for sync)", "Send Gateway contacts to the Remote and resolve caller names", granted(Manifest.permission.READ_CONTACTS)) { requestPermissions(arrayOf(Manifest.permission.READ_CONTACTS), 1) }
                             PermissionSetupRow("Notification access", "Mirror notifications and detect WhatsApp call state", notificationAccess, actionLabel = "Open settings") { runCatching { startActivity(Intent(Settings.ACTION_NOTIFICATION_LISTENER_SETTINGS)) }.onFailure { toast("Open Android Settings → Notifications → Notification access") } }
-                            val hotspotAccessibilityEnabled = WhatsappCallAccessibilityService.isEnabled(this@MainActivity)
-                            PermissionSetupRow("WhatsApp calls & hotspot (optional)", "Accessibility service \"PCL call & hotspot helper\": lets PCL start WhatsApp calls the Remote asks for, and switch the Gateway hotspot in Android Settings during a Remote WhatsApp call", hotspotAccessibilityEnabled, actionLabel = "Open settings") {
+                            val callHelperEnabled = WhatsappCallAccessibilityService.isEnabled(this@MainActivity)
+                            PermissionSetupRow("WhatsApp calls (optional)", "Accessibility service \"PCL WhatsApp call helper\": lets PCL start the WhatsApp calls the Remote asks for", callHelperEnabled, actionLabel = "Open settings") {
                                 runCatching { startActivity(Intent(Settings.ACTION_ACCESSIBILITY_SETTINGS)) }
-                                    .onFailure { toast("Open Android Settings → Accessibility → Installed apps → PCL call & hotspot helper") }
+                                    .onFailure { toast("Open Android Settings → Accessibility → Installed apps → PCL WhatsApp call helper") }
                             }
                             if (Build.VERSION.SDK_INT >= 31) PermissionSetupRow("Bluetooth connection", "Connect to the paired remote phone", granted(Manifest.permission.BLUETOOTH_CONNECT)) { requestPermissions(arrayOf(Manifest.permission.BLUETOOTH_CONNECT), 1) }
                         } else if (roleSelected) {
-                            PermissionSetupRow("Notification access", "Detect local WhatsApp call state", notificationAccess, actionLabel = "Open settings") { runCatching { startActivity(Intent(Settings.ACTION_NOTIFICATION_LISTENER_SETTINGS)) }.onFailure { toast("Open Android Settings → Notifications → Notification access") } }
-                            val accessibilityEnabled = WhatsappCallAccessibilityService.isEnabled(this@MainActivity)
-                            PermissionSetupRow("WhatsApp call detection (optional)", "Accessibility service \"PCL call & hotspot helper\": detects when you tap voice/video call or answer in WhatsApp, then alerts the Gateway", accessibilityEnabled, actionLabel = "Open settings") {
-                                runCatching { startActivity(Intent(Settings.ACTION_ACCESSIBILITY_SETTINGS)) }
-                                    .onFailure { toast("Open Android Settings → Accessibility → Installed apps → PCL call & hotspot helper") }
-                            }
+                            PermissionSetupRow("Notification access", "Detect this phone's WhatsApp calls, so the same call isn't shown twice", notificationAccess, actionLabel = "Open settings") { runCatching { startActivity(Intent(Settings.ACTION_NOTIFICATION_LISTENER_SETTINGS)) }.onFailure { toast("Open Android Settings → Notifications → Notification access") } }
                             PermissionSetupRow("Local contacts (optional)", "Include this phone's contacts in Remote search", granted(Manifest.permission.READ_CONTACTS)) { requestPermissions(arrayOf(Manifest.permission.READ_CONTACTS), 1) }
                             if (Build.VERSION.SDK_INT >= 31) PermissionSetupRow("Bluetooth connection", "Find and connect to the paired gateway phone", granted(Manifest.permission.BLUETOOTH_CONNECT)) { requestPermissions(arrayOf(Manifest.permission.BLUETOOTH_CONNECT), 1) }
                             if (Build.VERSION.SDK_INT >= 33) PermissionSetupRow("Notifications", "Show the ongoing PCL status", granted(Manifest.permission.POST_NOTIFICATIONS)) { requestPermissions(arrayOf(Manifest.permission.POST_NOTIFICATIONS), 1) }
@@ -647,8 +591,9 @@ class MainActivity : ComponentActivity() {
                         }
                         // Android 13+ blocks these two for apps installed from an APK file
                         // until the user allows "restricted settings" in App info.
-                        if (roleSelected && Build.VERSION.SDK_INT >= 33 &&
-                            (!notificationAccess || !WhatsappCallAccessibilityService.isEnabled(this@MainActivity))
+                        // The Remote has no accessibility helper, so only Notification access applies there.
+                        if (roleSelected && Build.VERSION.SDK_INT >= 33 && (!notificationAccess ||
+                                (role == LinkService.ROLE_GATEWAY && !WhatsappCallAccessibilityService.isEnabled(this@MainActivity)))
                         ) {
                             Text(
                                 "Greyed out or \"Restricted setting\"? Android blocks Notification access and Accessibility for apps installed from an APK. Open App info, tap ⋮, choose Allow restricted settings, then try again.",

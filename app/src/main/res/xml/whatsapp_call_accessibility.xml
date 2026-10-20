@@ -1,8 +1,8 @@
 <?xml version="1.0" encoding="utf-8"?>
-<!-- Starts narrow (WhatsApp taps only). The service widens this to Settings screens
-     at runtime, and only while a Gateway hotspot change is in progress. -->
+<!-- Gateway only, and WhatsApp only. The service also follows WhatsApp's window content
+     for a few seconds while it starts a call the Remote asked for. -->
 <accessibility-service xmlns:android="http://schemas.android.com/apk/res/android"
-    android:accessibilityEventTypes="typeViewClicked"
+    android:accessibilityEventTypes="typeWindowStateChanged"
     android:packageNames="com.whatsapp,com.whatsapp.w4b"
     android:accessibilityFeedbackType="feedbackGeneric"
     android:notificationTimeout="100"
