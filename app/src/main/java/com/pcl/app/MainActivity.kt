@@ -414,35 +414,35 @@ class MainActivity : ComponentActivity() {
                     Text("Setup & settings", style = MaterialTheme.typography.headlineMedium, fontWeight = FontWeight.Bold)
                     Text("Choose a role and grant every required permission. Home unlocks when setup is complete.", style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
                     SectionCard(
-                        title = "Internet sharing",
-                        subtitle = "Share the Gateway phone's mobile data with the Remote so its own apps, including WhatsApp Business, can use the internet."
+                        title = "Bluetooth internet & on-demand Wi-Fi",
+                        subtitle = "Bluetooth tethering is the low-power, always-on internet path for the Remote. The Wi-Fi hotspot is only for WhatsApp calls on the Remote."
                     ) {
                         Text("Current network on this phone: ${internetStatus()}", style = MaterialTheme.typography.bodyMedium, fontWeight = FontWeight.SemiBold)
                         if (role == LinkService.ROLE_GATEWAY) {
-                            Text("For WhatsApp calls handled on Remote, PCL can try to enable the Gateway Wi-Fi hotspot, then try to turn it off when the Remote call ends. This needs the optional PCL accessibility service on Gateway; Android/OEM restrictions may still require manual action.", style = MaterialTheme.typography.bodyMedium)
+                            Text("Turn on Bluetooth tethering in Android Settings and leave it on, then allow internet access for this phone in the Remote's Bluetooth settings. PCL can't switch Bluetooth tethering for you. For an active WhatsApp call on the Remote, PCL can also turn on this phone's Wi-Fi hotspot and turn it off afterwards; that needs the optional PCL call & hotspot helper.", style = MaterialTheme.typography.bodyMedium)
                             Button(onClick = {
                                 try { startActivity(Intent("android.settings.TETHER_SETTINGS")) }
                                 catch (_: Exception) {
-                                    try { startActivity(Intent(Settings.ACTION_WIFI_SETTINGS)) }
+                                    try { startActivity(Intent(Settings.ACTION_BLUETOOTH_SETTINGS)) }
                                     catch (_: Exception) { toast("Open Android Settings → Hotspot & tethering") }
                                 }
-                            }, modifier = Modifier.fillMaxWidth()) { Text("Open hotspot & tethering") }
+                            }, modifier = Modifier.fillMaxWidth()) { Text("Bluetooth tethering & hotspot settings") }
                             OutlinedButton(onClick = {
                                 try { startActivity(Intent(Settings.ACTION_BLUETOOTH_SETTINGS)) }
                                 catch (_: Exception) { toast("Open Android Settings → Bluetooth") }
-                            }, modifier = Modifier.fillMaxWidth()) { Text("Bluetooth tethering settings") }
+                            }, modifier = Modifier.fillMaxWidth()) { Text("Open Bluetooth settings") }
                         } else {
-                            Text("Bluetooth internet remains the standby route where supported. When a WhatsApp call is actually handled on Remote and Remote isn't already on Wi-Fi, PCL asks Gateway to enable its Wi-Fi hotspot; connect to the saved Gateway Wi-Fi profile if Android does not connect automatically. A call answered on Gateway does not trigger hotspot automation.", style = MaterialTheme.typography.bodyMedium)
+                            Text("In Bluetooth settings, open the Gateway and allow Internet access if Android offers it, and keep Bluetooth on: this is the always-on internet path. For an active WhatsApp call on this phone, PCL asks the Gateway to turn on its Wi-Fi hotspot unless this phone is already on Wi-Fi. Save the Gateway hotspot here once so Android joins it automatically.", style = MaterialTheme.typography.bodyMedium)
                             Button(onClick = {
+                                try { startActivity(Intent(Settings.ACTION_BLUETOOTH_SETTINGS)) }
+                                catch (_: Exception) { toast("Open Android Settings → Bluetooth") }
+                            }, modifier = Modifier.fillMaxWidth()) { Text("Open Bluetooth settings") }
+                            OutlinedButton(onClick = {
                                 try { startActivity(Intent(Settings.ACTION_WIFI_SETTINGS)) }
                                 catch (_: Exception) { toast("Open Android Settings → Wi-Fi") }
-                            }, modifier = Modifier.fillMaxWidth()) { Text("Connect to Gateway Wi-Fi hotspot") }
-                            OutlinedButton(onClick = {
-                                try { startActivity(Intent(Settings.ACTION_BLUETOOTH_SETTINGS)) }
-                                catch (_: Exception) { toast("Open Android Settings → Bluetooth") }
-                            }, modifier = Modifier.fillMaxWidth()) { Text("Bluetooth settings") }
+                            }, modifier = Modifier.fillMaxWidth()) { Text("Wi-Fi hotspot fallback settings") }
                         }
-                        Text("Enable Notification access on both phones, and the \"PCL call & hotspot helper\" accessibility service on both phones. PCL only manages the hotspot for calls handled on Remote and tries to turn off only a hotspot it enabled. Android/OEM layouts may block automation; Remote must connect to Gateway Wi-Fi before WhatsApp can use it, and Bluetooth internet fallback depends on device support. PCL does not relay call audio. Mobile-data charges may apply.", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                        Text("Enable Notification access on both phones, and the \"PCL call & hotspot helper\" accessibility service on both phones. PCL turns off the Wi-Fi hotspot only if it turned it on, and never switches Bluetooth tethering. Tethering controls and switching between Bluetooth and Wi-Fi vary by phone, and a switch during a call may briefly interrupt it. PCL does not relay call audio. Mobile-data charges may apply.", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                     }
                     Row(horizontalArrangement = Arrangement.spacedBy(12.dp), modifier = Modifier.fillMaxWidth()) {
                         RoleChoiceCard("Gateway", "SIM phone and call controller", Icons.Default.Radio, roleSelected && role == LinkService.ROLE_GATEWAY, Modifier.weight(1f)) {

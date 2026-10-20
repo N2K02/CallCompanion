@@ -23,6 +23,7 @@ import android.media.RingtoneManager
 import android.net.ConnectivityManager
 import android.net.NetworkCapabilities
 import android.net.Uri
+import android.net.wifi.WifiManager
 import android.os.Build
 import android.os.Bundle
 import android.os.Handler
@@ -32,6 +33,7 @@ import android.os.SystemClock
 import android.os.VibrationEffect
 import android.os.Vibrator
 import android.provider.ContactsContract
+import android.provider.Settings
 import android.telecom.TelecomManager
 import android.telephony.TelephonyManager
 import android.util.Base64
@@ -84,6 +86,7 @@ class LinkService : Service() {
         private const val ID_STATUS = 1
         private const val ID_INCOMING = 2
         private const val ID_WHATSAPP_HANDOFF = 42
+        private const val ID_REMOTE_WIFI = 44
 
         /** Restarts the link with the saved role and phone, if the user left it running. */
         fun startSaved(context: Context, reason: String) {
@@ -364,7 +367,46 @@ class LinkService : Service() {
         // An ACTIVE state from the Remote is what asks the Gateway for its hotspot. A ringing
         // notification alone may belong to a call answered on the Gateway, so it doesn't.
         if (connected) sendWhatsAppState(pkg, state)
+        if (role == ROLE_REMOTE) {
+            if (state == WhatsAppCalls.ACTIVE) showRemoteWifiHelper()
+            else if (localWhatsappCallStates.values.none { it == WhatsAppCalls.ACTIVE }) nm.cancel(ID_REMOTE_WIFI)
+        }
         Hub.notifyUi()
+    }
+
+    /**
+     * Remote: an active WhatsApp call has just asked the Gateway for its hotspot, so help this
+     * phone join it. Since Android 10 apps can't connect to Wi-Fi themselves, so this is a
+     * notification with a Wi-Fi settings shortcut, shown only when this phone isn't already on Wi-Fi.
+     */
+    private fun showRemoteWifiHelper() {
+        if (role != ROLE_REMOTE || !connected || wifiFlag() == "WIFI") return
+        val wifiOff = try {
+            getSystemService(WifiManager::class.java)?.isWifiEnabled == false
+        } catch (_: Exception) {
+            false
+        }
+        val detail = if (wifiOff) "Turn on Wi-Fi so this phone can join the Gateway hotspot for this call."
+            else "Waiting for this phone to join the Gateway hotspot. Open Wi-Fi settings if it doesn't connect."
+        val settings = PendingIntent.getActivity(
+            this, ID_REMOTE_WIFI,
+            Intent(Settings.ACTION_WIFI_SETTINGS).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK),
+            PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT
+        )
+        try {
+            nm.notify(ID_REMOTE_WIFI, Notification.Builder(this, CH_HOTSPOT)
+                .setSmallIcon(android.R.drawable.sym_action_call)
+                .setContentTitle("Join the Gateway hotspot")
+                .setContentText(detail)
+                .setStyle(Notification.BigTextStyle().bigText("$detail Save the Gateway hotspot on this phone once and allow automatic connection."))
+                .setTimeoutAfter(90_000L) // stale once the phone has joined
+                .setContentIntent(settings)
+                .addAction(action(android.R.drawable.sym_action_call, "Open Wi-Fi settings", settings))
+                .build())
+        } catch (e: Exception) {
+            Hub.log("Could not show Wi-Fi helper notification: ${e.message ?: e.javaClass.simpleName}")
+        }
+        Hub.log("Remote Wi-Fi helper: $detail")
     }
 
     private fun sendWhatsAppState(pkg: String, state: String) {
