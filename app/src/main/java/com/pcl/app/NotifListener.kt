@@ -96,6 +96,9 @@ class NotifListener : NotificationListenerService() {
     private val whatsappCallPackages = HashMap<String, String>()
     /** WhatsApp notifications already logged as "looks like a call, buttons not recognised". */
     private val unrecognisedLogged = HashSet<String>()
+    /** Most recent active dialer notification, retained only while it is posted. */
+    private val dialerCallKeys = HashSet<String>()
+
 
     private fun reportWhatsAppState(pkg: String) {
         val state = synchronized(whatsappCallStates) {
@@ -223,6 +226,7 @@ class NotifListener : NotificationListenerService() {
             // SIM calls already have PCL's own call notification on the Remote. The Phone
             // app's buttons are kept here only as a fallback for answering and ending.
             if (sbn.packageName == defaultDialer()) {
+                synchronized(dialerCallKeys) { dialerCallKeys.add(sbn.key) }
                 val person = callerPerson(ex)
                 val uriNumber = person?.uri?.takeIf { it.startsWith("tel:", ignoreCase = true) }
                     ?.removePrefix("tel:").orEmpty()
@@ -254,6 +258,7 @@ class NotifListener : NotificationListenerService() {
     override fun onNotificationRemoved(sbn: StatusBarNotification) {
         if (Hub.service?.role != LinkService.ROLE_GATEWAY) return
         if (WhatsAppCalls.isWhatsApp(sbn.packageName)) updateWhatsappCallNotification(sbn, removed = true)
+        synchronized(dialerCallKeys) { dialerCallKeys.remove(sbn.key) }
         synchronized(lastSent) { lastSent.remove(sbn.key) }
         synchronized(actionsByKey) {
             actionsByKey.remove(sbn.key)
