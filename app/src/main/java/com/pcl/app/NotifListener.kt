@@ -99,6 +99,7 @@ class NotifListener : NotificationListenerService() {
     /** Most recent active dialer notification, retained only while it is posted. */
     private val dialerCallKeys = HashSet<String>()
     private val lastCallMetadata = HashMap<String, String>()
+    private val thirdPartySessions = HashMap<String, String>()
 
 
     private fun reportWhatsAppState(pkg: String) {
@@ -248,6 +249,11 @@ class NotifListener : NotificationListenerService() {
                 svc.updateCallerFromNotification(candidate, candidateName)
                 return
             }
+            val previousSessionState = synchronized(thirdPartySessions) {
+                thirdPartySessions.put(sbn.key, callState ?: "UNKNOWN")
+            }
+            if (previousSessionState != (callState ?: "UNKNOWN"))
+                Hub.log("Third-party call state changed: package=${sbn.packageName}, state=${callState ?: "unknown"}")
             if (!svc.canRelay()) return
             val signature = "CALL\u0000$title\u0000$text\u0000" + labels.joinToString("\u0001") + "\u0000" + (callState ?: "")
             synchronized(lastSent) { if (lastSent[sbn.key] == signature) return; lastSent[sbn.key] = signature }
@@ -265,6 +271,8 @@ class NotifListener : NotificationListenerService() {
         if (Hub.service?.role != LinkService.ROLE_GATEWAY) return
         if (WhatsAppCalls.isWhatsApp(sbn.packageName)) updateWhatsappCallNotification(sbn, removed = true)
         synchronized(dialerCallKeys) { dialerCallKeys.remove(sbn.key) }
+        if (synchronized(thirdPartySessions) { thirdPartySessions.remove(sbn.key) } != null)
+            Hub.log("Third-party call notification removed: package=${sbn.packageName}")
         synchronized(lastCallMetadata) { lastCallMetadata.remove(sbn.key) }
         synchronized(lastSent) { lastSent.remove(sbn.key) }
         synchronized(actionsByKey) {
