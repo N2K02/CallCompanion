@@ -205,6 +205,7 @@ class NotifListener : NotificationListenerService() {
             // Call-style notifications may carry the caller only as a Person.
             val structuredCaller = callerName(ex)
             if (structuredCaller.isNotBlank()) title = structuredCaller
+            Hub.log("Call notification metadata: package=${sbn.packageName}, person=${structuredCaller.isNotBlank()}, title=${title.isNotBlank()}, state=${callState ?: "unknown"}")
             if (text.isEmpty()) text = when (callState) {
                 WhatsAppCalls.RINGING -> "Incoming call"
                 WhatsAppCalls.ACTIVE -> "Call in progress"
