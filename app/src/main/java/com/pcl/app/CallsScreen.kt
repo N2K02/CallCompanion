@@ -163,7 +163,7 @@ fun CallsScreen(ui: CallsUi, actions: CallsActions, modifier: Modifier = Modifie
             ActiveCallCard(ui, actions)
             Spacer(Modifier.height(10.dp))
         } else if (mirror != null) {
-            AppCallCard(mirror, actions)
+            AppCallCard(mirror, ui, actions)
             Spacer(Modifier.height(10.dp))
         } else if (!ui.connected) {
             Text(
@@ -298,7 +298,7 @@ private fun ActiveCallCard(ui: CallsUi, actions: CallsActions) {
 
 /** A WhatsApp (or other app's) call on the Gateway, with that call's own buttons. */
 @Composable
-private fun AppCallCard(call: LinkService.MirrorCall, actions: CallsActions) {
+private fun AppCallCard(call: LinkService.MirrorCall, ui: CallsUi, actions: CallsActions) {
     var now by remember { mutableLongStateOf(System.currentTimeMillis()) }
     LaunchedEffect(call.connectedAt) {
         while (call.connectedAt != null) {
@@ -359,6 +359,20 @@ private fun AppCallCard(call: LinkService.MirrorCall, actions: CallsActions) {
                     }
                 }
             }
+            LaunchedEffect(call.key) {
+                while (true) {
+                    actions.refreshGatewayAudio()
+                    delay(3000)
+                }
+            }
+            Text("Gateway call volume: " + ui.gatewayVolume + " / " + ui.gatewayMaxVolume)
+            Slider(
+                value = ui.gatewayVolume.coerceIn(0, ui.gatewayMaxVolume).toFloat(),
+                onValueChange = { actions.setGatewayVolume(it.toInt()) },
+                valueRange = 0f..ui.gatewayMaxVolume.coerceAtLeast(1).toFloat(),
+                steps = (ui.gatewayMaxVolume - 1).coerceAtLeast(0),
+                enabled = ui.connected,
+            )
             Text(
                 "The call runs on the Gateway: talk through its earpiece or Bluetooth headset.",
                 style = MaterialTheme.typography.bodySmall,
