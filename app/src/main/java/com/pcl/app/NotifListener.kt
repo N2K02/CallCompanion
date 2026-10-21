@@ -307,8 +307,18 @@ class NotifListener : NotificationListenerService() {
         null
     }
 
+    private fun compatCallerName(ex: Bundle): String {
+        // AndroidX CallStyle stores a compat Person as a Bundle on older platforms.
+        val compat = try {
+            @Suppress("DEPRECATION")
+            ex.getBundle("android.callPersonCompat")
+        } catch (_: Exception) { null }
+        return compat?.getCharSequence("name")?.toString().orEmpty()
+    }
+
     private fun callerName(ex: Bundle): String {
         callerPerson(ex)?.name?.toString()?.takeIf { it.isNotBlank() }?.let { return it }
+        compatCallerName(ex).takeIf { it.isNotBlank() }?.let { return it }
         val people = try {
             if (Build.VERSION.SDK_INT >= 33)
                 ex.getParcelableArrayList(Notification.EXTRA_PEOPLE_LIST, android.app.Person::class.java)
