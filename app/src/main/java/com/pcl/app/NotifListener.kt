@@ -231,6 +231,7 @@ class NotifListener : NotificationListenerService() {
             // SIM calls already have PCL's own call notification on the Remote. The Phone
             // app's buttons are kept here only as a fallback for answering and ending.
             if (sbn.packageName == defaultDialer()) {
+                if (svc.simCallStartedAt() > 0L && sbn.postTime + 5000L < svc.simCallStartedAt()) return
                 synchronized(dialerCallKeys) { dialerCallKeys.add(sbn.key) }
                 val person = callerPerson(ex)
                 val uriNumber = person?.uri?.takeIf { it.startsWith("tel:", ignoreCase = true) }
