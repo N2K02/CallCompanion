@@ -1012,7 +1012,7 @@ class LinkService : Service() {
                 TelephonyManager.EXTRA_STATE_OFFHOOK -> CALL_OFFHOOK
                 else -> CALL_IDLE
             }
-            if (newState == CALL_RINGING) callDirection = "INCOMING"
+            if (newState == CALL_RINGING && previousState == CALL_IDLE) { callDirection = "INCOMING"; callNumber = ""; callName = "" }
             else if (newState == CALL_OFFHOOK && previousState == CALL_IDLE) callDirection = "OUTGOING"
             else if (newState == CALL_IDLE) callDirection = ""
             val gotNumber = !num.isNullOrEmpty() && num != callNumber
@@ -1071,6 +1071,30 @@ class LinkService : Service() {
             }
         } catch (e: Exception) {
             Hub.log("Initial phone-state query unavailable: ${e.message ?: e.javaClass.simpleName}")
+        }
+    }
+
+    /** Gateway: enrich an active SIM call using metadata from the default dialer's notification. */
+    fun updateCallerFromNotification(number: String, name: String) {
+        if (role != ROLE_GATEWAY || callState == CALL_IDLE) return
+        val safeNumber = number.trim().take(80)
+        val safeName = name.trim().take(120)
+        if (safeNumber.isEmpty() && safeName.isEmpty()) return
+        if (safeNumber.isNotEmpty() && callNumber.isNotEmpty() &&
+            callNumber.filter(Char::isDigit).takeLast(7) != safeNumber.filter(Char::isDigit).takeLast(7)) return
+        var changed = false
+        if (callNumber.isEmpty() && safeNumber.isNotEmpty()) {
+            callNumber = safeNumber
+            changed = true
+        }
+        if (callName.isEmpty() && safeName.isNotEmpty()) {
+            callName = safeName
+            changed = true
+        }
+        if (changed) {
+            Hub.log("Caller details recovered from phone notification (" + logCaller() + ")")
+            sendCallState()
+            Hub.notifyUi()
         }
     }
 
