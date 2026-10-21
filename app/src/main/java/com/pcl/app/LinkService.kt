@@ -146,7 +146,7 @@ class LinkService : Service() {
     }
 
     fun requestGatewayRoute(route: String) {
-        if (role == ROLE_REMOTE && connected && callState != CALL_IDLE && route in setOf("SPEAKER", "EARPIECE"))
+        if (role == ROLE_REMOTE && connected && (callState != CALL_IDLE || liveMirrorCall != null) && route in setOf("SPEAKER", "EARPIECE"))
             send("AUDIO_ROUTE", route)
     }
 
@@ -180,7 +180,7 @@ class LinkService : Service() {
     }
 
     private fun gatewaySetAudioRoute(route: String) {
-        if (callState == CALL_IDLE || route !in setOf("SPEAKER", "EARPIECE")) {
+        if ((callState == CALL_IDLE && !localWhatsappCallStates.values.any { it == WhatsAppCalls.ACTIVE }) || route !in setOf("SPEAKER", "EARPIECE")) {
             gatewayAudioStatus()
             return
         }
