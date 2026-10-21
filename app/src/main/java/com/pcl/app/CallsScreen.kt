@@ -373,6 +373,15 @@ private fun AppCallCard(call: LinkService.MirrorCall, ui: CallsUi, actions: Call
                 steps = (ui.gatewayMaxVolume - 1).coerceAtLeast(0),
                 enabled = ui.connected,
             )
+            if (call.pkg.startsWith("com.whatsapp") && !call.ringing && ui.connected) {
+                Text("Experimental audio route · " + ui.gatewayAudioRoute)
+                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    OutlinedButton(onClick = { actions.setGatewayRoute("EARPIECE") }) { Text("Earpiece") }
+                    OutlinedButton(onClick = { actions.setGatewayRoute("SPEAKER") }) { Text("Speaker") }
+                }
+                Text("WhatsApp may override the selected route.",
+                    style = MaterialTheme.typography.bodySmall)
+            }
             Text(
                 "The call runs on the Gateway: talk through its earpiece or Bluetooth headset.",
                 style = MaterialTheme.typography.bodySmall,
