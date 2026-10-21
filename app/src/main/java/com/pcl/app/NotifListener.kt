@@ -222,6 +222,14 @@ class NotifListener : NotificationListenerService() {
             }
             if (title.isEmpty() && text.isEmpty()) title = appName(sbn.packageName)
         }
+        if (!callNotification && synchronized(thirdPartySessions) { thirdPartySessions.remove(sbn.key) } != null) {
+            synchronized(lastSent) { lastSent.remove(sbn.key) }
+            synchronized(actionsByKey) {
+                actionsByKey.remove(sbn.key)
+                actionPackagesByKey.remove(sbn.key)
+            }
+            svc.mirrorRemoved(sbn.key)
+        }
         if (title.isEmpty() && text.isEmpty()) return
 
         if (callNotification) {
