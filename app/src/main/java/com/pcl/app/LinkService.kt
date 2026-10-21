@@ -1027,8 +1027,10 @@ class LinkService : Service() {
                 val reportedState = p.getOrNull(7 + count * 2).orEmpty().takeIf { it in WhatsAppCalls.STATES }
                 showMirroredCall(arg1, pkg, decodeText(p.getOrElse(2) { "" }), decodeText(p.getOrElse(3) { "" }), decodeText(p.getOrElse(4) { "" }), indices, labels, reportedState)
             }
+            "NOTIF_CLEAR_ORDINARY" -> if (role == ROLE_REMOTE) clearOrdinaryMirrorsLocal()
             "NOTIF_REMOVE" -> {
                 nm.cancel(TAG_MIRROR, arg1.hashCode())
+                ordinaryMirrors.remove(arg1.hashCode())
                 mirroredCalls.remove(arg1)
                 stopMirrorRinging(arg1)
             }
@@ -1567,12 +1569,23 @@ class LinkService : Service() {
     fun canRelay(): Boolean = running && connected && role == ROLE_GATEWAY
 
     /** Gateway: also send other notifications (messages etc.), as set in Settings. */
-    fun shouldMirror(): Boolean = canRelay() && Prefs.of(this).getBoolean(Prefs.MIRROR, true)
+    fun shouldMirror(): Boolean = canRelay() && Prefs.of(this).getBoolean(Prefs.MIRROR, false)
 
     private fun encodeKey(k: String): String = encodeText(k)
     private fun decodeKey(k: String): String? = try { decodeText(k) } catch (_: Exception) { null }
     private fun encodeText(value: String): String = Base64.encodeToString(value.toByteArray(Charsets.UTF_8), Base64.NO_WRAP or Base64.URL_SAFE)
     private fun decodeText(value: String): String = try { String(Base64.decode(value, Base64.NO_WRAP or Base64.URL_SAFE), Charsets.UTF_8) } catch (_: Exception) { "" }
+
+    private val ordinaryMirrors = ConcurrentHashMap.newKeySet<Int>()
+
+    fun clearOrdinaryMirrors() {
+        if (role == ROLE_GATEWAY && connected) send("NOTIF_CLEAR_ORDINARY")
+    }
+
+    private fun clearOrdinaryMirrorsLocal() {
+        ordinaryMirrors.forEach { nm.cancel(TAG_MIRROR, it) }
+        ordinaryMirrors.clear()
+    }
 
     /** Gateway: forward a notification with delimiter-safe fields. */
     fun mirrorPosted(key: String, app: String, title: String, text: String) {
@@ -1605,7 +1618,7 @@ class LinkService : Service() {
             .setContentTitle(title.ifEmpty { app }).setContentText(text)
             .setStyle(Notification.BigTextStyle().bigText(text)).setWhen(System.currentTimeMillis())
             .setShowWhen(true).setAutoCancel(true).setContentIntent(openAppPi()).setDeleteIntent(deletePi).build()
-        try { nm.notify(TAG_MIRROR, id, n) } catch (_: Exception) { }
+        try { nm.notify(TAG_MIRROR, id, n); ordinaryMirrors.add(id) } catch (_: Exception) { }
     }
 
     /**
