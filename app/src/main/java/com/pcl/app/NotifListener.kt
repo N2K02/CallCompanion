@@ -185,6 +185,7 @@ class NotifListener : NotificationListenerService() {
         if ((n.flags and Notification.FLAG_GROUP_SUMMARY) != 0) return
         val ex = n.extras ?: return
         var title = ex.getCharSequence(Notification.EXTRA_TITLE)?.toString() ?: ""
+        if (title.isBlank()) title = ex.getCharSequence(Notification.EXTRA_TITLE_BIG)?.toString().orEmpty()
         var text = (ex.getCharSequence(Notification.EXTRA_BIG_TEXT) ?: ex.getCharSequence(Notification.EXTRA_TEXT))?.toString()
             ?: ex.getCharSequenceArray(Notification.EXTRA_TEXT_LINES)?.joinToString("\n") ?: ""
 
