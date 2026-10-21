@@ -1077,8 +1077,9 @@ class LinkService : Service() {
     /** Gateway: enrich an active SIM call using metadata from the default dialer's notification. */
     fun updateCallerFromNotification(number: String, name: String) {
         if (role != ROLE_GATEWAY || callState == CALL_IDLE) return
-        val safeNumber = number.trim().take(80)
         val safeName = name.trim().take(120)
+        val suppliedNumber = number.trim().take(80)
+        val safeNumber = suppliedNumber.ifEmpty { resolveUniqueContactNumber(safeName) }
         if (safeNumber.isEmpty() && safeName.isEmpty()) return
         if (safeNumber.isNotEmpty() && callNumber.isNotEmpty() &&
             callNumber.filter(Char::isDigit).takeLast(7) != safeNumber.filter(Char::isDigit).takeLast(7)) return
@@ -1096,6 +1097,21 @@ class LinkService : Service() {
             sendCallState()
             Hub.notifyUi()
         }
+    }
+
+    /** Exact name matching only; ambiguous names never select an arbitrary number. */
+    private fun resolveUniqueContactNumber(name: String): String {
+        if (name.isBlank() || !has(Manifest.permission.READ_CONTACTS)) return ""
+        val normalized = name.trim().lowercase(java.util.Locale.ROOT)
+        if (normalized in setOf("unknown", "unknown number", "private number",
+                "incoming call", "ongoing call", "phone", "restricted")) return ""
+        val matches = ContactStore.readDevice(this).filter {
+            it.name.trim().lowercase(java.util.Locale.ROOT) == normalized
+        }
+        val numbers = matches.map { ContactStore.digits(it.number) }
+            .filter { it.isNotBlank() }.distinct()
+        if (numbers.size > 1) Hub.log("Caller name matches multiple numbers; number remains unknown")
+        return if (numbers.size == 1) matches.first().number else ""
     }
 
     private fun sendCallState() {
