@@ -30,7 +30,7 @@
     </queries>
     <application
         android:allowBackup="false"
-        android:icon="@android:drawable/sym_action_call"
+        android:icon="@drawable/ic_pcl"
         android:label="PCL"
         android:theme="@style/Theme.PCL">
         <activity
