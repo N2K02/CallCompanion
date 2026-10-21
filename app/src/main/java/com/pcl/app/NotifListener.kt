@@ -288,6 +288,20 @@ class NotifListener : NotificationListenerService() {
             val active = activeNotifications ?: return
             // Dedupe is useful for repeated posts, but not after a reconnect: the Remote
             // may have missed notifications while disconnected.
+            val activeKeys = active.map { it.key }.toSet()
+            val vanished = synchronized(thirdPartySessions) {
+                val missing = thirdPartySessions.keys.filter { it !in activeKeys }
+                missing.forEach { thirdPartySessions.remove(it) }
+                missing
+            }
+            vanished.forEach { key ->
+                synchronized(lastSent) { lastSent.remove(key) }
+                synchronized(actionsByKey) {
+                    actionsByKey.remove(key)
+                    actionPackagesByKey.remove(key)
+                }
+                Hub.service?.mirrorRemoved(key)
+            }
             synchronized(lastSent) { active.forEach { lastSent.remove(it.key) } }
             active.forEach { onNotificationPosted(it) }
         } catch (e: Exception) {
