@@ -181,7 +181,6 @@ class NotifListener : NotificationListenerService() {
         if (svc.role != LinkService.ROLE_GATEWAY || sbn.packageName == packageName) return
         val isWhatsApp = WhatsAppCalls.isWhatsApp(sbn.packageName)
         if (isWhatsApp) updateWhatsappCallNotification(sbn, removed = false)
-        if (!svc.canRelay()) return
         val n = sbn.notification ?: return
         if ((n.flags and Notification.FLAG_GROUP_SUMMARY) != 0) return
         val ex = n.extras ?: return
@@ -203,7 +202,8 @@ class NotifListener : NotificationListenerService() {
 
         if (callNotification) {
             // Call-style notifications may carry the caller only as a Person.
-            if (title.isEmpty()) title = callerName(ex)
+            val structuredCaller = callerName(ex)
+            if (structuredCaller.isNotBlank()) title = structuredCaller
             if (text.isEmpty()) text = when (callState) {
                 WhatsAppCalls.RINGING -> "Incoming call"
                 WhatsAppCalls.ACTIVE -> "Call in progress"
@@ -236,13 +236,14 @@ class NotifListener : NotificationListenerService() {
                 svc.updateCallerFromNotification(candidate, candidateName)
                 return
             }
+            if (!svc.canRelay()) return
             val signature = "CALL\u0000$title\u0000$text\u0000" + labels.joinToString("\u0001")
             synchronized(lastSent) { if (lastSent[sbn.key] == signature) return; lastSent[sbn.key] = signature }
             svc.mirrorCallPosted(sbn.key, sbn.packageName, appName(sbn.packageName), title, text, indices, labels)
             return
         }
         // Calls always go to the Remote; other notifications only while that's switched on.
-        if (!svc.shouldMirror() || sbn.isOngoing) return
+        if (!svc.canRelay() || !svc.shouldMirror() || sbn.isOngoing) return
         val signature = title + "\u0000" + text
         synchronized(lastSent) { if (lastSent[sbn.key] == signature) return; lastSent[sbn.key] = signature }
         svc.mirrorPosted(sbn.key, appName(sbn.packageName), title, text)
