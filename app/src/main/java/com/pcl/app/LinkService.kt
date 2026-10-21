@@ -1001,6 +1001,10 @@ class LinkService : Service() {
 
     // ---------------------------------------------------------------- gateway: SIM calls
 
+    @Volatile private var simCallStartedMs = 0L
+
+    fun simCallStartedAt(): Long = simCallStartedMs
+
     private val phoneReceiver = object : BroadcastReceiver() {
         override fun onReceive(c: Context, i: Intent) {
             val st = i.getStringExtra(TelephonyManager.EXTRA_STATE) ?: return
@@ -1012,9 +1016,9 @@ class LinkService : Service() {
                 TelephonyManager.EXTRA_STATE_OFFHOOK -> CALL_OFFHOOK
                 else -> CALL_IDLE
             }
-            if (newState == CALL_RINGING && previousState == CALL_IDLE) { callDirection = "INCOMING"; callNumber = ""; callName = "" }
-            else if (newState == CALL_OFFHOOK && previousState == CALL_IDLE) callDirection = "OUTGOING"
-            else if (newState == CALL_IDLE) callDirection = ""
+            if (newState == CALL_RINGING && previousState == CALL_IDLE) { simCallStartedMs = System.currentTimeMillis(); callDirection = "INCOMING"; callNumber = ""; callName = "" }
+            else if (newState == CALL_OFFHOOK && previousState == CALL_IDLE) { simCallStartedMs = System.currentTimeMillis(); callDirection = "OUTGOING" }
+            else if (newState == CALL_IDLE) { simCallStartedMs = 0L; callDirection = "" }
             val gotNumber = !num.isNullOrEmpty() && num != callNumber
             if (!num.isNullOrEmpty()) {
                 callNumber = num
