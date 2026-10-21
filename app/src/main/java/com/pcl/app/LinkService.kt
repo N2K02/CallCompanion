@@ -946,7 +946,8 @@ class LinkService : Service() {
                     if (label.isNotBlank()) { indices.add(index); labels.add(label) }
                 }
                 val pkg = decodeText(p.getOrElse(6 + count * 2) { "" })
-                showMirroredCall(arg1, pkg, decodeText(p.getOrElse(2) { "" }), decodeText(p.getOrElse(3) { "" }), decodeText(p.getOrElse(4) { "" }), indices, labels)
+                val reportedState = p.getOrNull(7 + count * 2).orEmpty().takeIf { it in WhatsAppCalls.STATES }
+                showMirroredCall(arg1, pkg, decodeText(p.getOrElse(2) { "" }), decodeText(p.getOrElse(3) { "" }), decodeText(p.getOrElse(4) { "" }), indices, labels, reportedState)
             }
             "NOTIF_REMOVE" -> {
                 nm.cancel(TAG_MIRROR, arg1.hashCode())
@@ -1501,13 +1502,14 @@ class LinkService : Service() {
     }
 
     /** Gateway: forward a third-party call notification and its available action buttons. */
-    fun mirrorCallPosted(key: String, pkg: String, app: String, title: String, text: String, actionIndices: List<Int>, actionLabels: List<String>) {
+    fun mirrorCallPosted(key: String, pkg: String, app: String, title: String, text: String, actionIndices: List<Int>, actionLabels: List<String>, state: String? = null) {
         // Keep the original field order; append the package so older peers can still parse actions.
         val fields = mutableListOf("CALL_NOTIF", encodeKey(key), encodeText(app), encodeText(title), encodeText(text.take(1200)))
         val count = minOf(3, actionIndices.size, actionLabels.size)
         fields += count.toString()
         for (i in 0 until count) { fields += actionIndices[i].toString(); fields += encodeText(actionLabels[i].take(40)) }
         fields += encodeText(pkg)
+        fields += (state ?: "")
         send(*fields.toTypedArray())
     }
 
@@ -1534,7 +1536,7 @@ class LinkService : Service() {
      * timer. A call the Gateway took (answered or started there) isn't shown here at all.
      * The buttons act on the Gateway, where the call and its audio stay.
      */
-    private fun showMirroredCall(encKey: String, pkg: String, app: String, title: String, text: String, actionIndices: List<Int>, actionLabels: List<String>) {
+    private fun showMirroredCall(encKey: String, pkg: String, app: String, title: String, text: String, actionIndices: List<Int>, actionLabels: List<String>, reportedState: String? = null) {
         val id = encKey.hashCode()
         val whatsapp = WhatsAppCalls.isWhatsApp(pkg)
         if (whatsapp) {
@@ -1544,7 +1546,7 @@ class LinkService : Service() {
                 return
             }
         }
-        val state = WhatsAppCalls.stateFromActionLabels(actionLabels)
+        val state = reportedState ?: WhatsAppCalls.stateFromActionLabels(actionLabels)
         val ringing = state == WhatsAppCalls.RINGING
         val now = System.currentTimeMillis()
         val connectedAt = when {
