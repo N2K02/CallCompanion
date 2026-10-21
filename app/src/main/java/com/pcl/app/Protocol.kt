@@ -46,7 +46,7 @@ object Commands {
     /** Sent by the Gateway; handled only on the Remote. */
     val REMOTE_HANDLES = setOf(
         "CALL", "CALL_RESULT", "CONTACTS_HASH", "CONTACTS_BEGIN", "CONTACTS", "CONTACTS_END",
-        "CONTACTS_RESULT", "NOTIF", "NOTIF_V2", "CALL_NOTIF", "NOTIF_REMOVE",
+        "CONTACTS_RESULT", "NOTIF", "NOTIF_V2", "CALL_NOTIF", "NOTIF_REMOVE", "NOTIF_CLEAR_ORDINARY",
         "WHATSAPP_CHAT_RESULT", "WHATSAPP_CALL_RESULT", "NOTIF_ACTION_RESULT", "AUDIO_STATUS"
     )
 }

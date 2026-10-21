@@ -592,7 +592,7 @@ class MainActivity : ComponentActivity() {
                     }
                     
                 if (roleSelected && role == LinkService.ROLE_GATEWAY) {
-                    SectionCard(title = "Notification sync", subtitle = "Mirror notifications to the remote phone.") {
+                    SectionCard(title = "Notification sync", subtitle = "Calls sync automatically. Other notifications are optional.") {
                         Row(verticalAlignment = Alignment.CenterVertically) {
                             Column(Modifier.weight(1f)) {
                                 Text("Notification access")
@@ -608,7 +608,7 @@ class MainActivity : ComponentActivity() {
                             try { startActivity(Intent(Settings.ACTION_NOTIFICATION_LISTENER_SETTINGS)) }
                             catch (_: Exception) { toast("Open Settings → Notifications → Notification access, and allow PCL") }
                         }, modifier = Modifier.fillMaxWidth()) { Text("Open notification access settings") }
-                        var mirror by remember { mutableStateOf(prefs.getBoolean(Prefs.MIRROR, true)) }
+                        var mirror by remember { mutableStateOf(prefs.getBoolean(Prefs.MIRROR, false)) }
                         Row(verticalAlignment = Alignment.CenterVertically) {
                             Column(Modifier.weight(1f)) {
                                 Text("Send other notifications to remote")
@@ -617,6 +617,7 @@ class MainActivity : ComponentActivity() {
                             Switch(checked = mirror, onCheckedChange = {
                                 mirror = it
                                 prefs.edit().putBoolean(Prefs.MIRROR, it).apply()
+                                if (!it) service?.clearOrdinaryMirrors()
                             })
                         }
                     }
