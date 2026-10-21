@@ -1075,13 +1075,21 @@ class LinkService : Service() {
     }
 
     /** Gateway: enrich an active SIM call using metadata from the default dialer's notification. */
+    private fun numbersMatch(first: String, second: String): Boolean {
+        val a = ContactStore.digits(first)
+        val b = ContactStore.digits(second)
+        return a.isNotBlank() && b.isNotBlank() &&
+            (a == b || (a.length >= 10 && b.length >= 10 &&
+                (a.endsWith(b) || b.endsWith(a))))
+    }
+
     fun updateCallerFromNotification(number: String, name: String) {
         if (role != ROLE_GATEWAY || callState == CALL_IDLE) return
         val safeNumber = number.trim().take(80)
         val safeName = name.trim().take(120)
         if (safeNumber.isEmpty() && safeName.isEmpty()) return
         if (safeNumber.isNotEmpty() && callNumber.isNotEmpty() &&
-            callNumber.filter(Char::isDigit).takeLast(7) != safeNumber.filter(Char::isDigit).takeLast(7)) return
+            !numbersMatch(callNumber, safeNumber)) return
         var changed = false
         if (callNumber.isEmpty() && safeNumber.isNotEmpty()) {
             callNumber = safeNumber
