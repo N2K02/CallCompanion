@@ -63,6 +63,9 @@ class LinkService : Service() {
         const val ACTION_ANSWER = "com.pcl.app.ANSWER"
         const val ACTION_REJECT = "com.pcl.app.REJECT"
         const val ACTION_HANGUP = "com.pcl.app.HANGUP"
+        const val ACTION_AUDIO_DOWN = "com.pcl.app.AUDIO_DOWN"
+        const val ACTION_AUDIO_UP = "com.pcl.app.AUDIO_UP"
+        const val ACTION_AUDIO_SPEAKER = "com.pcl.app.AUDIO_SPEAKER"
         const val ACTION_NOTIF_DISMISSED = "com.pcl.app.NOTIF_DISMISSED"
         const val ACTION_NOTIF_ACTION = "com.pcl.app.NOTIF_ACTION"
         /** Remote: "Call back" on a missed-call notification. */
@@ -154,6 +157,25 @@ class LinkService : Service() {
         if (role == ROLE_REMOTE && connected) send("AUDIO_QUERY")
     }
 
+    private fun gatewayStream(audio: AudioManager): Int =
+        if (callState != CALL_IDLE || audio.mode == AudioManager.MODE_IN_COMMUNICATION) AudioManager.STREAM_VOICE_CALL
+        else if (localWhatsappCallStates.values.any { it == WhatsAppCalls.ACTIVE }) AudioManager.STREAM_MUSIC
+        else AudioManager.STREAM_VOICE_CALL
+
+    private fun gatewayAudioStep(raw: String) {
+        val audio = getSystemService(AudioManager::class.java) ?: return
+        val delta = raw.toIntOrNull() ?: return
+        if (delta !in -1..1 || delta == 0) return
+        val stream = gatewayStream(audio)
+        try {
+            val before = audio.getStreamVolume(stream)
+            audio.adjustStreamVolume(stream, if (delta > 0) AudioManager.ADJUST_RAISE else AudioManager.ADJUST_LOWER, 0)
+            Hub.log("Gateway audio step: stream=$stream, $before -> ${audio.getStreamVolume(stream)}")
+        } catch (e: Exception) {
+            Hub.log("Gateway audio step failed: ${e.message ?: e.javaClass.simpleName}")
+        } finally { gatewayAudioStatus() }
+    }
+
     private fun gatewayAudioStatus() {
         val audio = getSystemService(AudioManager::class.java) ?: return
         val device = if (android.os.Build.VERSION.SDK_INT >= 31) audio.communicationDevice else null
@@ -162,16 +184,18 @@ class LinkService : Service() {
             AudioDeviceInfo.TYPE_BUILTIN_EARPIECE -> "EARPIECE"
             else -> "UNKNOWN"
         }
-        send("AUDIO_STATUS", audio.getStreamVolume(AudioManager.STREAM_VOICE_CALL).toString(),
-            audio.getStreamMaxVolume(AudioManager.STREAM_VOICE_CALL).toString(), route)
+        send("AUDIO_STATUS", audio.getStreamVolume(gatewayStream(audio)).toString(),
+            audio.getStreamMaxVolume(gatewayStream(audio)).toString(), route)
     }
 
     private fun gatewaySetAudioVolume(raw: String) {
         val audio = getSystemService(AudioManager::class.java) ?: return
         try {
             val level = raw.toIntOrNull() ?: return
-            audio.setStreamVolume(AudioManager.STREAM_VOICE_CALL,
-                level.coerceIn(0, audio.getStreamMaxVolume(AudioManager.STREAM_VOICE_CALL)), 0)
+            val stream = gatewayStream(audio)
+            val before = audio.getStreamVolume(stream)
+            audio.setStreamVolume(stream, level.coerceIn(0, audio.getStreamMaxVolume(stream)), 0)
+            Hub.log("Gateway volume: stream=$stream, $before -> ${audio.getStreamVolume(stream)}")
         } catch (_: SecurityException) {
             Hub.log("Gateway call volume permission denied")
         } finally {
@@ -393,6 +417,16 @@ class LinkService : Service() {
             ACTION_ANSWER -> if (running) answer() else stopSelf()
             ACTION_REJECT -> if (running) reject() else stopSelf()
             ACTION_HANGUP -> if (running) hangUp() else stopSelf()
+            ACTION_AUDIO_DOWN, ACTION_AUDIO_UP -> if (running && role == ROLE_REMOTE && connected) {
+                val delta = if (intent.action == ACTION_AUDIO_UP) 1 else -1
+                Hub.log("Remote audio step: $delta")
+                send("AUDIO_STEP", delta.toString())
+            }
+            ACTION_AUDIO_SPEAKER -> if (running && role == ROLE_REMOTE && connected) {
+                val target = if (gatewayAudioRoute == "SPEAKER") "EARPIECE" else "SPEAKER"
+                Hub.log("Remote audio route: $target")
+                requestGatewayRoute(target)
+            }
             ACTION_CALL_BACK -> {
                 nm.cancel(ID_MISSED)
                 val number = intent.getStringExtra(EXTRA_NUMBER).orEmpty()
@@ -949,6 +983,7 @@ class LinkService : Service() {
             "SYNC_CONTACTS" -> sendContacts()
             "AUDIO_QUERY" -> gatewayAudioStatus()
             "AUDIO_VOLUME" -> gatewaySetAudioVolume(arg1)
+            "AUDIO_STEP" -> gatewayAudioStep(arg1)
             "AUDIO_ROUTE" -> gatewaySetAudioRoute(arg1)
             "AUDIO_STATUS" -> {
                 gatewayVolume = (arg1.toIntOrNull() ?: 0).coerceAtLeast(0)
