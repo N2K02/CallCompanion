@@ -297,6 +297,9 @@ class MainActivity : ComponentActivity() {
                         whatsappStatus = service?.whatsappCallStatus,
                         mirrorCall = service?.liveMirrorCall,
                         contacts = contacts,
+                        gatewayVolume = service?.gatewayVolume ?: 0,
+                        gatewayMaxVolume = service?.gatewayMaxVolume ?: 1,
+                        gatewayAudioRoute = service?.gatewayAudioRoute ?: "UNKNOWN",
                     ),
                     actions = CallsActions(
                         simCall = { number, name -> service?.dial(number, name) },
@@ -306,6 +309,9 @@ class MainActivity : ComponentActivity() {
                         hangUp = { service?.hangUp() },
                         pressMirror = { call, index, label -> service?.pressMirrorButton(call.key, index, label, call.pkg) },
                         syncContacts = { service?.syncContacts(); refresh() },
+                        setGatewayVolume = { service?.requestGatewayVolume(it) },
+                        setGatewayRoute = { service?.requestGatewayRoute(it) },
+                        refreshGatewayAudio = { service?.refreshGatewayAudio() },
                     ),
                     modifier = Modifier.padding(insets),
                 )
