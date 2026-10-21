@@ -1091,8 +1091,16 @@ class LinkService : Service() {
             callName = safeName
             changed = true
         }
+        if (callNumber.isEmpty() && callName.isNotBlank()) {
+            val matched = resolveUniqueContactNumber(callName)
+            if (matched.isNotBlank()) {
+                callNumber = matched
+                changed = true
+                Hub.log("Caller number inferred from a unique contact match")
+            }
+        }
         if (changed) {
-            Hub.log("Caller details recovered from phone notification (" + logCaller() + ")")
+            Hub.log("Caller details recovered from phone notification")
             sendCallState()
             Hub.notifyUi()
         }
