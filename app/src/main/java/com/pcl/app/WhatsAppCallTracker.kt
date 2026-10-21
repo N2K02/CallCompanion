@@ -60,10 +60,17 @@ class WhatsAppCallTracker(
     @Synchronized
     fun onCaller(pkg: String, title: String) {
         val call = calls[pkg] ?: return
-        if (title.isBlank() || title.trim() == call.name || call.here && call.name.isNotEmpty()) return
-        call.name = title.trim()
-        val digits = title.filter { it.isDigit() }
-        call.number = if (digits.length >= 7 && title.all { it.isDigit() || it in "+ -()" }) title.trim()
+        val label = title.trim()
+        if (label.isBlank() || label.equals("WhatsApp", true) ||
+            label.equals("WhatsApp Business", true) ||
+            label.equals("Incoming call", true) ||
+            label.equals("Ongoing call", true) ||
+            label.equals("Call in progress", true) ||
+            label.equals("Unknown", true) ||
+            label == call.name || (call.here && call.name.isNotEmpty())) return
+        call.name = label
+        val digits = label.filter { it.isDigit() }
+        call.number = if (digits.length >= 7 && label.all { it.isDigit() || it in "+ -()" }) label
         else numberFor(call.name).ifEmpty { call.number }
     }
 
