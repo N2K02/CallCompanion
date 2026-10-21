@@ -1098,6 +1098,32 @@ class LinkService : Service() {
         }
     }
 
+    /**
+     * Resolve a caller label from the default dialer's notification.
+     * Prefer an exact full-name match, then a uniquely matching normalized label.
+     * Never infer a number from a partial name or an ambiguous set of contacts.
+     */
+    private fun resolveUniqueContactNumber(name: String): String {
+        if (name.isBlank() || !has(Manifest.permission.READ_CONTACTS)) return ""
+        fun normalize(value: String): String = java.text.Normalizer
+            .normalize(value, java.text.Normalizer.Form.NFKC)
+            .trim().replace(Regex("\\s+"), " ")
+            .lowercase(java.util.Locale.ROOT)
+        val target = normalize(name)
+        if (target.length < 2 || target in setOf("unknown", "unknown number",
+                "private number", "incoming call", "ongoing call", "phone",
+                "restricted", "withheld", "no caller id")) return ""
+        val contacts = ContactStore.readDevice(this)
+        val exact = contacts.filter { it.name.trim().equals(name.trim(), ignoreCase = true) }
+        val matches = if (exact.isNotEmpty()) exact else contacts.filter {
+            normalize(it.name) == target
+        }
+        val numbers = matches.map { ContactStore.digits(it.number) }
+            .filter { it.isNotBlank() }.distinct()
+        if (numbers.size > 1) Hub.log("Caller label matches multiple contact numbers; leaving number unknown")
+        return if (numbers.size == 1) matches.first().number else ""
+    }
+
     private fun sendCallState() {
         if (writer != null) send("CALL", callState, callNumber, callName, callDirection)
     }
