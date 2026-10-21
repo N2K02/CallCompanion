@@ -220,7 +220,22 @@ class NotifListener : NotificationListenerService() {
             }
             // SIM calls already have PCL's own call notification on the Remote. The Phone
             // app's buttons are kept here only as a fallback for answering and ending.
-            if (sbn.packageName == defaultDialer()) return
+            if (sbn.packageName == defaultDialer()) {
+                val person = callerPerson(ex)
+                val uriNumber = person?.uri?.takeIf { it.startsWith("tel:", ignoreCase = true) }
+                    ?.removePrefix("tel:").orEmpty()
+                val candidate = uriNumber.ifEmpty {
+                    title.takeIf { it.matches(Regex("[+0-9() .-]{5,30}")) }?.trim().orEmpty()
+                }
+                val personName = person?.name?.toString().orEmpty()
+                val candidateName = personName.ifEmpty {
+                    title.takeUnless { it.isBlank() || it.equals("Incoming call", true) ||
+                        it.equals("Ongoing call", true) || it.equals("Phone", true) ||
+                        it == candidate }.orEmpty()
+                }
+                svc.updateCallerFromNotification(candidate, candidateName)
+                return
+            }
             val signature = "CALL\u0000$title\u0000$text\u0000" + labels.joinToString("\u0001")
             synchronized(lastSent) { if (lastSent[sbn.key] == signature) return; lastSent[sbn.key] = signature }
             svc.mirrorCallPosted(sbn.key, sbn.packageName, appName(sbn.packageName), title, text, indices, labels)
@@ -272,17 +287,19 @@ class NotifListener : NotificationListenerService() {
         null
     }
 
-    private fun callerName(ex: Bundle): String = try {
+    private fun callerPerson(ex: Bundle): android.app.Person? = try {
         val person = if (Build.VERSION.SDK_INT >= 33) {
             ex.getParcelable(Notification.EXTRA_CALL_PERSON, android.app.Person::class.java)
         } else {
             @Suppress("DEPRECATION")
             ex.getParcelable(Notification.EXTRA_CALL_PERSON) as? android.app.Person
         }
-        person?.name?.toString().orEmpty()
+        person
     } catch (_: Exception) {
-        ""
+        null
     }
+
+    private fun callerName(ex: Bundle): String = callerPerson(ex)?.name?.toString().orEmpty()
 
     /** Fallback for OEM Phone apps that expose controls only in their call notification. */
     fun performCallAction(kind: String): Boolean {

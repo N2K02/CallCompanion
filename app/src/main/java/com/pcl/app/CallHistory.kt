@@ -151,7 +151,7 @@ object CallHistory {
         val previous = lastState
         if (state == previous) {
             // Ringing may be reported again once the caller's name is known.
-            if (state == LinkService.CALL_RINGING) {
+            if (state == LinkService.CALL_RINGING || state == LinkService.CALL_OFFHOOK) {
                 if (number.isNotEmpty()) ringingNumber = number
                 if (name.isNotEmpty()) ringingName = name
             }
@@ -171,6 +171,8 @@ object CallHistory {
             LinkService.CALL_OFFHOOK -> {
                 connectedSince = SystemClock.elapsedRealtime()
                 if (previous == LinkService.CALL_RINGING) {
+                    if (number.isNotEmpty()) ringingNumber = number
+                    if (name.isNotEmpty()) ringingName = name
                     answered = true
                 } else {
                     // Outgoing: Android may not report the number, so use the last dial request.
