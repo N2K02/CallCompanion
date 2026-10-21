@@ -40,7 +40,7 @@ object Commands {
     val GATEWAY_HANDLES = setOf(
         "ANSWER", "REJECT", "HANGUP", "DIAL", "SYNC_CONTACTS",
         "WHATSAPP_CHAT", "WHATSAPP_CALL", "NOTIF_DISMISS", "NOTIF_ACTION",
-        "AUDIO_VOLUME", "AUDIO_ROUTE", "AUDIO_QUERY"
+        "AUDIO_VOLUME", "AUDIO_STEP", "AUDIO_ROUTE", "AUDIO_QUERY"
     )
 
     /** Sent by the Gateway; handled only on the Remote. */
