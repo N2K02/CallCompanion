@@ -98,6 +98,7 @@ class NotifListener : NotificationListenerService() {
     private val unrecognisedLogged = HashSet<String>()
     /** Most recent active dialer notification, retained only while it is posted. */
     private val dialerCallKeys = HashSet<String>()
+    private val lastCallMetadata = HashMap<String, String>()
 
 
     private fun reportWhatsAppState(pkg: String) {
@@ -208,7 +209,11 @@ class NotifListener : NotificationListenerService() {
             // Call-style notifications may carry the caller only as a Person.
             val structuredCaller = callerName(ex)
             if (structuredCaller.isNotBlank()) title = structuredCaller
-            Hub.log("Call notification metadata: package=${sbn.packageName}, person=${structuredCaller.isNotBlank()}, title=${title.isNotBlank()}, state=${callState ?: "unknown"}")
+            val metadataSignature = sbn.packageName + "|" + structuredCaller.isNotBlank() + "|" + title.isNotBlank() + "|" + callState
+            val metadataChanged = synchronized(lastCallMetadata) {
+                lastCallMetadata.put(sbn.key, metadataSignature) != metadataSignature
+            }
+            if (metadataChanged) Hub.log("Call notification metadata: package=${sbn.packageName}, person=${structuredCaller.isNotBlank()}, title=${title.isNotBlank()}, state=${callState ?: "unknown"}")
             if (text.isEmpty()) text = when (callState) {
                 WhatsAppCalls.RINGING -> "Incoming call"
                 WhatsAppCalls.ACTIVE -> "Call in progress"
@@ -259,6 +264,7 @@ class NotifListener : NotificationListenerService() {
         if (Hub.service?.role != LinkService.ROLE_GATEWAY) return
         if (WhatsAppCalls.isWhatsApp(sbn.packageName)) updateWhatsappCallNotification(sbn, removed = true)
         synchronized(dialerCallKeys) { dialerCallKeys.remove(sbn.key) }
+        synchronized(lastCallMetadata) { lastCallMetadata.remove(sbn.key) }
         synchronized(lastSent) { lastSent.remove(sbn.key) }
         synchronized(actionsByKey) {
             actionsByKey.remove(sbn.key)
