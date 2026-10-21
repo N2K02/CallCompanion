@@ -51,6 +51,7 @@ import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Badge
 import androidx.compose.material3.BadgedBox
 import androidx.compose.material3.Card
+import androidx.compose.material3.Slider
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.FilledTonalButton
@@ -109,6 +110,9 @@ class CallsUi(
     /** A WhatsApp (or other app's) call on the Gateway that this phone shows. */
     val mirrorCall: LinkService.MirrorCall?,
     val contacts: List<Contact>,
+    val gatewayVolume: Int,
+    val gatewayMaxVolume: Int,
+    val gatewayAudioRoute: String,
 )
 
 class CallsActions(
@@ -120,6 +124,9 @@ class CallsActions(
     /** Press one of a Gateway app call's buttons: its index on the Gateway and its label. */
     val pressMirror: (call: LinkService.MirrorCall, index: Int, label: String) -> Unit,
     val syncContacts: () -> Unit,
+    val setGatewayVolume: (Int) -> Unit,
+    val setGatewayRoute: (String) -> Unit,
+    val refreshGatewayAudio: () -> Unit,
 )
 
 private enum class CallsSection(val label: String, val icon: ImageVector) {
@@ -230,6 +237,26 @@ private fun ActiveCallCard(ui: CallsUi, actions: CallsActions) {
                         fontWeight = FontWeight.SemiBold,
                     )
                     Text(ui.callDisplay, style = MaterialTheme.typography.bodyLarge, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                }
+            }
+            if (ui.connected) {
+                LaunchedEffect(ui.callState) {
+                    while (true) {
+                        actions.refreshGatewayAudio()
+                        delay(3000)
+                    }
+                }
+                Text("Gateway volume: " + ui.gatewayVolume + " / " + ui.gatewayMaxVolume)
+                Slider(value = ui.gatewayVolume.coerceIn(0, ui.gatewayMaxVolume).toFloat(),
+                    onValueChange = { actions.setGatewayVolume(it.toInt()) },
+                    valueRange = 0f..ui.gatewayMaxVolume.coerceAtLeast(1).toFloat(),
+                    steps = (ui.gatewayMaxVolume - 1).coerceAtLeast(0))
+                Text("SIM audio output: " + ui.gatewayAudioRoute)
+                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    OutlinedButton(onClick = { actions.setGatewayRoute("EARPIECE") },
+                        enabled = ui.callState == LinkService.CALL_OFFHOOK) { Text("Earpiece") }
+                    OutlinedButton(onClick = { actions.setGatewayRoute("SPEAKER") },
+                        enabled = ui.callState == LinkService.CALL_OFFHOOK) { Text("Speaker") }
                 }
             }
             Row(horizontalArrangement = Arrangement.spacedBy(10.dp), modifier = Modifier.fillMaxWidth()) {
