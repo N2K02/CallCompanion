@@ -1099,18 +1099,29 @@ class LinkService : Service() {
         }
     }
 
-    /** Exact name matching only; ambiguous names never select an arbitrary number. */
+    /**
+     * Resolve a caller label from the default dialer's notification.
+     * Prefer an exact full-name match, then a uniquely matching normalized label.
+     * Never infer a number from a partial name or an ambiguous set of contacts.
+     */
     private fun resolveUniqueContactNumber(name: String): String {
         if (name.isBlank() || !has(Manifest.permission.READ_CONTACTS)) return ""
-        val normalized = name.trim().lowercase(java.util.Locale.ROOT)
-        if (normalized in setOf("unknown", "unknown number", "private number",
-                "incoming call", "ongoing call", "phone", "restricted")) return ""
-        val matches = ContactStore.readDevice(this).filter {
-            it.name.trim().lowercase(java.util.Locale.ROOT) == normalized
+        fun normalize(value: String): String = java.text.Normalizer
+            .normalize(value, java.text.Normalizer.Form.NFKC)
+            .trim().replace(Regex("\\s+"), " ")
+            .lowercase(java.util.Locale.ROOT)
+        val target = normalize(name)
+        if (target.length < 2 || target in setOf("unknown", "unknown number",
+                "private number", "incoming call", "ongoing call", "phone",
+                "restricted", "withheld", "no caller id")) return ""
+        val contacts = ContactStore.readDevice(this)
+        val exact = contacts.filter { it.name.trim().equals(name.trim(), ignoreCase = true) }
+        val matches = if (exact.isNotEmpty()) exact else contacts.filter {
+            normalize(it.name) == target
         }
         val numbers = matches.map { ContactStore.digits(it.number) }
             .filter { it.isNotBlank() }.distinct()
-        if (numbers.size > 1) Hub.log("Caller name matches multiple numbers; number remains unknown")
+        if (numbers.size > 1) Hub.log("Caller label matches multiple contact numbers; leaving number unknown")
         return if (numbers.size == 1) matches.first().number else ""
     }
 
