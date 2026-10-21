@@ -249,9 +249,9 @@ class NotifListener : NotificationListenerService() {
                 return
             }
             if (!svc.canRelay()) return
-            val signature = "CALL\u0000$title\u0000$text\u0000" + labels.joinToString("\u0001")
+            val signature = "CALL\u0000$title\u0000$text\u0000" + labels.joinToString("\u0001") + "\u0000" + (callState ?: "")
             synchronized(lastSent) { if (lastSent[sbn.key] == signature) return; lastSent[sbn.key] = signature }
-            svc.mirrorCallPosted(sbn.key, sbn.packageName, appName(sbn.packageName), title, text, indices, labels)
+            svc.mirrorCallPosted(sbn.key, sbn.packageName, appName(sbn.packageName), title, text, indices, labels, callState)
             return
         }
         // Calls always go to the Remote; other notifications only while that's switched on.
