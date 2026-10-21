@@ -26,7 +26,7 @@ object Protocol {
      *  - 4: the Remote can ask the Gateway to start a WhatsApp call (WHATSAPP_CALL)
      *  - 5: the Wi-Fi hotspot workaround is gone (no HOTSPOT_STATE, no WHATSAPP_CALL_TRIGGER)
      */
-    const val VERSION = 5
+    const val VERSION = 6
 }
 
 /**
@@ -39,14 +39,15 @@ object Commands {
     /** Sent by the Remote; handled only on the Gateway. */
     val GATEWAY_HANDLES = setOf(
         "ANSWER", "REJECT", "HANGUP", "DIAL", "SYNC_CONTACTS",
-        "WHATSAPP_CHAT", "WHATSAPP_CALL", "NOTIF_DISMISS", "NOTIF_ACTION"
+        "WHATSAPP_CHAT", "WHATSAPP_CALL", "NOTIF_DISMISS", "NOTIF_ACTION",
+        "AUDIO_VOLUME", "AUDIO_ROUTE", "AUDIO_QUERY"
     )
 
     /** Sent by the Gateway; handled only on the Remote. */
     val REMOTE_HANDLES = setOf(
         "CALL", "CALL_RESULT", "CONTACTS_HASH", "CONTACTS_BEGIN", "CONTACTS", "CONTACTS_END",
         "CONTACTS_RESULT", "NOTIF", "NOTIF_V2", "CALL_NOTIF", "NOTIF_REMOVE",
-        "WHATSAPP_CHAT_RESULT", "WHATSAPP_CALL_RESULT", "NOTIF_ACTION_RESULT"
+        "WHATSAPP_CHAT_RESULT", "WHATSAPP_CALL_RESULT", "NOTIF_ACTION_RESULT", "AUDIO_STATUS"
     )
 }
 
