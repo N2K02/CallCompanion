@@ -210,6 +210,7 @@ class LinkService : Service() {
         }
         val audio = getSystemService(AudioManager::class.java) ?: return
         try {
+            Hub.log("Gateway audio route requested: $route")
             if (android.os.Build.VERSION.SDK_INT >= 31) {
                 val type = if (route == "SPEAKER") AudioDeviceInfo.TYPE_BUILTIN_SPEAKER else AudioDeviceInfo.TYPE_BUILTIN_EARPIECE
                 val target = audio.availableCommunicationDevices.firstOrNull { it.type == type }
@@ -219,8 +220,8 @@ class LinkService : Service() {
                 @Suppress("DEPRECATION")
                 audio.isSpeakerphoneOn = route == "SPEAKER"
             }
-        } catch (_: SecurityException) {
-            Hub.log("Gateway audio route permission denied")
+        } catch (e: Exception) {
+            Hub.log("Gateway audio route failed: ${e.message ?: e.javaClass.simpleName}")
         } finally {
             gatewayAudioStatus()
         }
@@ -1492,6 +1493,9 @@ class LinkService : Service() {
             .setUsesChronometer(CallHistory.connectedSince > 0)
             .setWhen(System.currentTimeMillis() - (SystemClock.elapsedRealtime() - CallHistory.connectedSince).coerceAtLeast(0))
             .setContentIntent(openCallsPi())
+            .addAction(action(android.R.drawable.ic_media_previous, "Volume −", actionPi(ACTION_AUDIO_DOWN, 31)))
+            .addAction(action(android.R.drawable.ic_media_next, "Volume +", actionPi(ACTION_AUDIO_UP, 32)))
+            .addAction(action(android.R.drawable.ic_lock_silent_mode_off, "Speaker / Earpiece", actionPi(ACTION_AUDIO_SPEAKER, 33)))
             .addAction(action(android.R.drawable.ic_menu_close_clear_cancel, "End call", actionPi(ACTION_HANGUP, 13)))
             .build()
         try {
@@ -1705,6 +1709,11 @@ class LinkService : Service() {
                 Intent(this, LinkService::class.java).setAction(ACTION_NOTIF_ACTION).putExtra(EXTRA_KEY, encKey).putExtra(EXTRA_ACTION_INDEX, sourceIndex).putExtra(EXTRA_ACTION_LABEL, label).putExtra(EXTRA_NOTIF_PACKAGE, pkg),
                 PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT)
             builder.addAction(action(iconId, label, pi))
+        }
+        if (!ringing && connected) {
+            builder.addAction(action(android.R.drawable.ic_media_previous, "Volume −", actionPi(ACTION_AUDIO_DOWN, 31)))
+            builder.addAction(action(android.R.drawable.ic_media_next, "Volume +", actionPi(ACTION_AUDIO_UP, 32)))
+            builder.addAction(action(android.R.drawable.ic_lock_silent_mode_off, "Speaker / Earpiece", actionPi(ACTION_AUDIO_SPEAKER, 33)))
         }
         try { nm.notify(TAG_MIRROR, id, builder.build()) } catch (_: Exception) { }
 
