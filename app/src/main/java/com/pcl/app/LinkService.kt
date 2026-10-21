@@ -946,7 +946,8 @@ class LinkService : Service() {
                     if (label.isNotBlank()) { indices.add(index); labels.add(label) }
                 }
                 val pkg = decodeText(p.getOrElse(6 + count * 2) { "" })
-                showMirroredCall(arg1, pkg, decodeText(p.getOrElse(2) { "" }), decodeText(p.getOrElse(3) { "" }), decodeText(p.getOrElse(4) { "" }), indices, labels)
+                val reportedState = p.getOrNull(7 + count * 2).orEmpty().takeIf { it in WhatsAppCalls.STATES }
+                showMirroredCall(arg1, pkg, decodeText(p.getOrElse(2) { "" }), decodeText(p.getOrElse(3) { "" }), decodeText(p.getOrElse(4) { "" }), indices, labels, reportedState)
             }
             "NOTIF_REMOVE" -> {
                 nm.cancel(TAG_MIRROR, arg1.hashCode())
@@ -1001,6 +1002,10 @@ class LinkService : Service() {
 
     // ---------------------------------------------------------------- gateway: SIM calls
 
+    @Volatile private var simCallStartedMs = 0L
+
+    fun simCallStartedAt(): Long = simCallStartedMs
+
     private val phoneReceiver = object : BroadcastReceiver() {
         override fun onReceive(c: Context, i: Intent) {
             val st = i.getStringExtra(TelephonyManager.EXTRA_STATE) ?: return
@@ -1012,9 +1017,9 @@ class LinkService : Service() {
                 TelephonyManager.EXTRA_STATE_OFFHOOK -> CALL_OFFHOOK
                 else -> CALL_IDLE
             }
-            if (newState == CALL_RINGING && previousState == CALL_IDLE) { callDirection = "INCOMING"; callNumber = ""; callName = "" }
-            else if (newState == CALL_OFFHOOK && previousState == CALL_IDLE) callDirection = "OUTGOING"
-            else if (newState == CALL_IDLE) callDirection = ""
+            if (newState == CALL_RINGING && previousState == CALL_IDLE) { simCallStartedMs = System.currentTimeMillis(); callDirection = "INCOMING"; callNumber = ""; callName = "" }
+            else if (newState == CALL_OFFHOOK && previousState == CALL_IDLE) { simCallStartedMs = System.currentTimeMillis(); callDirection = "OUTGOING" }
+            else if (newState == CALL_IDLE) { simCallStartedMs = 0L; callDirection = "" }
             val gotNumber = !num.isNullOrEmpty() && num != callNumber
             if (!num.isNullOrEmpty()) {
                 callNumber = num
@@ -1075,13 +1080,21 @@ class LinkService : Service() {
     }
 
     /** Gateway: enrich an active SIM call using metadata from the default dialer's notification. */
+    private fun numbersMatch(first: String, second: String): Boolean {
+        val a = ContactStore.digits(first)
+        val b = ContactStore.digits(second)
+        return a.isNotBlank() && b.isNotBlank() &&
+            (a == b || (a.length >= 10 && b.length >= 10 &&
+                (a.endsWith(b) || b.endsWith(a))))
+    }
+
     fun updateCallerFromNotification(number: String, name: String) {
         if (role != ROLE_GATEWAY || callState == CALL_IDLE) return
         val safeNumber = number.trim().take(80)
         val safeName = name.trim().take(120)
         if (safeNumber.isEmpty() && safeName.isEmpty()) return
         if (safeNumber.isNotEmpty() && callNumber.isNotEmpty() &&
-            callNumber.filter(Char::isDigit).takeLast(7) != safeNumber.filter(Char::isDigit).takeLast(7)) return
+            !numbersMatch(callNumber, safeNumber)) return
         var changed = false
         if (callNumber.isEmpty() && safeNumber.isNotEmpty()) {
             callNumber = safeNumber
@@ -1091,8 +1104,16 @@ class LinkService : Service() {
             callName = safeName
             changed = true
         }
+        if (callNumber.isEmpty() && callName.isNotBlank()) {
+            val matched = resolveUniqueContactNumber(callName)
+            if (matched.isNotBlank()) {
+                callNumber = matched
+                changed = true
+                Hub.log("Caller number inferred from a unique contact match")
+            }
+        }
         if (changed) {
-            Hub.log("Caller details recovered from phone notification (" + logCaller() + ")")
+            Hub.log("Caller details recovered from phone notification")
             sendCallState()
             Hub.notifyUi()
         }
@@ -1481,13 +1502,14 @@ class LinkService : Service() {
     }
 
     /** Gateway: forward a third-party call notification and its available action buttons. */
-    fun mirrorCallPosted(key: String, pkg: String, app: String, title: String, text: String, actionIndices: List<Int>, actionLabels: List<String>) {
+    fun mirrorCallPosted(key: String, pkg: String, app: String, title: String, text: String, actionIndices: List<Int>, actionLabels: List<String>, state: String? = null) {
         // Keep the original field order; append the package so older peers can still parse actions.
         val fields = mutableListOf("CALL_NOTIF", encodeKey(key), encodeText(app), encodeText(title), encodeText(text.take(1200)))
         val count = minOf(3, actionIndices.size, actionLabels.size)
         fields += count.toString()
         for (i in 0 until count) { fields += actionIndices[i].toString(); fields += encodeText(actionLabels[i].take(40)) }
         fields += encodeText(pkg)
+        fields += (state ?: "")
         send(*fields.toTypedArray())
     }
 
@@ -1514,7 +1536,7 @@ class LinkService : Service() {
      * timer. A call the Gateway took (answered or started there) isn't shown here at all.
      * The buttons act on the Gateway, where the call and its audio stay.
      */
-    private fun showMirroredCall(encKey: String, pkg: String, app: String, title: String, text: String, actionIndices: List<Int>, actionLabels: List<String>) {
+    private fun showMirroredCall(encKey: String, pkg: String, app: String, title: String, text: String, actionIndices: List<Int>, actionLabels: List<String>, reportedState: String? = null) {
         val id = encKey.hashCode()
         val whatsapp = WhatsAppCalls.isWhatsApp(pkg)
         if (whatsapp) {
@@ -1524,7 +1546,7 @@ class LinkService : Service() {
                 return
             }
         }
-        val state = WhatsAppCalls.stateFromActionLabels(actionLabels)
+        val state = reportedState ?: WhatsAppCalls.stateFromActionLabels(actionLabels)
         val ringing = state == WhatsAppCalls.RINGING
         val now = System.currentTimeMillis()
         val connectedAt = when {

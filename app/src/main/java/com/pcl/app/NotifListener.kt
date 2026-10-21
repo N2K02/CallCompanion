@@ -96,6 +96,11 @@ class NotifListener : NotificationListenerService() {
     private val whatsappCallPackages = HashMap<String, String>()
     /** WhatsApp notifications already logged as "looks like a call, buttons not recognised". */
     private val unrecognisedLogged = HashSet<String>()
+    /** Most recent active dialer notification, retained only while it is posted. */
+    private val dialerCallKeys = HashSet<String>()
+    private val lastCallMetadata = HashMap<String, String>()
+    private val thirdPartySessions = HashMap<String, String>()
+
 
     private fun reportWhatsAppState(pkg: String) {
         val state = synchronized(whatsappCallStates) {
@@ -185,6 +190,7 @@ class NotifListener : NotificationListenerService() {
         if ((n.flags and Notification.FLAG_GROUP_SUMMARY) != 0) return
         val ex = n.extras ?: return
         var title = ex.getCharSequence(Notification.EXTRA_TITLE)?.toString() ?: ""
+        if (title.isBlank()) title = ex.getCharSequence(Notification.EXTRA_TITLE_BIG)?.toString().orEmpty()
         var text = (ex.getCharSequence(Notification.EXTRA_BIG_TEXT) ?: ex.getCharSequence(Notification.EXTRA_TEXT))?.toString()
             ?: ex.getCharSequenceArray(Notification.EXTRA_TEXT_LINES)?.joinToString("\n") ?: ""
 
@@ -204,12 +210,25 @@ class NotifListener : NotificationListenerService() {
             // Call-style notifications may carry the caller only as a Person.
             val structuredCaller = callerName(ex)
             if (structuredCaller.isNotBlank()) title = structuredCaller
+            val metadataSignature = sbn.packageName + "|" + structuredCaller.isNotBlank() + "|" + title.isNotBlank() + "|" + callState
+            val metadataChanged = synchronized(lastCallMetadata) {
+                lastCallMetadata.put(sbn.key, metadataSignature) != metadataSignature
+            }
+            if (metadataChanged) Hub.log("Call notification metadata: package=${sbn.packageName}, person=${structuredCaller.isNotBlank()}, title=${title.isNotBlank()}, state=${callState ?: "unknown"}")
             if (text.isEmpty()) text = when (callState) {
                 WhatsAppCalls.RINGING -> "Incoming call"
                 WhatsAppCalls.ACTIVE -> "Call in progress"
                 else -> ""
             }
             if (title.isEmpty() && text.isEmpty()) title = appName(sbn.packageName)
+        }
+        if (!callNotification && synchronized(thirdPartySessions) { thirdPartySessions.remove(sbn.key) } != null) {
+            synchronized(lastSent) { lastSent.remove(sbn.key) }
+            synchronized(actionsByKey) {
+                actionsByKey.remove(sbn.key)
+                actionPackagesByKey.remove(sbn.key)
+            }
+            svc.mirrorRemoved(sbn.key)
         }
         if (title.isEmpty() && text.isEmpty()) return
 
@@ -221,6 +240,8 @@ class NotifListener : NotificationListenerService() {
             // SIM calls already have PCL's own call notification on the Remote. The Phone
             // app's buttons are kept here only as a fallback for answering and ending.
             if (sbn.packageName == defaultDialer()) {
+                if (svc.simCallStartedAt() > 0L && sbn.postTime + 5000L < svc.simCallStartedAt()) return
+                synchronized(dialerCallKeys) { dialerCallKeys.add(sbn.key) }
                 val person = callerPerson(ex)
                 val uriNumber = person?.uri?.takeIf { it.startsWith("tel:", ignoreCase = true) }
                     ?.removePrefix("tel:").orEmpty()
@@ -236,10 +257,15 @@ class NotifListener : NotificationListenerService() {
                 svc.updateCallerFromNotification(candidate, candidateName)
                 return
             }
+            val previousSessionState = synchronized(thirdPartySessions) {
+                thirdPartySessions.put(sbn.key, callState ?: "UNKNOWN")
+            }
+            if (previousSessionState != (callState ?: "UNKNOWN"))
+                Hub.log("Third-party call state changed: package=${sbn.packageName}, state=${callState ?: "unknown"}")
             if (!svc.canRelay()) return
-            val signature = "CALL\u0000$title\u0000$text\u0000" + labels.joinToString("\u0001")
+            val signature = "CALL\u0000$title\u0000$text\u0000" + labels.joinToString("\u0001") + "\u0000" + (callState ?: "")
             synchronized(lastSent) { if (lastSent[sbn.key] == signature) return; lastSent[sbn.key] = signature }
-            svc.mirrorCallPosted(sbn.key, sbn.packageName, appName(sbn.packageName), title, text, indices, labels)
+            svc.mirrorCallPosted(sbn.key, sbn.packageName, appName(sbn.packageName), title, text, indices, labels, callState)
             return
         }
         // Calls always go to the Remote; other notifications only while that's switched on.
@@ -252,6 +278,10 @@ class NotifListener : NotificationListenerService() {
     override fun onNotificationRemoved(sbn: StatusBarNotification) {
         if (Hub.service?.role != LinkService.ROLE_GATEWAY) return
         if (WhatsAppCalls.isWhatsApp(sbn.packageName)) updateWhatsappCallNotification(sbn, removed = true)
+        synchronized(dialerCallKeys) { dialerCallKeys.remove(sbn.key) }
+        if (synchronized(thirdPartySessions) { thirdPartySessions.remove(sbn.key) } != null)
+            Hub.log("Third-party call notification removed: package=${sbn.packageName}")
+        synchronized(lastCallMetadata) { lastCallMetadata.remove(sbn.key) }
         synchronized(lastSent) { lastSent.remove(sbn.key) }
         synchronized(actionsByKey) {
             actionsByKey.remove(sbn.key)
@@ -266,6 +296,20 @@ class NotifListener : NotificationListenerService() {
             val active = activeNotifications ?: return
             // Dedupe is useful for repeated posts, but not after a reconnect: the Remote
             // may have missed notifications while disconnected.
+            val activeKeys = active.map { it.key }.toSet()
+            val vanished = synchronized(thirdPartySessions) {
+                val missing = thirdPartySessions.keys.filter { it !in activeKeys }
+                missing.forEach { thirdPartySessions.remove(it) }
+                missing
+            }
+            vanished.forEach { key ->
+                synchronized(lastSent) { lastSent.remove(key) }
+                synchronized(actionsByKey) {
+                    actionsByKey.remove(key)
+                    actionPackagesByKey.remove(key)
+                }
+                Hub.service?.mirrorRemoved(key)
+            }
             synchronized(lastSent) { active.forEach { lastSent.remove(it.key) } }
             active.forEach { onNotificationPosted(it) }
         } catch (e: Exception) {
@@ -300,7 +344,28 @@ class NotifListener : NotificationListenerService() {
         null
     }
 
-    private fun callerName(ex: Bundle): String = callerPerson(ex)?.name?.toString().orEmpty()
+    private fun compatCallerName(ex: Bundle): String {
+        // AndroidX CallStyle stores a compat Person as a Bundle on older platforms.
+        val compat = try {
+            @Suppress("DEPRECATION")
+            ex.getBundle("android.callPersonCompat")
+        } catch (_: Exception) { null }
+        return compat?.getCharSequence("name")?.toString().orEmpty()
+    }
+
+    private fun callerName(ex: Bundle): String {
+        callerPerson(ex)?.name?.toString()?.takeIf { it.isNotBlank() }?.let { return it }
+        compatCallerName(ex).takeIf { it.isNotBlank() }?.let { return it }
+        val people = try {
+            if (Build.VERSION.SDK_INT >= 33)
+                ex.getParcelableArrayList(Notification.EXTRA_PEOPLE_LIST, android.app.Person::class.java)
+            else {
+                @Suppress("DEPRECATION")
+                (ex.getParcelableArrayList<android.app.Person>(Notification.EXTRA_PEOPLE_LIST))
+            }
+        } catch (_: Exception) { null }
+        return people?.singleOrNull()?.name?.toString().orEmpty()
+    }
 
     /** Fallback for OEM Phone apps that expose controls only in their call notification. */
     fun performCallAction(kind: String): Boolean {
