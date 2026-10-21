@@ -302,7 +302,18 @@ class NotifListener : NotificationListenerService() {
         null
     }
 
-    private fun callerName(ex: Bundle): String = callerPerson(ex)?.name?.toString().orEmpty()
+    private fun callerName(ex: Bundle): String {
+        callerPerson(ex)?.name?.toString()?.takeIf { it.isNotBlank() }?.let { return it }
+        val people = try {
+            if (Build.VERSION.SDK_INT >= 33)
+                ex.getParcelableArrayList(Notification.EXTRA_PEOPLE_LIST, android.app.Person::class.java)
+            else {
+                @Suppress("DEPRECATION")
+                (ex.getParcelableArrayList<android.app.Person>(Notification.EXTRA_PEOPLE_LIST))
+            }
+        } catch (_: Exception) { null }
+        return people?.singleOrNull()?.name?.toString().orEmpty()
+    }
 
     /** Fallback for OEM Phone apps that expose controls only in their call notification. */
     fun performCallAction(kind: String): Boolean {
