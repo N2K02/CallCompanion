@@ -3,6 +3,8 @@ package com.pcl.app
 import android.Manifest
 import android.annotation.SuppressLint
 import android.app.KeyguardManager
+import android.media.AudioManager
+import android.media.AudioDeviceInfo
 import android.app.Notification
 import android.app.NotificationChannel
 import android.app.NotificationManager
@@ -132,6 +134,74 @@ class LinkService : Service() {
         private set
     @Volatile var connected: Boolean = false
         private set
+    @Volatile var gatewayVolume = 0
+        private set
+    @Volatile var gatewayMaxVolume = 1
+        private set
+    @Volatile var gatewayAudioRoute = "UNKNOWN"
+        private set
+
+    fun requestGatewayVolume(level: Int) {
+        if (role == ROLE_REMOTE && connected) send("AUDIO_VOLUME", level.coerceAtLeast(0).toString())
+    }
+
+    fun requestGatewayRoute(route: String) {
+        if (role == ROLE_REMOTE && connected && callState != CALL_IDLE && route in setOf("SPEAKER", "EARPIECE"))
+            send("AUDIO_ROUTE", route)
+    }
+
+    fun refreshGatewayAudio() {
+        if (role == ROLE_REMOTE && connected) send("AUDIO_QUERY")
+    }
+
+    private fun gatewayAudioStatus() {
+        val audio = getSystemService(AudioManager::class.java) ?: return
+        val device = if (android.os.Build.VERSION.SDK_INT >= 31) audio.communicationDevice else null
+        val route = when (device?.type) {
+            AudioDeviceInfo.TYPE_BUILTIN_SPEAKER -> "SPEAKER"
+            AudioDeviceInfo.TYPE_BUILTIN_EARPIECE -> "EARPIECE"
+            else -> "UNKNOWN"
+        }
+        send("AUDIO_STATUS", audio.getStreamVolume(AudioManager.STREAM_VOICE_CALL).toString(),
+            audio.getStreamMaxVolume(AudioManager.STREAM_VOICE_CALL).toString(), route)
+    }
+
+    private fun gatewaySetAudioVolume(raw: String) {
+        val audio = getSystemService(AudioManager::class.java) ?: return
+        try {
+            val level = raw.toIntOrNull() ?: return
+            audio.setStreamVolume(AudioManager.STREAM_VOICE_CALL,
+                level.coerceIn(0, audio.getStreamMaxVolume(AudioManager.STREAM_VOICE_CALL)), 0)
+        } catch (_: SecurityException) {
+            Hub.log("Gateway call volume permission denied")
+        } finally {
+            gatewayAudioStatus()
+        }
+    }
+
+    private fun gatewaySetAudioRoute(route: String) {
+        if (callState == CALL_IDLE || route !in setOf("SPEAKER", "EARPIECE")) {
+            gatewayAudioStatus()
+            return
+        }
+        val audio = getSystemService(AudioManager::class.java) ?: return
+        try {
+            if (android.os.Build.VERSION.SDK_INT >= 31) {
+                val type = if (route == "SPEAKER") AudioDeviceInfo.TYPE_BUILTIN_SPEAKER else AudioDeviceInfo.TYPE_BUILTIN_EARPIECE
+                val target = audio.availableCommunicationDevices.firstOrNull { it.type == type }
+                if (target == null || !audio.setCommunicationDevice(target))
+                    Hub.log("Gateway audio route rejected or unavailable")
+            } else {
+                @Suppress("DEPRECATION")
+                audio.isSpeakerphoneOn = route == "SPEAKER"
+            }
+        } catch (_: SecurityException) {
+            Hub.log("Gateway audio route permission denied")
+        } finally {
+            gatewayAudioStatus()
+        }
+    }
+
     @Volatile var callState: String = CALL_IDLE
         private set
     @Volatile var callNumber: String = ""
@@ -877,6 +947,14 @@ class LinkService : Service() {
             "REJECT", "HANGUP" -> { gatewayEnd(rejectRinging = cmd == "REJECT"); sendCallResult() }
             "DIAL" -> { gatewayDial(arg1); sendCallResult() }
             "SYNC_CONTACTS" -> sendContacts()
+            "AUDIO_QUERY" -> gatewayAudioStatus()
+            "AUDIO_VOLUME" -> gatewaySetAudioVolume(arg1)
+            "AUDIO_ROUTE" -> gatewaySetAudioRoute(arg1)
+            "AUDIO_STATUS" -> {
+                gatewayVolume = (arg1.toIntOrNull() ?: 0).coerceAtLeast(0)
+                gatewayMaxVolume = (p.getOrNull(2)?.toIntOrNull() ?: 1).coerceAtLeast(1)
+                gatewayAudioRoute = p.getOrNull(3).orEmpty().takeIf { it in setOf("SPEAKER", "EARPIECE") } ?: "UNKNOWN"
+            }
             "WHATSAPP_CHAT" -> {
                 val ok = gatewayWhatsAppChat(arg1)
                 send("WHATSAPP_CHAT_RESULT", if (ok) "OK" else "FAILED")
