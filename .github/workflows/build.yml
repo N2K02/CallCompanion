@@ -125,13 +125,21 @@ jobs:
             --title "$APP experimental · PR #$PR_NUMBER · build $GITHUB_RUN_NUMBER" \
             --notes-file release-notes.md --prerelease --latest=false
 
-      - name: Publish stable or experimental APK to public website
+      - name: Check public distribution configuration
+        id: distribution
+        env:
+          DIST_TOKEN: ${{ secrets.MRADIO_DISTRIBUTION_TOKEN }}
+        run: |
+          if [ -n "$DIST_TOKEN" ]; then
+            echo "enabled=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "enabled=false" >> "$GITHUB_OUTPUT"
+            echo "::warning::MRADIO_DISTRIBUTION_TOKEN is unavailable to this repository's workflow. Signed APK artifacts remain available, but public stable/experimental manifests cannot be published."
+          fi
+
+      - name: Publish stable or experimental APK to public distribution
+        if: steps.distribution.outputs.enabled == 'true'
         env:
           GH_TOKEN: ${{ secrets.MRADIO_DISTRIBUTION_TOKEN }}
           PR_NUMBER: ${{ github.event.pull_request.number }}
-        run: |
-          if [ -z "$GH_TOKEN" ]; then
-            echo "::warning::Set MRADIO_DISTRIBUTION_TOKEN before public publishing is enabled."
-          else
-            bash .github/scripts/publish-distribution.sh
-          fi
+        run: bash .github/scripts/publish-distribution.sh
