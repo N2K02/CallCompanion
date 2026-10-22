@@ -102,10 +102,10 @@ jobs:
 
       - name: Publish stable APK to public website
         env:
-          GH_TOKEN: ${{ secrets.MRadioAppkey }}
+          GH_TOKEN: ${{ secrets.mRadio }}
         run: |
           if [ -z "$GH_TOKEN" ]; then
-            echo "::warning::Set MRadioAppkey before public publishing is enabled."
+            echo "::warning::Set mRadio before public publishing is enabled."
           else
             bash .github/scripts/publish-distribution.sh
           fi
