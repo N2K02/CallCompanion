@@ -99,3 +99,13 @@ jobs:
           body_path: release-notes.md
           files: ${{ env.APP }}-${{ env.VERSION }}.apk
           make_latest: true
+
+      - name: Publish stable APK to public website
+        env:
+          GH_TOKEN: ${{ secrets.ANDROID_DISTRIBUTION_TOKEN }}
+        run: |
+          if [ -z "$GH_TOKEN" ]; then
+            echo "::warning::Set ANDROID_DISTRIBUTION_TOKEN before public publishing is enabled."
+          else
+            bash .github/scripts/publish-distribution.sh
+          fi
