@@ -272,7 +272,14 @@ class LinkService : Service() {
                 @Suppress("DEPRECATION")
                 if (audio.isSpeakerphoneOn) "SPEAKER" else "EARPIECE"
             }
-            val outcome = if (accepted && actual == route) "APPLIED" else "NOT_APPLIED"
+            val fallback = if ((!accepted || actual != route) && callState != CALL_IDLE)
+                WhatsappCallAccessibilityService.instance?.requestSpeakerRoute(route) == true
+            else false
+            val outcome = when {
+                accepted && actual == route -> "APPLIED"
+                fallback -> "FALLBACK_DISPATCHED"
+                else -> "NOT_APPLIED"
+            }
             Hub.log("Gateway audio route: requested=$route, actual=$actual, outcome=$outcome")
             send("AUDIO_RESULT", "ROUTE", outcome, requestId)
         } catch (e: Exception) {
