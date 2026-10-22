@@ -244,7 +244,10 @@ class LinkService : Service() {
     }
 
     private fun gatewaySetAudioRoute(route: String, requestId: String = "") {
-        if (route !in setOf("SPEAKER", "EARPIECE")) return
+        if (route !in setOf("SPEAKER", "EARPIECE")) {
+            send("AUDIO_RESULT", "ROUTE", "INVALID", requestId)
+            return
+        }
         val audio = getSystemService(AudioManager::class.java) ?: return
         val active = callState != CALL_IDLE ||
             localWhatsappCallStates.values.any { it != WhatsAppCalls.IDLE } ||
@@ -292,7 +295,7 @@ class LinkService : Service() {
             }
             val outcome = when {
                 verifiedRoute == route -> "APPLIED"
-                fallback -> "FALLBACK_DISPATCHED"
+                fallback -> "FALLBACK_QUEUED"
                 else -> "NOT_APPLIED"
             }
             Hub.log("Gateway audio route: requested=$route, actual=$verifiedRoute, outcome=$outcome")
