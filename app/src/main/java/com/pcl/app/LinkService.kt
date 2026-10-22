@@ -160,9 +160,15 @@ class LinkService : Service() {
     }
 
     private fun gatewayStream(audio: AudioManager): Int =
-        if (callState != CALL_IDLE || audio.mode == AudioManager.MODE_IN_COMMUNICATION) AudioManager.STREAM_VOICE_CALL
-        else if (localWhatsappCallStates.values.any { it == WhatsAppCalls.ACTIVE }) AudioManager.STREAM_MUSIC
-        else AudioManager.STREAM_VOICE_CALL
+        when {
+            callState != CALL_IDLE || audio.mode == AudioManager.MODE_IN_CALL ->
+                AudioManager.STREAM_VOICE_CALL
+            audio.mode == AudioManager.MODE_IN_COMMUNICATION ->
+                AudioManager.STREAM_VOICE_CALL
+            localWhatsappCallStates.values.any { it == WhatsAppCalls.ACTIVE } ->
+                AudioManager.STREAM_MUSIC
+            else -> AudioManager.STREAM_VOICE_CALL
+        }
 
     private fun gatewayAudioStep(raw: String) {
         val audio = getSystemService(AudioManager::class.java) ?: return
