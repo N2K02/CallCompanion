@@ -1330,7 +1330,9 @@ class LinkService : Service() {
             callNumber = safeNumber
             changed = true
         }
-        if (callName.isEmpty() && safeName.isNotEmpty()) {
+        if (callName.isEmpty() && safeName.isNotEmpty() &&
+            safeName.lowercase() !in setOf("unknown", "unknown number", "incoming call",
+                "ongoing call", "phone", "private number", "no caller id")) {
             callName = safeName
             changed = true
         }
