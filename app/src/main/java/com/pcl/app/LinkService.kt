@@ -148,6 +148,11 @@ class LinkService : Service() {
     private val pendingAudioRequests = ConcurrentHashMap<String, Runnable>()
     private val audioTimeoutHandler = Handler(Looper.getMainLooper())
 
+    private fun clearPendingAudioRequests() {
+        pendingAudioRequests.values.forEach(audioTimeoutHandler::removeCallbacks)
+        pendingAudioRequests.clear()
+    }
+
     private fun sendAudioRequest(command: String, value: String) {
         if (role != ROLE_REMOTE || !connected) {
             Hub.log("Audio command unavailable: Gateway disconnected")
@@ -922,6 +927,7 @@ class LinkService : Service() {
             if (writer === w) writer = null
             if (socket === s) socket = null
             connected = false
+        clearPendingAudioRequests()
             peerWhatsappCallStates.clear()
             contactBuf = null
             helloReceived = false
@@ -964,6 +970,7 @@ class LinkService : Service() {
         worker = null
         writer = null
         connected = false
+        clearPendingAudioRequests()
         stopRinging()
         if (receiverRegistered) {
             try {
