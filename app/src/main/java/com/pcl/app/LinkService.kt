@@ -1060,8 +1060,17 @@ class LinkService : Service() {
                 val previousState = callState
                 callState = arg1.ifEmpty { CALL_IDLE }
                 if (callState == CALL_RINGING) callControlError = null
-                callNumber = p.getOrElse(2) { "" }
-                callName = p.getOrElse(3) { "" }
+                callNumber = p.getOrElse(2) { "" }.trim()
+                val receivedName = p.getOrElse(3) { "" }.trim()
+                // Generic dialer placeholders are not contact names. When the
+                // Gateway supplied a number, display that number on the Remote.
+                callName = receivedName.takeUnless {
+                    it.equals("Unknown number", ignoreCase = true) ||
+                        it.equals("Unknown", ignoreCase = true) ||
+                        it.equals("Incoming call", ignoreCase = true) ||
+                        it.equals("Private number", ignoreCase = true) ||
+                        it.equals("No caller ID", ignoreCase = true)
+                }.orEmpty()
                 callDirection = p.getOrElse(4) { "" }
                 CallHistory.onSimState(callState, callNumber, callName)
                     ?.takeIf { it.type == CallHistory.Type.MISSED }
