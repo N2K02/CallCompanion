@@ -245,15 +245,23 @@ class NotifListener : NotificationListenerService() {
                 val person = callerPerson(ex)
                 val uriNumber = person?.uri?.takeIf { it.startsWith("tel:", ignoreCase = true) }
                     ?.removePrefix("tel:").orEmpty()
-                val candidate = uriNumber.ifEmpty {
-                    title.takeIf { it.matches(Regex("[+0-9() .-]{5,30}")) }?.trim().orEmpty()
-                }
+                // Dialers may put the raw number in the Person name, compat Person,
+                // title or text instead of the Person URI. Do not treat a number as
+                // a contact name, and never forward generic dialer placeholders.
+                val numberPattern = Regex("^\\+?[0-9][0-9() .-]{3,28}[0-9]$")
+                fun phoneNumber(value: String): String =
+                    value.trim().takeIf { numberPattern.matches(it) &&
+                        it.count(Char::isDigit) >= 5 }.orEmpty()
+                val candidate = listOf(uriNumber, person?.name?.toString().orEmpty(),
+                    compatCallerName(ex), title, text)
+                    .firstNotNullOfOrNull { phoneNumber(it).takeIf(String::isNotEmpty) }.orEmpty()
                 val personName = person?.name?.toString().orEmpty()
-                val candidateName = personName.ifEmpty {
-                    title.takeUnless { it.isBlank() || it.equals("Incoming call", true) ||
-                        it.equals("Ongoing call", true) || it.equals("Phone", true) ||
-                        it == candidate }.orEmpty()
-                }
+                val candidateName = listOf(personName, compatCallerName(ex), title)
+                    .map(String::trim)
+                    .firstOrNull { it.isNotEmpty() && phoneNumber(it).isEmpty() &&
+                        it !in listOf("Incoming call", "Ongoing call", "Phone",
+                            "Unknown", "Unknown number", "Private number", "No caller ID") }
+                    .orEmpty()
                 svc.updateCallerFromNotification(candidate, candidateName)
                 return
             }
