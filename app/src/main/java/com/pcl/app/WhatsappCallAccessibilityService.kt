@@ -45,9 +45,9 @@ class WhatsappCallAccessibilityService : AccessibilityService() {
     @Volatile private var speakerRequest: String? = null
     @Volatile private var speakerDeadline = 0L
 
-    /** Best-effort fallback for a visible dialer call; never taps an unknown control. */
+    /** A request only acts on a visible, recognized dialer speaker control. */
     fun requestSpeakerRoute(route: String): Boolean {
-        if (route != "SPEAKER" && route != "EARPIECE") return false
+        if (route !in setOf("SPEAKER", "EARPIECE")) return false
         speakerRequest = route
         speakerDeadline = SystemClock.elapsedRealtime() + 3_000L
         refreshEventFilter()
@@ -66,11 +66,25 @@ class WhatsappCallAccessibilityService : AccessibilityService() {
         if (pkg !in setOf("com.google.android.dialer", "com.android.dialer")) return false
         val target = findNode(root) { node ->
             val label = labelOf(node).trim().lowercase()
-            (label == "speaker" || label == "speakerphone" ||
-                label == "turn on speaker" || label == "turn off speaker") &&
-                node.isCheckable && (node.isClickable || clickableAncestor(node) != null)
+            label in setOf("speaker", "speakerphone", "turn on speaker", "turn off speaker") &&
+                (node.isClickable || clickableAncestor(node) != null)
         } ?: return false
-        if (target.isChecked == (route == "SPEAKER")) {
+
+        // Do not toggle an unlabeled state blindly: this can switch an already
+        // correct route back to the wrong one on OEM-specific dialers.
+        val checkedNode = when {
+            target.isCheckable -> target
+            target.parent?.isCheckable == true -> target.parent
+            else -> null
+        }
+        val label = labelOf(target).trim().lowercase()
+        val knownState = when {
+            checkedNode != null -> checkedNode.isChecked
+            label == "turn on speaker" -> false
+            label == "turn off speaker" -> true
+            else -> return false
+        }
+        if (knownState == (route == "SPEAKER")) {
             speakerRequest = null
             refreshEventFilter()
             return true
@@ -79,11 +93,10 @@ class WhatsappCallAccessibilityService : AccessibilityService() {
         if (clicked) {
             speakerRequest = null
             refreshEventFilter()
-            Hub.log("Dialer speaker accessibility action dispatched")
+            Hub.log("Dialer speaker accessibility action dispatched; awaiting audio route verification")
         }
         return clicked
     }
-
 
     /** Gateway: a WhatsApp call being started for the Remote. */
     private class CallJob(
