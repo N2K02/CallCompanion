@@ -1058,8 +1058,13 @@ class LinkService : Service() {
             "AUDIO_ROUTE" -> gatewaySetAudioRoute(arg1, p.getOrNull(2).orEmpty())
             "AUDIO_RESULT" -> {
                 val id = p.getOrNull(3).orEmpty()
-                pendingAudioRequests.remove(id)?.let(audioTimeoutHandler::removeCallbacks)
-                Hub.log("Gateway audio result: ${arg1} — ${p.getOrNull(2).orEmpty()}")
+                val timeout = pendingAudioRequests.remove(id)
+                if (timeout != null) {
+                    audioTimeoutHandler.removeCallbacks(timeout)
+                    Hub.log("Gateway audio result: ${arg1} — ${p.getOrNull(2).orEmpty()}")
+                } else {
+                    Hub.log("Ignoring stale audio acknowledgement")
+                }
             }
             "AUDIO_STATUS" -> {
                 gatewayVolume = (arg1.toIntOrNull() ?: 0).coerceAtLeast(0)
