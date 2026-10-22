@@ -280,12 +280,22 @@ class LinkService : Service() {
             val fallback = if ((!accepted || actual != route) && callState != CALL_IDLE)
                 WhatsappCallAccessibilityService.instance?.requestSpeakerRoute(route) == true
             else false
+            val verifiedRoute = if (Build.VERSION.SDK_INT >= 31) {
+                when (audio.communicationDevice?.type) {
+                    AudioDeviceInfo.TYPE_BUILTIN_SPEAKER -> "SPEAKER"
+                    AudioDeviceInfo.TYPE_BUILTIN_EARPIECE -> "EARPIECE"
+                    else -> "UNKNOWN"
+                }
+            } else {
+                @Suppress("DEPRECATION")
+                if (audio.isSpeakerphoneOn) "SPEAKER" else "EARPIECE"
+            }
             val outcome = when {
-                accepted && actual == route -> "APPLIED"
+                verifiedRoute == route -> "APPLIED"
                 fallback -> "FALLBACK_DISPATCHED"
                 else -> "NOT_APPLIED"
             }
-            Hub.log("Gateway audio route: requested=$route, actual=$actual, outcome=$outcome")
+            Hub.log("Gateway audio route: requested=$route, actual=$verifiedRoute, outcome=$outcome")
             send("AUDIO_RESULT", "ROUTE", outcome, requestId)
         } catch (e: Exception) {
             Hub.log("Gateway audio route failed: ${e.javaClass.simpleName}")
