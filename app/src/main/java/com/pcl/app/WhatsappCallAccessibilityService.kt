@@ -42,6 +42,49 @@ class WhatsappCallAccessibilityService : AccessibilityService() {
 
     private var lastCallTapAt = 0L
 
+    @Volatile private var speakerRequest: String? = null
+    @Volatile private var speakerDeadline = 0L
+
+    /** Best-effort fallback for a visible dialer call; never taps an unknown control. */
+    fun requestSpeakerRoute(route: String): Boolean {
+        if (route != "SPEAKER" && route != "EARPIECE") return false
+        speakerRequest = route
+        speakerDeadline = SystemClock.elapsedRealtime() + 3_000L
+        refreshEventFilter()
+        val root = try { rootInActiveWindow } catch (_: Exception) { null }
+        return root != null && trySpeakerRoute(root)
+    }
+
+    private fun trySpeakerRoute(root: AccessibilityNodeInfo): Boolean {
+        val route = speakerRequest ?: return false
+        if (SystemClock.elapsedRealtime() > speakerDeadline) {
+            speakerRequest = null
+            refreshEventFilter()
+            return false
+        }
+        val pkg = root.packageName?.toString().orEmpty()
+        if (pkg !in setOf("com.google.android.dialer", "com.android.dialer")) return false
+        val target = findNode(root) { node ->
+            val label = labelOf(node).trim().lowercase()
+            (label == "speaker" || label == "speakerphone" ||
+                label == "turn on speaker" || label == "turn off speaker") &&
+                node.isCheckable && (node.isClickable || clickableAncestor(node) != null)
+        } ?: return false
+        if (target.isChecked == (route == "SPEAKER")) {
+            speakerRequest = null
+            refreshEventFilter()
+            return true
+        }
+        val clicked = click(target)
+        if (clicked) {
+            speakerRequest = null
+            refreshEventFilter()
+            Hub.log("Dialer speaker accessibility action dispatched")
+        }
+        return clicked
+    }
+
+
     /** Gateway: a WhatsApp call being started for the Remote. */
     private class CallJob(
         val pkg: String,
@@ -92,17 +135,21 @@ class WhatsappCallAccessibilityService : AccessibilityService() {
     /** WhatsApp's window changes while a call is being started; just its screen changes otherwise. */
     fun refreshEventFilter() {
         val info = serviceInfo ?: return
-        info.eventTypes = if (callJob != null) {
+        info.eventTypes = if (callJob != null || speakerRequest != null) {
             AccessibilityEvent.TYPE_WINDOW_STATE_CHANGED or AccessibilityEvent.TYPE_WINDOW_CONTENT_CHANGED
         } else {
             AccessibilityEvent.TYPE_WINDOW_STATE_CHANGED
         }
-        info.packageNames = WhatsAppCalls.PACKAGES.toTypedArray()
+        info.packageNames = (WhatsAppCalls.PACKAGES + listOf("com.google.android.dialer", "com.android.dialer")).toTypedArray()
         serviceInfo = info
     }
 
     override fun onAccessibilityEvent(event: AccessibilityEvent?) {
         event ?: return
+        if (speakerRequest != null) {
+            val root = try { rootInActiveWindow } catch (_: Exception) { null }
+            if (root != null && trySpeakerRoute(root)) return
+        }
         val job = callJob ?: return
         if (!WhatsAppCalls.isWhatsApp(event.packageName?.toString())) return
         if (SystemClock.elapsedRealtime() > job.until) stopWhatsAppCall() else tryAutomateCall(job)
