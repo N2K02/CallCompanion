@@ -212,16 +212,41 @@ class LinkService : Service() {
         } finally { gatewayAudioStatus() }
     }
 
-    private fun gatewayAudioStatus() {
-        val audio = getSystemService(AudioManager::class.java) ?: return
-        val device = if (android.os.Build.VERSION.SDK_INT >= 31) audio.communicationDevice else null
-        val route = when (device?.type) {
+    private fun gatewayRoute(audio: AudioManager): String {
+        if (Build.VERSION.SDK_INT < 31) {
+            @Suppress("DEPRECATION")
+            return if (audio.isBluetoothScoOn) "BLUETOOTH"
+            else if (audio.isWiredHeadsetOn) "WIRED_HEADSET"
+            else if (audio.isSpeakerphoneOn) "SPEAKER" else "EARPIECE"
+        }
+        return when (audio.communicationDevice?.type) {
             AudioDeviceInfo.TYPE_BUILTIN_SPEAKER -> "SPEAKER"
             AudioDeviceInfo.TYPE_BUILTIN_EARPIECE -> "EARPIECE"
+            AudioDeviceInfo.TYPE_BLUETOOTH_SCO, AudioDeviceInfo.TYPE_BLE_HEADSET,
+            AudioDeviceInfo.TYPE_BLE_SPEAKER -> "BLUETOOTH"
+            AudioDeviceInfo.TYPE_WIRED_HEADSET, AudioDeviceInfo.TYPE_WIRED_HEADPHONES,
+            AudioDeviceInfo.TYPE_USB_HEADSET -> "WIRED_HEADSET"
             else -> "UNKNOWN"
         }
-        send("AUDIO_STATUS", audio.getStreamVolume(gatewayStream(audio)).toString(),
-            audio.getStreamMaxVolume(gatewayStream(audio)).toString(), route)
+    }
+
+    private fun verifyGatewayRouteLater(route: String, requestId: String) {
+        audioTimeoutHandler.postDelayed({
+            if (!running || role != ROLE_GATEWAY || !connected) return@postDelayed
+            val audio = getSystemService(AudioManager::class.java) ?: return@postDelayed
+            val actual = gatewayRoute(audio)
+            val outcome = if (actual == route) "APPLIED" else "NOT_APPLIED"
+            Hub.log("Gateway delayed route verification: requested=$route actual=$actual result=$outcome")
+            send("AUDIO_RESULT", "ROUTE_VERIFY", outcome, requestId)
+            gatewayAudioStatus()
+        }, 900L)
+    }
+
+    private fun gatewayAudioStatus() {
+        val audio = getSystemService(AudioManager::class.java) ?: return
+        val stream = gatewayStream(audio)
+        send("AUDIO_STATUS", audio.getStreamVolume(stream).toString(),
+            audio.getStreamMaxVolume(stream).toString(), gatewayRoute(audio))
     }
 
     private fun gatewaySetAudioVolume(raw: String, requestId: String = "") {
@@ -270,29 +295,11 @@ class LinkService : Service() {
                 audio.isSpeakerphoneOn = route == "SPEAKER"
                 true
             }
-            val actual = if (Build.VERSION.SDK_INT >= 31) {
-                when (audio.communicationDevice?.type) {
-                    AudioDeviceInfo.TYPE_BUILTIN_SPEAKER -> "SPEAKER"
-                    AudioDeviceInfo.TYPE_BUILTIN_EARPIECE -> "EARPIECE"
-                    else -> "UNKNOWN"
-                }
-            } else {
-                @Suppress("DEPRECATION")
-                if (audio.isSpeakerphoneOn) "SPEAKER" else "EARPIECE"
-            }
+            val actual = gatewayRoute(audio)
             val fallback = if ((!accepted || actual != route) && callState != CALL_IDLE)
                 WhatsappCallAccessibilityService.instance?.requestSpeakerRoute(route) == true
             else false
-            val verifiedRoute = if (Build.VERSION.SDK_INT >= 31) {
-                when (audio.communicationDevice?.type) {
-                    AudioDeviceInfo.TYPE_BUILTIN_SPEAKER -> "SPEAKER"
-                    AudioDeviceInfo.TYPE_BUILTIN_EARPIECE -> "EARPIECE"
-                    else -> "UNKNOWN"
-                }
-            } else {
-                @Suppress("DEPRECATION")
-                if (audio.isSpeakerphoneOn) "SPEAKER" else "EARPIECE"
-            }
+            val verifiedRoute = gatewayRoute(audio)
             val outcome = when {
                 verifiedRoute == route -> "APPLIED"
                 fallback -> "FALLBACK_QUEUED"
@@ -300,6 +307,7 @@ class LinkService : Service() {
             }
             Hub.log("Gateway audio route: requested=$route, actual=$verifiedRoute, outcome=$outcome")
             send("AUDIO_RESULT", "ROUTE", outcome, requestId)
+            if (fallback) verifyGatewayRouteLater(route, requestId)
         } catch (e: Exception) {
             Hub.log("Gateway audio route failed: ${e.javaClass.simpleName}")
             send("AUDIO_RESULT", "ROUTE", "ERROR", requestId)
@@ -1082,7 +1090,7 @@ class LinkService : Service() {
             "AUDIO_STATUS" -> {
                 gatewayVolume = (arg1.toIntOrNull() ?: 0).coerceAtLeast(0)
                 gatewayMaxVolume = (p.getOrNull(2)?.toIntOrNull() ?: 1).coerceAtLeast(1)
-                gatewayAudioRoute = p.getOrNull(3).orEmpty().takeIf { it in setOf("SPEAKER", "EARPIECE") } ?: "UNKNOWN"
+                gatewayAudioRoute = p.getOrNull(3).orEmpty().takeIf { it in setOf("SPEAKER", "EARPIECE", "BLUETOOTH", "WIRED_HEADSET") } ?: "UNKNOWN"
             }
             "WHATSAPP_CHAT" -> {
                 val ok = gatewayWhatsAppChat(arg1)
