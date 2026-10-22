@@ -144,15 +144,35 @@ class LinkService : Service() {
     @Volatile var gatewayAudioRoute = "UNKNOWN"
         private set
 
+    private val audioRequestSequence = AtomicLong()
+    private val pendingAudioRequests = ConcurrentHashMap<String, Runnable>()
+    private val audioTimeoutHandler = Handler(Looper.getMainLooper())
+
+    private fun sendAudioRequest(command: String, value: String) {
+        if (role != ROLE_REMOTE || !connected) {
+            Hub.log("Audio command unavailable: Gateway disconnected")
+            return
+        }
+        val id = audioRequestSequence.incrementAndGet().toString()
+        val timeout = Runnable {
+            if (pendingAudioRequests.remove(id) != null)
+                Hub.log("Audio command timed out: $command")
+        }
+        pendingAudioRequests[id] = timeout
+        audioTimeoutHandler.postDelayed(timeout, 5_000L)
+        Hub.log("Remote audio request: $command #$id")
+        send(command, value, id)
+    }
+
     fun requestGatewayVolume(level: Int) {
-        if (role == ROLE_REMOTE && connected) send("AUDIO_VOLUME", level.coerceAtLeast(0).toString())
+        sendAudioRequest("AUDIO_VOLUME", level.coerceAtLeast(0).toString())
     }
 
     fun requestGatewayRoute(route: String) {
         // The Gateway owns the authoritative call state; never silently drop a
         // request because the Remote has not received the latest call update.
         if (role == ROLE_REMOTE && connected && route in setOf("SPEAKER", "EARPIECE"))
-            send("AUDIO_ROUTE", route)
+            sendAudioRequest("AUDIO_ROUTE", route)
     }
 
     fun refreshGatewayAudio() {
@@ -170,7 +190,7 @@ class LinkService : Service() {
             else -> AudioManager.STREAM_VOICE_CALL
         }
 
-    private fun gatewayAudioStep(raw: String) {
+    private fun gatewayAudioStep(raw: String, requestId: String = "") {
         val audio = getSystemService(AudioManager::class.java) ?: return
         val delta = raw.toIntOrNull() ?: return
         if (delta !in -1..1 || delta == 0) return
@@ -196,7 +216,7 @@ class LinkService : Service() {
             audio.getStreamMaxVolume(gatewayStream(audio)).toString(), route)
     }
 
-    private fun gatewaySetAudioVolume(raw: String) {
+    private fun gatewaySetAudioVolume(raw: String, requestId: String = "") {
         val audio = getSystemService(AudioManager::class.java) ?: return
         val level = raw.toIntOrNull() ?: return
         val stream = gatewayStream(audio)
@@ -206,16 +226,16 @@ class LinkService : Service() {
             audio.setStreamVolume(stream, target, 0)
             val actual = audio.getStreamVolume(stream)
             Hub.log("Gateway volume: stream=$stream, mode=${audio.mode}, $before -> $actual / ${audio.getStreamMaxVolume(stream)}")
-            send("AUDIO_RESULT", "VOLUME", if (actual == target) "APPLIED" else "NOT_APPLIED")
+            send("AUDIO_RESULT", "VOLUME", if (actual == target) "APPLIED" else "NOT_APPLIED", requestId)
         } catch (e: Exception) {
             Hub.log("Gateway volume failed: ${e.javaClass.simpleName}")
-            send("AUDIO_RESULT", "VOLUME", "ERROR")
+            send("AUDIO_RESULT", "VOLUME", "ERROR", requestId)
         } finally {
             gatewayAudioStatus()
         }
     }
 
-    private fun gatewaySetAudioRoute(route: String) {
+    private fun gatewaySetAudioRoute(route: String, requestId: String = "") {
         if (route !in setOf("SPEAKER", "EARPIECE")) return
         val audio = getSystemService(AudioManager::class.java) ?: return
         val active = callState != CALL_IDLE ||
@@ -224,7 +244,7 @@ class LinkService : Service() {
             audio.mode == AudioManager.MODE_IN_COMMUNICATION
         if (!active) {
             Hub.log("Gateway audio route not applied: no active communication")
-            send("AUDIO_RESULT", "ROUTE", "NO_CALL")
+            send("AUDIO_RESULT", "ROUTE", "NO_CALL", requestId)
             gatewayAudioStatus()
             return
         }
@@ -251,10 +271,10 @@ class LinkService : Service() {
             }
             val outcome = if (accepted && actual == route) "APPLIED" else "NOT_APPLIED"
             Hub.log("Gateway audio route: requested=$route, actual=$actual, outcome=$outcome")
-            send("AUDIO_RESULT", "ROUTE", outcome)
+            send("AUDIO_RESULT", "ROUTE", outcome, requestId)
         } catch (e: Exception) {
             Hub.log("Gateway audio route failed: ${e.javaClass.simpleName}")
-            send("AUDIO_RESULT", "ROUTE", "ERROR")
+            send("AUDIO_RESULT", "ROUTE", "ERROR", requestId)
         } finally {
             gatewayAudioStatus()
         }
@@ -454,7 +474,7 @@ class LinkService : Service() {
             ACTION_AUDIO_DOWN, ACTION_AUDIO_UP -> if (running && role == ROLE_REMOTE && connected) {
                 val delta = if (intent.action == ACTION_AUDIO_UP) 1 else -1
                 Hub.log("Remote audio step: $delta")
-                send("AUDIO_STEP", delta.toString())
+                sendAudioRequest("AUDIO_STEP", delta.toString())
             }
             ACTION_AUDIO_SPEAKER -> if (running && role == ROLE_REMOTE && connected) {
                 val target = if (gatewayAudioRoute == "SPEAKER") "EARPIECE" else "SPEAKER"
@@ -1016,10 +1036,14 @@ class LinkService : Service() {
             "DIAL" -> { gatewayDial(arg1); sendCallResult() }
             "SYNC_CONTACTS" -> sendContacts()
             "AUDIO_QUERY" -> gatewayAudioStatus()
-            "AUDIO_VOLUME" -> gatewaySetAudioVolume(arg1)
-            "AUDIO_STEP" -> gatewayAudioStep(arg1)
-            "AUDIO_ROUTE" -> gatewaySetAudioRoute(arg1)
-            "AUDIO_RESULT" -> Hub.log("Gateway audio result: ${arg1} — ${p.getOrNull(2).orEmpty()}")
+            "AUDIO_VOLUME" -> gatewaySetAudioVolume(arg1, p.getOrNull(2).orEmpty())
+            "AUDIO_STEP" -> gatewayAudioStep(arg1, p.getOrNull(2).orEmpty())
+            "AUDIO_ROUTE" -> gatewaySetAudioRoute(arg1, p.getOrNull(2).orEmpty())
+            "AUDIO_RESULT" -> {
+                val id = p.getOrNull(3).orEmpty()
+                pendingAudioRequests.remove(id)?.let(audioTimeoutHandler::removeCallbacks)
+                Hub.log("Gateway audio result: ${arg1} — ${p.getOrNull(2).orEmpty()}")
+            }
             "AUDIO_STATUS" -> {
                 gatewayVolume = (arg1.toIntOrNull() ?: 0).coerceAtLeast(0)
                 gatewayMaxVolume = (p.getOrNull(2)?.toIntOrNull() ?: 1).coerceAtLeast(1)
