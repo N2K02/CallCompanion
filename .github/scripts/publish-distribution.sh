@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # Publish the signed stable APK from this workflow to the public website repository.
 set -euo pipefail
-: "${GH_TOKEN:?Set the repository secret ANDROID_DISTRIBUTION_TOKEN}"
+: "${GH_TOKEN:?Set the repository secret MRadioAppkey}"
 : "${APP:?Missing APP}"
 : "${VERSION:?Missing VERSION}"
 REPO="N2K02/n2k02.github.io"
