@@ -1,4 +1,5 @@
 #!/usr/bin/env bash
+# CI rebuild requested after ANDROID_DISTRIBUTION_TOKEN configuration (2026-10-22).
 # Publish a signed APK and its immutable SHA-256 metadata to the public website.
 set -euo pipefail
 : "${GH_TOKEN:?MRADIO_DISTRIBUTION_TOKEN secret must be configured}"
