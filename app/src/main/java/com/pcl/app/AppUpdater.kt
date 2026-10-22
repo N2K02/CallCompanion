@@ -82,11 +82,24 @@ object AppUpdater {
     val state: StateFlow<State> = _state
 
     private val prefs by lazy { app.getSharedPreferences("app_updater", Context.MODE_PRIVATE) }
+    private val _experimentalEnabled = MutableStateFlow(false)
+    val experimentalEnabled: StateFlow<Boolean> = _experimentalEnabled
+
+    /** Only opt-in installations are offered experimental releases. */
+    fun setExperimentalEnabled(enabled: Boolean) {
+        _experimentalEnabled.value = enabled
+        prefs.edit().putBoolean("experimentalEnabled", enabled).apply()
+        dismiss()
+        check(manual = true)
+    }
+
 
     fun init(context: Context, repo: String, appName: String) {
         app = context.applicationContext
         this.repo = repo
         this.appName = appName
+        _experimentalEnabled.value = app.getSharedPreferences("app_updater", Context.MODE_PRIVATE)
+            .getBoolean("experimentalEnabled", false)
         if (context is Activity) activityRef = WeakReference(context)
         // A new app start: an update that installed (or was abandoned) leaves its APK behind.
         if (_state.value is State.Idle) runCatching { updateDir().deleteRecursively() }
@@ -117,7 +130,11 @@ object AppUpdater {
         job = scope.launch {
             CallLogger.log(if (manual) "Checking for updates (manual)" else "Checking for updates")
             _state.value = State.Checking
-            val result = runCatching { latestRelease() }
+            val result = runCatching {
+                val stable = latestRelease()
+                val experimental = if (_experimentalEnabled.value) runCatching { experimentalRelease() }.getOrNull() else null
+                listOfNotNull(stable, experimental).maxByOrNull { it.versionCode }
+            }
             prefs.edit().putLong("lastCheck", System.currentTimeMillis()).apply()
             val release = result.getOrNull()
             _state.value = when {
@@ -238,6 +255,41 @@ object AppUpdater {
                 versionCode = code,
                 notes = notes,
                 apkUrl = apkUrl,
+                apkName = data.optString("apkName"),
+                apkSize = data.optLong("apkSize"),
+                sha256 = digest,
+                pageUrl = data.optString("pageUrl").ifBlank { "https://n2k02.github.io/pcl/" },
+            )
+        } finally {
+            connection.disconnect()
+        }
+    }
+
+    /** Experimental builds are delivered separately from public stable downloads. */
+    private suspend fun experimentalRelease(): Release? = withContext(Dispatchers.IO) {
+        val connection = URL("https://n2k02.github.io/pcl/updates/experimental.json")
+            .openConnection() as HttpURLConnection
+        try {
+            connection.connectTimeout = 10_000
+            connection.readTimeout = 15_000
+            if (connection.responseCode == 404) return@withContext null
+            if (connection.responseCode != 200) throw IOException("Experimental manifest HTTP ${connection.responseCode}")
+            val data = JSONObject(connection.inputStream.bufferedReader().use { it.readText() })
+            if (data.optString("channel") != "experimental") return@withContext null
+            val digest = data.optString("sha256").lowercase()
+            val url = data.optString("apkUrl")
+            val code = data.optLong("versionCode")
+            if (code <= 0 || !url.startsWith("https://github.com/") ||
+                !Regex("[a-f0-9]{64}").matches(digest)) return@withContext null
+            val notesJson = data.optJSONArray("notes")
+            val notes = if (notesJson == null) emptyList() else
+                (0 until notesJson.length()).map { notesJson.optString(it) }
+            Release(
+                tag = data.optString("tag"),
+                versionName = data.optString("versionName"),
+                versionCode = code,
+                notes = notes,
+                apkUrl = url,
                 apkName = data.optString("apkName"),
                 apkSize = data.optLong("apkSize"),
                 sha256 = digest,
