@@ -21,8 +21,8 @@ android {
         applicationId = "com.pcl.app"
         minSdk = 26
         targetSdk = 34
-        versionCode = appVersionCode
-        versionName = appVersion
+        versionCode = (findProperty("appVersionCode") as String?)?.toIntOrNull() ?: appVersionCode
+        versionName = appVersion + ((findProperty("appVersionSuffix") as String?) ?: "")
     }
 
     buildFeatures {
