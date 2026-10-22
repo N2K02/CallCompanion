@@ -6,6 +6,8 @@ import android.content.Context
 import android.content.Intent
 import android.graphics.Rect
 import android.os.SystemClock
+import android.os.Handler
+import android.os.Looper
 import android.provider.Settings
 import android.view.accessibility.AccessibilityEvent
 import android.view.accessibility.AccessibilityNodeInfo
@@ -44,15 +46,28 @@ class WhatsappCallAccessibilityService : AccessibilityService() {
 
     @Volatile private var speakerRequest: String? = null
     @Volatile private var speakerDeadline = 0L
+    private val speakerHandler = Handler(Looper.getMainLooper())
+    private val expireSpeakerRequest = Runnable {
+        if (speakerRequest != null && SystemClock.elapsedRealtime() >= speakerDeadline) {
+            speakerRequest = null
+            refreshEventFilter()
+            Hub.log("Dialer speaker accessibility request expired")
+        }
+    }
 
     /** A request only acts on a visible, recognized dialer speaker control. */
     fun requestSpeakerRoute(route: String): Boolean {
-        if (route !in setOf("SPEAKER", "EARPIECE")) return false
-        speakerRequest = route
-        speakerDeadline = SystemClock.elapsedRealtime() + 3_000L
-        refreshEventFilter()
-        val root = try { rootInActiveWindow } catch (_: Exception) { null }
-        return root != null && trySpeakerRoute(root)
+        if (route !in setOf("SPEAKER", "EARPIECE") || instance !== this) return false
+        speakerHandler.post {
+            speakerRequest = route
+            speakerDeadline = SystemClock.elapsedRealtime() + 3_000L
+            speakerHandler.removeCallbacks(expireSpeakerRequest)
+            speakerHandler.postDelayed(expireSpeakerRequest, 3_000L)
+            refreshEventFilter()
+            val root = try { rootInActiveWindow } catch (_: Exception) { null }
+            if (root != null) trySpeakerRoute(root)
+        }
+        return true
     }
 
     private fun trySpeakerRoute(root: AccessibilityNodeInfo): Boolean {
@@ -141,6 +156,8 @@ class WhatsappCallAccessibilityService : AccessibilityService() {
     }
 
     override fun onDestroy() {
+        speakerHandler.removeCallbacks(expireSpeakerRequest)
+        speakerRequest = null
         if (instance === this) instance = null
         super.onDestroy()
     }
