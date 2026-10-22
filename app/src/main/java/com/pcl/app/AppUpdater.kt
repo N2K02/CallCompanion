@@ -215,7 +215,40 @@ object AppUpdater {
 
     // ---------------------------------------------------------------- GitHub
 
-    private suspend fun latestRelease(): Release? = withContext(Dispatchers.IO) {
+    private suspend fun latestRelease(): Release? = runCatching { publicStableRelease() }.getOrNull() ?: legacyLatestRelease()
+
+    /** Public manifest remains accessible after the source repository becomes private. */
+    private suspend fun publicStableRelease(): Release? = withContext(Dispatchers.IO) {
+        val connection = URL("https://n2k02.github.io/pcl/updates/stable.json").openConnection() as HttpURLConnection
+        try {
+            connection.connectTimeout = 10_000
+            connection.readTimeout = 15_000
+            if (connection.responseCode == 404) return@withContext null
+            if (connection.responseCode != 200) throw IOException("Manifest HTTP ${connection.responseCode}")
+            val data = JSONObject(connection.inputStream.bufferedReader().use { it.readText() })
+            val digest = data.optString("sha256").lowercase()
+            val apkUrl = data.optString("apkUrl")
+            val code = data.optLong("versionCode")
+            if (code <= 0 || !apkUrl.startsWith("https://") || !Regex("[a-f0-9]{64}").matches(digest)) return@withContext null
+            val notesJson = data.optJSONArray("notes")
+            val notes = if (notesJson == null) emptyList() else (0 until notesJson.length()).map { notesJson.optString(it) }
+            Release(
+                tag = data.optString("tag"),
+                versionName = data.optString("versionName"),
+                versionCode = code,
+                notes = notes,
+                apkUrl = apkUrl,
+                apkName = data.optString("apkName"),
+                apkSize = data.optLong("apkSize"),
+                sha256 = digest,
+                pageUrl = data.optString("pageUrl").ifBlank { "https://n2k02.github.io/pcl/" },
+            )
+        } finally {
+            connection.disconnect()
+        }
+    }
+
+    private suspend fun legacyLatestRelease(): Release? = withContext(Dispatchers.IO) {
         val c = URL("https://api.github.com/repos/$repo/releases/latest").openConnection() as HttpURLConnection
         try {
             c.connectTimeout = 10_000
