@@ -1078,6 +1078,10 @@ class LinkService : Service() {
             "AUDIO_STEP" -> gatewayAudioStep(arg1, p.getOrNull(2).orEmpty())
             "AUDIO_ROUTE" -> gatewaySetAudioRoute(arg1, p.getOrNull(2).orEmpty())
             "AUDIO_RESULT" -> {
+                if (arg1 == "ROUTE_VERIFY") {
+                    Hub.log("Gateway delayed speaker verification: ${p.getOrNull(2).orEmpty()}")
+                    return
+                }
                 val id = p.getOrNull(3).orEmpty()
                 val timeout = pendingAudioRequests.remove(id)
                 if (timeout != null) {
