@@ -192,14 +192,18 @@ class LinkService : Service() {
 
     private fun gatewaySetAudioVolume(raw: String) {
         val audio = getSystemService(AudioManager::class.java) ?: return
+        val level = raw.toIntOrNull() ?: return
+        val stream = gatewayStream(audio)
         try {
-            val level = raw.toIntOrNull() ?: return
-            val stream = gatewayStream(audio)
             val before = audio.getStreamVolume(stream)
-            audio.setStreamVolume(stream, level.coerceIn(0, audio.getStreamMaxVolume(stream)), 0)
-            Hub.log("Gateway volume: stream=$stream, $before -> ${audio.getStreamVolume(stream)}")
-        } catch (_: SecurityException) {
-            Hub.log("Gateway call volume permission denied")
+            val target = level.coerceIn(0, audio.getStreamMaxVolume(stream))
+            audio.setStreamVolume(stream, target, 0)
+            val actual = audio.getStreamVolume(stream)
+            Hub.log("Gateway volume: stream=$stream, mode=${audio.mode}, $before -> $actual / ${audio.getStreamMaxVolume(stream)}")
+            send("AUDIO_RESULT", "VOLUME", if (actual == target) "APPLIED" else "NOT_APPLIED")
+        } catch (e: Exception) {
+            Hub.log("Gateway volume failed: ${e.javaClass.simpleName}")
+            send("AUDIO_RESULT", "VOLUME", "ERROR")
         } finally {
             gatewayAudioStatus()
         }
