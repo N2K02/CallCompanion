@@ -198,9 +198,12 @@ class LinkService : Service() {
         try {
             val before = audio.getStreamVolume(stream)
             audio.adjustStreamVolume(stream, if (delta > 0) AudioManager.ADJUST_RAISE else AudioManager.ADJUST_LOWER, 0)
-            Hub.log("Gateway audio step: stream=$stream, $before -> ${audio.getStreamVolume(stream)}")
+            val after = audio.getStreamVolume(stream)
+            Hub.log("Gateway audio step: stream=$stream, $before -> $after")
+            send("AUDIO_RESULT", "STEP", if (after != before) "APPLIED" else "NOT_APPLIED", requestId)
         } catch (e: Exception) {
             Hub.log("Gateway audio step failed: ${e.message ?: e.javaClass.simpleName}")
+            send("AUDIO_RESULT", "STEP", "ERROR", requestId)
         } finally { gatewayAudioStatus() }
     }
 
