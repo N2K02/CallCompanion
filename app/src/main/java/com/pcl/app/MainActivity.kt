@@ -530,6 +530,13 @@ class MainActivity : ComponentActivity() {
                     Text("App updates", style = MaterialTheme.typography.headlineMedium, fontWeight = FontWeight.Bold)
                     SectionCard(title = "PCL", subtitle = "Keep the app updated from the latest GitHub release.") {
                         Text("Installed version: ${AppUpdater.installedVersionName}")
+                        val experimentalEnabled = AppUpdater.experimentalEnabled.collectAsState().value
+                        androidx.compose.foundation.layout.Row(verticalAlignment = Alignment.CenterVertically) {
+                            androidx.compose.material3.Text("Experimental updates", modifier = Modifier.weight(1f))
+                            androidx.compose.material3.Switch(checked = experimentalEnabled, onCheckedChange = AppUpdater::setExperimentalEnabled)
+                        }
+                        Text("Preview builds are opt-in; stable is the default.")
+
                         Text("Updates are checked against the latest GitHub release. APK verification and Android installation are handled by the updater.")
                         Button(onClick = { AppUpdater.check(manual = true) }, modifier = Modifier.fillMaxWidth()) {
                             Icon(Icons.Default.Download, null); Spacer(Modifier.width(8.dp)); Text("Check for updates")
