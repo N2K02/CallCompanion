@@ -149,7 +149,9 @@ class LinkService : Service() {
     }
 
     fun requestGatewayRoute(route: String) {
-        if (role == ROLE_REMOTE && connected && (callState != CALL_IDLE || liveMirrorCall != null) && route in setOf("SPEAKER", "EARPIECE"))
+        // The Gateway owns the authoritative call state; never silently drop a
+        // request because the Remote has not received the latest call update.
+        if (role == ROLE_REMOTE && connected && route in setOf("SPEAKER", "EARPIECE"))
             send("AUDIO_ROUTE", route)
     }
 
