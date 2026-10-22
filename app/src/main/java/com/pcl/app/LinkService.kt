@@ -206,24 +206,45 @@ class LinkService : Service() {
     }
 
     private fun gatewaySetAudioRoute(route: String) {
-        if ((callState == CALL_IDLE && !localWhatsappCallStates.values.any { it == WhatsAppCalls.ACTIVE }) || route !in setOf("SPEAKER", "EARPIECE")) {
+        if (route !in setOf("SPEAKER", "EARPIECE")) return
+        val audio = getSystemService(AudioManager::class.java) ?: return
+        val active = callState != CALL_IDLE ||
+            localWhatsappCallStates.values.any { it != WhatsAppCalls.IDLE } ||
+            audio.mode == AudioManager.MODE_IN_CALL ||
+            audio.mode == AudioManager.MODE_IN_COMMUNICATION
+        if (!active) {
+            Hub.log("Gateway audio route not applied: no active communication")
+            send("AUDIO_RESULT", "ROUTE", "NO_CALL")
             gatewayAudioStatus()
             return
         }
-        val audio = getSystemService(AudioManager::class.java) ?: return
         try {
-            Hub.log("Gateway audio route requested: $route")
-            if (android.os.Build.VERSION.SDK_INT >= 31) {
+            Hub.log("Gateway audio route requested: $route; mode=${audio.mode}")
+            val accepted = if (Build.VERSION.SDK_INT >= 31) {
                 val type = if (route == "SPEAKER") AudioDeviceInfo.TYPE_BUILTIN_SPEAKER else AudioDeviceInfo.TYPE_BUILTIN_EARPIECE
                 val target = audio.availableCommunicationDevices.firstOrNull { it.type == type }
-                if (target == null || !audio.setCommunicationDevice(target))
-                    Hub.log("Gateway audio route rejected or unavailable")
+                target != null && audio.setCommunicationDevice(target)
             } else {
                 @Suppress("DEPRECATION")
                 audio.isSpeakerphoneOn = route == "SPEAKER"
+                true
             }
+            val actual = if (Build.VERSION.SDK_INT >= 31) {
+                when (audio.communicationDevice?.type) {
+                    AudioDeviceInfo.TYPE_BUILTIN_SPEAKER -> "SPEAKER"
+                    AudioDeviceInfo.TYPE_BUILTIN_EARPIECE -> "EARPIECE"
+                    else -> "UNKNOWN"
+                }
+            } else {
+                @Suppress("DEPRECATION")
+                if (audio.isSpeakerphoneOn) "SPEAKER" else "EARPIECE"
+            }
+            val outcome = if (accepted && actual == route) "APPLIED" else "NOT_APPLIED"
+            Hub.log("Gateway audio route: requested=$route, actual=$actual, outcome=$outcome")
+            send("AUDIO_RESULT", "ROUTE", outcome)
         } catch (e: Exception) {
-            Hub.log("Gateway audio route failed: ${e.message ?: e.javaClass.simpleName}")
+            Hub.log("Gateway audio route failed: ${e.javaClass.simpleName}")
+            send("AUDIO_RESULT", "ROUTE", "ERROR")
         } finally {
             gatewayAudioStatus()
         }
@@ -988,6 +1009,7 @@ class LinkService : Service() {
             "AUDIO_VOLUME" -> gatewaySetAudioVolume(arg1)
             "AUDIO_STEP" -> gatewayAudioStep(arg1)
             "AUDIO_ROUTE" -> gatewaySetAudioRoute(arg1)
+            "AUDIO_RESULT" -> Hub.log("Gateway audio result: ${arg1} — ${p.getOrNull(2).orEmpty()}")
             "AUDIO_STATUS" -> {
                 gatewayVolume = (arg1.toIntOrNull() ?: 0).coerceAtLeast(0)
                 gatewayMaxVolume = (p.getOrNull(2)?.toIntOrNull() ?: 1).coerceAtLeast(1)
