@@ -49,7 +49,10 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         run: |
           # Latest release tag of the form vMAJOR.MINOR (v1.9, v2.0, ...).
-          last=$(git tag -l 'v*' | grep -E '^v[0-9]+\.[0-9]
+          # Preserve source and public website release history.
+          last=$(git tag -l 'v[0-9]*' | sort -V | tail -1 || true)
+          public_last=$(gh api repos/N2K02/n2k02.github.io/releases --jq '.[].tag_name' 2>/dev/null | sed -nE 's/^pcl-v([0-9]+[.][0-9]).*/v\1/p' | sort -V | tail -1 || true)
+          last=$(printf '%s\n%s\n' "$last" "$public_last" | sort -V | tail -1)
           if [ -n "$REQUESTED" ]; then
             echo "$REQUESTED" | grep -Eq '^[0-9]+\.[0-9]$' || { echo "::error::Version must look like 1.0"; exit 1; }
             ver="$REQUESTED"
