@@ -23,8 +23,8 @@ permissions:
 
 # Serialize releases so two quick pushes cannot choose the same version.
 concurrency:
-  group: ${{ github.event_name == 'pull_request' && format('experiment-pr-{0}', github.event.pull_request.number) || 'release' }}
-  cancel-in-progress: false
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
 
 env:
   APP: PCL
