@@ -531,7 +531,7 @@ class MainActivity : ComponentActivity() {
                     SectionCard(title = "PCL", subtitle = "Keep the app updated from the latest GitHub release.") {
                         Text("Installed version: ${AppUpdater.installedVersionName}")
                         val experimentalEnabled = AppUpdater.experimentalEnabled.collectAsState().value
-                        androidx.compose.material3.Row(verticalAlignment = Alignment.CenterVertically) {
+                        androidx.compose.foundation.layout.Row(verticalAlignment = Alignment.CenterVertically) {
                             androidx.compose.material3.Text("Experimental updates", modifier = Modifier.weight(1f))
                             androidx.compose.material3.Switch(checked = experimentalEnabled, onCheckedChange = AppUpdater::setExperimentalEnabled)
                         }
