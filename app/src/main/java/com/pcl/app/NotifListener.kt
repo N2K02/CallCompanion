@@ -252,6 +252,8 @@ class NotifListener : NotificationListenerService() {
                 val candidateName = personName.ifEmpty {
                     title.takeUnless { it.isBlank() || it.equals("Incoming call", true) ||
                         it.equals("Ongoing call", true) || it.equals("Phone", true) ||
+                        it.equals("Unknown number", true) || it.equals("Unknown", true) ||
+                        it.equals("Private number", true) || it.equals("No caller ID", true) ||
                         it == candidate }.orEmpty()
                 }
                 svc.updateCallerFromNotification(candidate, candidateName)
