@@ -927,7 +927,7 @@ class LinkService : Service() {
             if (writer === w) writer = null
             if (socket === s) socket = null
             connected = false
-        clearPendingAudioRequests()
+            clearPendingAudioRequests()
             peerWhatsappCallStates.clear()
             contactBuf = null
             helloReceived = false
