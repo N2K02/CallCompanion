@@ -545,7 +545,6 @@ class MainActivity : ComponentActivity() {
                         )
                     }
                     androidx.compose.material3.HorizontalDivider()
-                    Text("App updates", style = MaterialTheme.typography.titleLarge)
                     dev.n2k02.updater.N2K02UpdateScreen(
                         controller = LiveUpdater.controller,
                         installGuard = LiveUpdater.installGuard,
