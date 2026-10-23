@@ -263,7 +263,7 @@ class MainActivity : ComponentActivity() {
                             Icon(Icons.Default.PowerSettingsNew, contentDescription = "Quit")
                         }
                     },
-                    colors = TopAppBarDefaults.topAppBarColors(containerColor = MaterialTheme.colorScheme.surface)
+                    
                 )
             },
             bottomBar = {
@@ -592,7 +592,7 @@ class MainActivity : ComponentActivity() {
                         }
                     }
                     if (roleSelected) {
-                        Card(colors = CardDefaults.cardColors(containerColor = if (setupReady) MaterialTheme.colorScheme.primaryContainer else MaterialTheme.colorScheme.errorContainer)) {
+                        Card() {
                             Column(Modifier.fillMaxWidth().padding(16.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
                                 Text(if (setupReady) "Setup complete" else "Setup incomplete", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold)
                                 Text(if (setupReady) "All required permissions are granted. Home is enabled." else "Use Set up beside each item that needs attention. Home remains disabled until required permissions are ready.", style = MaterialTheme.typography.bodyMedium)
@@ -678,7 +678,7 @@ private fun ActivityLogCard() {
         } else if (expanded) {
             Column(
                 Modifier.fillMaxWidth().heightIn(max = 280.dp).verticalScroll(rememberScrollState())
-                    .background(MaterialTheme.colorScheme.surfaceContainerLow, RoundedCornerShape(18.dp)).padding(12.dp),
+                    .background(MaterialTheme.colorScheme.surfaceContainerLow, MaterialTheme.shapes.medium).padding(12.dp),
                 verticalArrangement = Arrangement.spacedBy(5.dp)
             ) {
                 lines.asReversed().forEach { line ->
