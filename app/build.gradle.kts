@@ -1,6 +1,6 @@
 plugins {
     id("com.android.application")
-    id("org.jetbrains.kotlin.android")
+    id("org.jetbrains.kotlin.plugin.compose") version "2.3.10"
 }
 
 // Release builds get their version from CI (-PappVersion=1.x). Local builds default to 0.1,
@@ -15,7 +15,7 @@ val appVersionCode = appVersion.split(".").let { (major, minor) ->
 
 android {
     namespace = "com.pcl.app"
-    compileSdk = 34
+    compileSdk = 37
 
     defaultConfig {
         applicationId = "com.pcl.app"
@@ -29,9 +29,6 @@ android {
         compose = true
     }
 
-    composeOptions {
-        kotlinCompilerExtensionVersion = "1.5.14"
-    }
 
     signingConfigs {
         getByName("debug") {
@@ -56,9 +53,6 @@ android {
         sourceCompatibility = JavaVersion.VERSION_17
         targetCompatibility = JavaVersion.VERSION_17
     }
-    kotlinOptions {
-        jvmTarget = "17"
-    }
 }
 
 dependencies {
@@ -72,4 +66,10 @@ dependencies {
     implementation("org.jetbrains.kotlinx:kotlinx-coroutines-android:1.8.1")
     implementation("androidx.compose.material:material-icons-extended")
     debugImplementation("androidx.compose.ui:ui-tooling")
+}
+
+ // Opt-in compile-only shared library evaluation; no production runtime cutover.
+dependencies {
+    implementation("dev.n2k02:theme:0.1.4")
+        implementation("dev.n2k02:updater:0.1.11")
 }

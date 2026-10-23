@@ -33,6 +33,8 @@ jobs:
   build:
     if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository
     runs-on: ubuntu-latest
+    env:
+      N2K02_PACKAGES_TOKEN: ${{ secrets.N2K02_PACKAGES_TOKEN }}
     steps:
       - uses: actions/checkout@v5
         with:
@@ -125,10 +127,15 @@ jobs:
         run: |
           set -euo pipefail
           TAG="experimental-pr-$PR_NUMBER-run-$GITHUB_RUN_NUMBER"
-          gh release create "$TAG" "$APP-$VERSION.apk" \
-            --repo "$GITHUB_REPOSITORY" --target "$PR_HEAD_SHA" \
-            --title "$APP experimental · PR #$PR_NUMBER · build $GITHUB_RUN_NUMBER" \
-            --notes-file release-notes.md --prerelease --latest=false
+          if gh release view "$TAG" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
+            echo "Experimental release $TAG already exists (workflow rerun); updating its APK."
+            gh release upload "$TAG" "$APP-$VERSION.apk" --repo "$GITHUB_REPOSITORY" --clobber
+          else
+            gh release create "$TAG" "$APP-$VERSION.apk" \
+              --repo "$GITHUB_REPOSITORY" --target "$PR_HEAD_SHA" \
+              --title "$APP experimental · PR #$PR_NUMBER · build $GITHUB_RUN_NUMBER" \
+              --notes-file release-notes.md --prerelease --latest=false
+          fi
 
       - name: Check public distribution configuration
         id: distribution

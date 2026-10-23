@@ -42,6 +42,7 @@ import androidx.compose.material.icons.filled.Smartphone
 import androidx.compose.material.icons.filled.Stop
 import androidx.compose.material.icons.filled.Sync
 import androidx.compose.material3.*
+import dev.n2k02.theme.N2K02Theme
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -82,7 +83,7 @@ class MainActivity : ComponentActivity() {
         CallLogger.init(this)
         CallHistory.init(this)
         Favourites.init(this)
-        AppUpdater.init(this, "N2K02/PCL", "PCL")
+        LiveUpdater.init(this)
         handleOpenTab(intent)
         setContent { PCLTheme { AppScreen() } }
         loadDevices()
@@ -101,7 +102,7 @@ class MainActivity : ComponentActivity() {
     override fun onResume() {
         super.onResume()
         Hub.listener = { refresh() }
-        AppUpdater.onResume(this)
+        LiveUpdater.onResume(this)
         refresh()
     }
 
@@ -262,7 +263,7 @@ class MainActivity : ComponentActivity() {
                             Icon(Icons.Default.PowerSettingsNew, contentDescription = "Quit")
                         }
                     },
-                    colors = TopAppBarDefaults.topAppBarColors(containerColor = MaterialTheme.colorScheme.surface)
+                    
                 )
             },
             bottomBar = {
@@ -281,7 +282,7 @@ class MainActivity : ComponentActivity() {
                             label = { Text("Calls") }
                         )
                     }
-                    NavigationBarItem(selected = screen == MainTab.UPDATE, onClick = { screen = MainTab.UPDATE; AppUpdater.check(manual = true) }, icon = { Icon(Icons.Default.Download, null) }, label = { Text("Update") })
+                    NavigationBarItem(selected = screen == MainTab.UPDATE, onClick = { screen = MainTab.UPDATE }, icon = { Icon(Icons.Default.Download, null) }, label = { Text("Update") })
                     NavigationBarItem(selected = screen == MainTab.SETTINGS, onClick = { screen = MainTab.SETTINGS }, icon = { Icon(Icons.Default.Settings, null) }, label = { Text("Settings") })
                 }
             }
@@ -527,22 +528,28 @@ class MainActivity : ComponentActivity() {
                     }
                 }
                 if (screen == MainTab.UPDATE) {
-                    Text("App updates", style = MaterialTheme.typography.headlineMedium, fontWeight = FontWeight.Bold)
-                    SectionCard(title = "PCL", subtitle = "Keep the app updated from the latest GitHub release.") {
-                        Text("Installed version: ${AppUpdater.installedVersionName}")
-                        val experimentalEnabled = AppUpdater.experimentalEnabled.collectAsState().value
-                        androidx.compose.foundation.layout.Row(verticalAlignment = Alignment.CenterVertically) {
-                            androidx.compose.material3.Text("Experimental updates", modifier = Modifier.weight(1f))
-                            androidx.compose.material3.Switch(checked = experimentalEnabled, onCheckedChange = AppUpdater::setExperimentalEnabled)
+                    Text("About & updates", style = MaterialTheme.typography.headlineMedium, fontWeight = FontWeight.Bold)
+                    androidx.compose.material3.ListItem(
+                        headlineContent = { Text("PCL") },
+                        supportingContent = { Text("Version " + AppUpdater.installedVersionName) },
+                        leadingContent = { Icon(Icons.Default.Settings, null) },
+                    )
+                    val experimentalEnabled = LiveUpdater.experimentalEnabled.collectAsState().value
+                    androidx.compose.foundation.layout.Row(verticalAlignment = Alignment.CenterVertically) {
+                        Column(Modifier.weight(1f)) {
+                            Text("Experimental updates", style = MaterialTheme.typography.titleSmall)
+                            Text("Offer signed APKs from successful pull request builds. Test builds may have bugs.")
                         }
-                        Text("Preview builds are opt-in; stable is the default.")
-
-                        Text("Updates are checked against the latest GitHub release. APK verification and Android installation are handled by the updater.")
-                        Button(onClick = { AppUpdater.check(manual = true) }, modifier = Modifier.fillMaxWidth()) {
-                            Icon(Icons.Default.Download, null); Spacer(Modifier.width(8.dp)); Text("Check for updates")
-                        }
+                        androidx.compose.material3.Switch(
+                            checked = experimentalEnabled,
+                            onCheckedChange = LiveUpdater::setExperimentalEnabled,
+                        )
                     }
-                    UpdateCard(modifier = Modifier.fillMaxWidth())
+                    androidx.compose.material3.HorizontalDivider()
+                    dev.n2k02.updater.N2K02UpdateScreen(
+                        controller = LiveUpdater.controller,
+                        installGuard = LiveUpdater.installGuard,
+                    )
                 }
                 if (screen == MainTab.SETTINGS) {
                     SectionCard(title = "Permissions", subtitle = if (roleSelected) "Required access for the selected phone role." else "Select a role above to see its setup checklist.") {
@@ -585,7 +592,7 @@ class MainActivity : ComponentActivity() {
                         }
                     }
                     if (roleSelected) {
-                        Card(colors = CardDefaults.cardColors(containerColor = if (setupReady) MaterialTheme.colorScheme.primaryContainer else MaterialTheme.colorScheme.errorContainer)) {
+                        Card() {
                             Column(Modifier.fillMaxWidth().padding(16.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
                                 Text(if (setupReady) "Setup complete" else "Setup incomplete", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold)
                                 Text(if (setupReady) "All required permissions are granted. Home is enabled." else "Use Set up beside each item that needs attention. Home remains disabled until required permissions are ready.", style = MaterialTheme.typography.bodyMedium)
@@ -671,7 +678,7 @@ private fun ActivityLogCard() {
         } else if (expanded) {
             Column(
                 Modifier.fillMaxWidth().heightIn(max = 280.dp).verticalScroll(rememberScrollState())
-                    .background(MaterialTheme.colorScheme.surfaceContainerLow, RoundedCornerShape(18.dp)).padding(12.dp),
+                    .background(MaterialTheme.colorScheme.surfaceContainerLow, MaterialTheme.shapes.medium).padding(12.dp),
                 verticalArrangement = Arrangement.spacedBy(5.dp)
             ) {
                 lines.asReversed().forEach { line ->
@@ -732,5 +739,5 @@ private fun PCLTheme(content: @Composable () -> Unit) {
         dark -> darkColorScheme()
         else -> lightColorScheme()
     }
-    MaterialTheme(colorScheme = scheme, content = content)
+    N2K02Theme(content = content)
 }
