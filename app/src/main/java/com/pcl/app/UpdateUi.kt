@@ -1,3 +1,5 @@
+@file:OptIn(androidx.compose.material3.ExperimentalMaterial3ExpressiveApi::class)
+
 package com.pcl.app
 
 import android.app.Activity
@@ -27,6 +29,7 @@ import androidx.compose.material3.Button
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.material3.LoadingIndicator
 import androidx.compose.material3.FilledTonalButton
 import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
@@ -255,7 +258,7 @@ fun UpdateFooterBar(appName: String, modifier: Modifier = Modifier) {
                         verticalAlignment = Alignment.CenterVertically,
                         modifier = Modifier.padding(end = 8.dp),
                     ) {
-                        CircularProgressIndicator(Modifier.size(14.dp), strokeWidth = 2.dp)
+                        LoadingIndicator(Modifier.size(24.dp))
                         Text("  Checking…", style = MaterialTheme.typography.labelMedium, color = scheme.onSurfaceVariant)
                     }
                     is AppUpdater.State.Available -> Button(

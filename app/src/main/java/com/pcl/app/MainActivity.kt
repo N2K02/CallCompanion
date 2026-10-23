@@ -1,3 +1,5 @@
+@file:OptIn(androidx.compose.material3.ExperimentalMaterial3ExpressiveApi::class)
+
 package com.pcl.app
 
 import android.Manifest
@@ -49,6 +51,8 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.material3.MaterialExpressiveTheme
+import androidx.compose.material3.MotionScheme
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 
@@ -732,5 +736,5 @@ private fun PCLTheme(content: @Composable () -> Unit) {
         dark -> darkColorScheme()
         else -> lightColorScheme()
     }
-    MaterialTheme(colorScheme = scheme, content = content)
+    MaterialExpressiveTheme(motionScheme = MotionScheme.expressive(), colorScheme = scheme, shapes = androidx.compose.material3.MaterialTheme.shapes.copy(extraSmall = androidx.compose.foundation.shape.RoundedCornerShape(28.dp)), content = content)
 }
