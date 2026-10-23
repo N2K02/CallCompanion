@@ -14,13 +14,15 @@ jobs:
         with:
           distribution: temurin
           java-version: '17'
+      - uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: '9.3.1'
       - name: Compile experimental APK
         env:
           N2K02_PACKAGES_TOKEN: ${{ secrets.N2K02_PACKAGES_TOKEN }}
         run: |
           test -n "$N2K02_PACKAGES_TOKEN" || { echo "::error::N2K02_PACKAGES_TOKEN secret is missing"; exit 1; }
-          chmod +x gradlew
-          ./gradlew --no-daemon :app:assembleDebug -PuseN2K02Libraries=true
+          gradle --no-daemon :app:assembleDebug -PuseN2K02Libraries=true
       - uses: actions/upload-artifact@v4
         with:
           name: PCL-experimental-shared-libraries
