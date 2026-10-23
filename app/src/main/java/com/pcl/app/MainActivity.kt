@@ -42,6 +42,7 @@ import androidx.compose.material.icons.filled.Smartphone
 import androidx.compose.material.icons.filled.Stop
 import androidx.compose.material.icons.filled.Sync
 import androidx.compose.material3.*
+import dev.n2k02.theme.N2K02Theme
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -728,14 +729,6 @@ private fun SectionCard(title: String, subtitle: String, content: @Composable Co
     }
 }
 
-private val N2K02ExpressiveShapes = Shapes(
-    extraSmall = RoundedCornerShape(8.dp),
-    small = RoundedCornerShape(12.dp),
-    medium = RoundedCornerShape(20.dp),
-    large = RoundedCornerShape(28.dp),
-    extraLarge = RoundedCornerShape(32.dp),
-)
-
 @Composable
 private fun PCLTheme(content: @Composable () -> Unit) {
     val context = LocalContext.current
@@ -746,5 +739,5 @@ private fun PCLTheme(content: @Composable () -> Unit) {
         dark -> darkColorScheme()
         else -> lightColorScheme()
     }
-    MaterialTheme(colorScheme = scheme, shapes = N2K02ExpressiveShapes, content = content)
+    N2K02Theme(content = content)
 }
