@@ -537,7 +537,7 @@ class MainActivity : ComponentActivity() {
                     val experimentalEnabled = LiveUpdater.experimentalEnabled.collectAsState().value
                     androidx.compose.foundation.layout.Row(verticalAlignment = Alignment.CenterVertically) {
                         Column(Modifier.weight(1f)) {
-                            Text("Experimental updates")
+                            Text("Experimental updates", style = MaterialTheme.typography.titleSmall)
                             Text("Offer signed APKs from successful pull request builds. Test builds may have bugs.")
                         }
                         androidx.compose.material3.Switch(
