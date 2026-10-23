@@ -40,8 +40,17 @@ if [ -n "$CURRENT_JSON" ]; then
   fi
 fi
 ENC=$(base64 -w0 manifest.json)
-CURRENT_SHA=$(gh api "repos/$TARGET/contents/$MANIFEST" --jq .sha 2>/dev/null || true)
-ARGS=(--method PUT "repos/$TARGET/contents/$MANIFEST" -f "message=Publish $APP $VERSION ($CHANNEL)" -f "content=$ENC" -f "branch=main")
-[ -z "$CURRENT_SHA" ] || ARGS+=(-f "sha=$CURRENT_SHA")
-gh api "${ARGS[@]}" >/dev/null
+for attempt in 1 2 3 4 5; do
+  CURRENT_SHA=$(gh api "repos/$TARGET/contents/$MANIFEST" --jq .sha 2>/dev/null || true)
+  ARGS=(--method PUT "repos/$TARGET/contents/$MANIFEST" -f "message=Publish $APP $VERSION ($CHANNEL)" -f "content=$ENC" -f "branch=main")
+  [ -z "$CURRENT_SHA" ] || ARGS+=(-f "sha=$CURRENT_SHA")
+  if gh api "${ARGS[@]}" >/dev/null; then
+    break
+  fi
+  if [ "$attempt" -eq 5 ]; then
+    echo "Failed to publish manifest after five attempts" >&2
+    exit 1
+  fi
+  sleep "$((attempt * 2))"
+done
 echo "Published $CHANNEL $APP $VERSION code=$VERSION_CODE to $MANIFEST"
