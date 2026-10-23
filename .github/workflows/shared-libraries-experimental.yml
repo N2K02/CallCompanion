@@ -1,0 +1,27 @@
+name: Shared libraries experimental
+on:
+  push:
+    branches: [experimental/shared-libraries]
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  compile:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-java@v5
+        with:
+          distribution: temurin
+          java-version: '17'
+      - name: Compile experimental APK
+        env:
+          N2K02_PACKAGES_TOKEN: ${{ secrets.N2K02_PACKAGES_TOKEN }}
+        run: |
+          test -n "$N2K02_PACKAGES_TOKEN" || { echo "::error::N2K02_PACKAGES_TOKEN secret is missing"; exit 1; }
+          chmod +x gradlew
+          ./gradlew --no-daemon :app:assembleDebug -PuseN2K02Libraries=true
+      - uses: actions/upload-artifact@v4
+        with:
+          name: PCL-experimental-shared-libraries
+          path: app/build/outputs/apk/debug/*.apk
