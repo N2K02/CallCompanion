@@ -82,7 +82,7 @@ class MainActivity : ComponentActivity() {
         CallLogger.init(this)
         CallHistory.init(this)
         Favourites.init(this)
-        AppUpdater.init(this, "N2K02/PCL", "PCL")
+        LiveUpdater.init(this)
         handleOpenTab(intent)
         setContent { PCLTheme { AppScreen() } }
         loadDevices()
@@ -101,7 +101,7 @@ class MainActivity : ComponentActivity() {
     override fun onResume() {
         super.onResume()
         Hub.listener = { refresh() }
-        AppUpdater.onResume(this)
+        LiveUpdater.onResume(this)
         refresh()
     }
 
@@ -527,22 +527,29 @@ class MainActivity : ComponentActivity() {
                     }
                 }
                 if (screen == MainTab.UPDATE) {
-                    Text("App updates", style = MaterialTheme.typography.headlineMedium, fontWeight = FontWeight.Bold)
-                    SectionCard(title = "PCL", subtitle = "Keep the app updated from the latest GitHub release.") {
-                        Text("Installed version: ${AppUpdater.installedVersionName}")
-                        val experimentalEnabled = AppUpdater.experimentalEnabled.collectAsState().value
-                        androidx.compose.foundation.layout.Row(verticalAlignment = Alignment.CenterVertically) {
-                            androidx.compose.material3.Text("Experimental updates", modifier = Modifier.weight(1f))
-                            androidx.compose.material3.Switch(checked = experimentalEnabled, onCheckedChange = AppUpdater::setExperimentalEnabled)
+                    Text("About & updates", style = MaterialTheme.typography.headlineMedium, fontWeight = FontWeight.Bold)
+                    androidx.compose.material3.ListItem(
+                        headlineContent = { Text("PCL") },
+                        supportingContent = { Text("Version " + AppUpdater.installedVersionName) },
+                        leadingContent = { Icon(Icons.Default.Settings, null) },
+                    )
+                    val experimentalEnabled = LiveUpdater.experimentalEnabled.collectAsState().value
+                    androidx.compose.foundation.layout.Row(verticalAlignment = Alignment.CenterVertically) {
+                        Column(Modifier.weight(1f)) {
+                            Text("Experimental updates")
+                            Text("Offer signed APKs from successful pull request builds. Test builds may have bugs.")
                         }
-                        Text("Preview builds are opt-in; stable is the default.")
-
-                        Text("Updates are checked against the latest GitHub release. APK verification and Android installation are handled by the updater.")
-                        Button(onClick = { AppUpdater.check(manual = true) }, modifier = Modifier.fillMaxWidth()) {
-                            Icon(Icons.Default.Download, null); Spacer(Modifier.width(8.dp)); Text("Check for updates")
-                        }
+                        androidx.compose.material3.Switch(
+                            checked = experimentalEnabled,
+                            onCheckedChange = LiveUpdater::setExperimentalEnabled,
+                        )
                     }
-                    UpdateCard(modifier = Modifier.fillMaxWidth())
+                    androidx.compose.material3.HorizontalDivider()
+                    Text("App updates", style = MaterialTheme.typography.titleLarge)
+                    dev.n2k02.updater.N2K02UpdateScreen(
+                        controller = LiveUpdater.controller,
+                        installGuard = LiveUpdater.installGuard,
+                    )
                 }
                 if (screen == MainTab.SETTINGS) {
                     SectionCard(title = "Permissions", subtitle = if (roleSelected) "Required access for the selected phone role." else "Select a role above to see its setup checklist.") {
