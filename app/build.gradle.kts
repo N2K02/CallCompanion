@@ -1,6 +1,7 @@
 plugins {
     id("com.android.application")
     id("org.jetbrains.kotlin.android")
+    id("org.jetbrains.kotlin.plugin.compose") version "2.3.10"
 }
 
 // Release builds get their version from CI (-PappVersion=1.x). Local builds default to 0.1,
@@ -15,7 +16,7 @@ val appVersionCode = appVersion.split(".").let { (major, minor) ->
 
 android {
     namespace = "com.pcl.app"
-    compileSdk = 34
+    compileSdk = 37
 
     defaultConfig {
         applicationId = "com.pcl.app"
@@ -29,9 +30,6 @@ android {
         compose = true
     }
 
-    composeOptions {
-        kotlinCompilerExtensionVersion = "1.5.14"
-    }
 
     signingConfigs {
         getByName("debug") {
