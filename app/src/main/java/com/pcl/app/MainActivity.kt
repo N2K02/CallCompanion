@@ -728,6 +728,14 @@ private fun SectionCard(title: String, subtitle: String, content: @Composable Co
     }
 }
 
+private val N2K02ExpressiveShapes = Shapes(
+    extraSmall = RoundedCornerShape(8.dp),
+    small = RoundedCornerShape(12.dp),
+    medium = RoundedCornerShape(20.dp),
+    large = RoundedCornerShape(28.dp),
+    extraLarge = RoundedCornerShape(32.dp),
+)
+
 @Composable
 private fun PCLTheme(content: @Composable () -> Unit) {
     val context = LocalContext.current
@@ -738,5 +746,5 @@ private fun PCLTheme(content: @Composable () -> Unit) {
         dark -> darkColorScheme()
         else -> lightColorScheme()
     }
-    MaterialTheme(colorScheme = scheme, content = content)
+    MaterialTheme(colorScheme = scheme, shapes = N2K02ExpressiveShapes, content = content)
 }
