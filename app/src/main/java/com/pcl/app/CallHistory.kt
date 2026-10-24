@@ -74,8 +74,8 @@ object CallHistory {
                 (0 until arr.length()).mapNotNull { i ->
                     val o = arr.optJSONObject(i) ?: return@mapNotNull null
                     Record(
-                        number = o.optString("n"),
-                        name = o.optString("m"),
+                        number = CallerDisplay.number(o.optString("n")),
+                        name = CallerDisplay.name(o.optString("m")),
                         type = runCatching { Type.valueOf(o.optString("t")) }.getOrNull() ?: return@mapNotNull null,
                         at = o.optLong("a"),
                         durationSec = o.optLong("d"),
@@ -92,7 +92,12 @@ object CallHistory {
     @Synchronized
     fun add(record: Record) {
         if (!loaded) return
-        val list = (listOf(record) + _records.value).take(MAX)
+        // Keep placeholders out of newly persisted call records as well.
+        val clean = record.copy(
+            number = CallerDisplay.number(record.number),
+            name = CallerDisplay.name(record.name),
+        )
+        val list = (listOf(clean) + _records.value).take(MAX)
         _records.value = list
         save(list)
         if (record.type == Type.MISSED) setUnseen(_unseenMissed.value + 1)

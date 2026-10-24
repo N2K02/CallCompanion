@@ -634,9 +634,14 @@ private fun RecentsPane(ui: CallsUi, actions: CallsActions, names: NameBook, onE
                 }
             }
             item(key = "call-$index-${r.at}") {
-                val name = r.name.ifEmpty { names.exact(r.number)?.name.orEmpty() }
+                // Legacy history may contain a literal "Unknown" name; do not
+                // let it mask a number received from the Gateway.
+                val number = CallerDisplay.number(r.number)
+                val name = CallerDisplay.name(r.name).ifEmpty {
+                    CallerDisplay.name(names.exact(number)?.name.orEmpty())
+                }
                 PersonRow(
-                    title = name.ifEmpty { r.number.ifEmpty { "Unknown number" } },
+                    title = CallerDisplay.title(name, number),
                     titleColor = if (r.type == CallHistory.Type.MISSED) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.onSurface,
                     subtitle = buildString {
                         if (r.whatsapp) append("WhatsApp · ")
@@ -652,7 +657,7 @@ private fun RecentsPane(ui: CallsUi, actions: CallsActions, names: NameBook, onE
                             modifier = Modifier.size(24.dp),
                         )
                     },
-                    number = r.number,
+                    number = number,
                     name = name,
                     expanded = expanded == index,
                     onToggle = { expanded = if (expanded == index) null else index },
