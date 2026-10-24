@@ -60,7 +60,7 @@ class WhatsAppCallTracker(
     @Synchronized
     fun onCaller(pkg: String, title: String) {
         val call = calls[pkg] ?: return
-        val label = title.trim()
+        val label = CallerDisplay.name(title)
         if (label.isBlank() || label.equals("WhatsApp", true) ||
             label.equals("WhatsApp Business", true) ||
             label.equals("Incoming call", true) ||

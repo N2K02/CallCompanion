@@ -1060,17 +1060,8 @@ class LinkService : Service() {
                 val previousState = callState
                 callState = arg1.ifEmpty { CALL_IDLE }
                 if (callState == CALL_RINGING) callControlError = null
-                callNumber = p.getOrElse(2) { "" }.trim()
-                val receivedName = p.getOrElse(3) { "" }.trim()
-                // Generic dialer placeholders are not contact names. When the
-                // Gateway supplied a number, display that number on the Remote.
-                callName = receivedName.takeUnless {
-                    it.equals("Unknown number", ignoreCase = true) ||
-                        it.equals("Unknown", ignoreCase = true) ||
-                        it.equals("Incoming call", ignoreCase = true) ||
-                        it.equals("Private number", ignoreCase = true) ||
-                        it.equals("No caller ID", ignoreCase = true)
-                }.orEmpty()
+                callNumber = CallerDisplay.number(p.getOrElse(2) { "" })
+                callName = CallerDisplay.name(p.getOrElse(3) { "" })
                 callDirection = p.getOrElse(4) { "" }
                 CallHistory.onSimState(callState, callNumber, callName)
                     ?.takeIf { it.type == CallHistory.Type.MISSED }
@@ -1320,8 +1311,8 @@ class LinkService : Service() {
 
     fun updateCallerFromNotification(number: String, name: String) {
         if (role != ROLE_GATEWAY || callState == CALL_IDLE) return
-        val safeNumber = number.trim().take(80)
-        val safeName = name.trim().take(120)
+        val safeNumber = CallerDisplay.number(number.take(80))
+        val safeName = CallerDisplay.name(name.take(120))
         if (safeNumber.isEmpty() && safeName.isEmpty()) return
         if (safeNumber.isNotEmpty() && callNumber.isNotEmpty() &&
             !numbersMatch(callNumber, safeNumber)) return
@@ -1541,12 +1532,7 @@ class LinkService : Service() {
         }
     }
 
-    fun display(): String = when {
-        callName.isNotEmpty() && callNumber.isNotEmpty() -> "$callName ($callNumber)"
-        callName.isNotEmpty() -> callName
-        callNumber.isNotEmpty() -> callNumber
-        else -> "Unknown number"
-    }
+    fun display(): String = CallerDisplay.callDisplay(callName, callNumber)
 
     // ---------------------------------------------------------------- remote: ringing
 
@@ -1952,7 +1938,7 @@ class LinkService : Service() {
 
     /** Remote: a Gateway call (SIM or WhatsApp) rang and nobody answered. */
     private fun showMissedCall(call: CallHistory.Record) {
-        val who = call.name.ifEmpty { call.number.ifEmpty { "Unknown number" } }
+        val who = CallerDisplay.title(call.name, call.number)
         val open = openCallsPi()
         val builder = Notification.Builder(this, CH_CALLS)
             .setSmallIcon(android.R.drawable.stat_notify_missed_call)
