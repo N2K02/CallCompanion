@@ -23,11 +23,11 @@ internal object CallerDisplay {
     fun number(value: String): String = clean(value)
 
     fun title(name: String, number: String): String =
-        name(name).ifEmpty { number(number).ifEmpty { "-" } }
+        this.name(name).ifEmpty { this.number(number).ifEmpty { "-" } }
 
     fun callDisplay(name: String, number: String): String {
-        val cleanName = name(name)
-        val cleanNumber = number(number)
+        val cleanName = this.name(name)
+        val cleanNumber = this.number(number)
         return if (cleanName.isNotEmpty() && cleanNumber.isNotEmpty()) {
             "$cleanName ($cleanNumber)"
         } else title(cleanName, cleanNumber)
